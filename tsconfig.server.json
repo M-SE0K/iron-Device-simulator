@@ -1,0 +1,14 @@
+{
+  "compilerOptions": {
+    "target": "ES2020",
+    "module": "commonjs",
+    "moduleResolution": "node",
+    "outDir": ".",
+    "rootDir": ".",
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "strict": false,
+    "resolveJsonModule": true
+  },
+  "include": ["server.ts", "lib/ws-engine.ts", "lib/types.ts"]
+}

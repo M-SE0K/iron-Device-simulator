@@ -20,7 +20,7 @@ export default function Header() {
 
       {/* Right info */}
       <div id="header-meta" className="flex items-center gap-4 text-xs text-iron-400 font-mono">
-        <span className="header-version hidden sm:block">v1.0.0-skeleton</span>
+        <span className="header-version hidden sm:block">v1.0.1</span>
         <div id="header-system-status" className="flex items-center gap-1.5">
           <span className="status-dot w-1.5 h-1.5 rounded-full bg-emerald-400 inline-block animate-pulse" />
           <span className="status-text">SYSTEM READY</span>

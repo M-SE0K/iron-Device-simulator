@@ -12,27 +12,38 @@ interface Props {
   frames: AnalysisFrame[];
   currentTime: number;
   isActive: boolean;
+  /** true: 스트리밍 append 모드 — 마지막 N 프레임 슬라이딩 윈도우 */
+  streaming?: boolean;
 }
 
-const MAX_EXCURSION = 8; // mm
+const MAX_EXCURSION = 8;   // mm
+const WINDOW_SIZE   = 1000;
 
-export default function ExcursionChart({ frames, currentTime, isActive }: Props) {
-  const frameIdx = useMemo(
-    () => (isActive ? findFrameIndex(frames.map((f) => f.time), currentTime) : -1),
-    [frames, currentTime, isActive]
-  );
+export default function ExcursionChart({ frames, currentTime, isActive, streaming = false }: Props) {
 
-  const currentExc = frameIdx >= 0 ? frames[frameIdx]?.excursion ?? null : null;
+  // ── 현재 값 & 윈도우 계산 ────────────────────────────────────────────────
+  const { currentExc, windowFrames } = useMemo(() => {
+    if (!isActive || frames.length === 0) {
+      return { currentExc: null, windowFrames: frames.slice(0, WINDOW_SIZE) };
+    }
+
+    if (streaming) {
+      // 스트리밍: 마지막 N 프레임 표시, 현재값 = 마지막 프레임
+      const window    = frames.slice(-WINDOW_SIZE);
+      const lastFrame = frames[frames.length - 1];
+      return { currentExc: lastFrame?.excursion ?? null, windowFrames: window };
+    } else {
+      // Pre-computed: binary search로 현재 재생 위치 프레임 조회
+      const frameIdx = findFrameIndex(frames.map((f) => f.time), currentTime);
+      const exc      = frameIdx >= 0 ? frames[frameIdx]?.excursion ?? null : null;
+      const start    = Math.max(0, frameIdx - (WINDOW_SIZE - 1));
+      return { currentExc: exc, windowFrames: frames.slice(start, frameIdx + 1) };
+    }
+  }, [frames, currentTime, isActive, streaming]);
+
   const excColor = currentExc !== null && Math.abs(currentExc) > MAX_EXCURSION * 0.85
     ? "#EF4444"
     : "#10B981";
-
-  // Sliding window: 10초 구간 (10ms × 1000 frames)
-  const windowFrames = useMemo(() => {
-    if (!isActive || frameIdx < 0) return frames.slice(0, 1000);
-    const start = Math.max(0, frameIdx - 999);
-    return frames.slice(start, frameIdx + 1);
-  }, [frames, frameIdx, isActive]);
 
   const option = useMemo(() => ({
     animation: false,
@@ -141,7 +152,7 @@ export default function ExcursionChart({ frames, currentTime, isActive }: Props)
           <ReactECharts option={option} style={{ height: "100%", width: "100%" }} notMerge />
         ) : (
           <div className="chart-empty-state h-full flex items-center justify-center text-xs text-iron-300">
-            분석 데이터 없음
+            재생하면 실시간으로 데이터가 표시됩니다
           </div>
         )}
       </div>

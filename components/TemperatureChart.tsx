@@ -12,18 +12,36 @@ interface Props {
   frames: AnalysisFrame[];
   currentTime: number;
   isActive: boolean;
+  /** true: 스트리밍 append 모드 — 마지막 N 프레임 슬라이딩 윈도우 */
+  streaming?: boolean;
 }
 
-const WARN_THRESHOLD = 65;
+const WARN_THRESHOLD   = 65;
 const DANGER_THRESHOLD = 75;
+const WINDOW_SIZE      = 1000; // 슬라이딩 윈도우 프레임 수
 
-export default function TemperatureChart({ frames, currentTime, isActive }: Props) {
-  const frameIdx = useMemo(
-    () => (isActive ? findFrameIndex(frames.map((f) => f.time), currentTime) : -1),
-    [frames, currentTime, isActive]
-  );
+export default function TemperatureChart({ frames, currentTime, isActive, streaming = false }: Props) {
 
-  const currentTemp = frameIdx >= 0 ? frames[frameIdx]?.temperature ?? null : null;
+  // ── 현재 값 & 윈도우 계산 ────────────────────────────────────────────────
+  const { currentTemp, windowFrames } = useMemo(() => {
+    if (!isActive || frames.length === 0) {
+      return { currentTemp: null, windowFrames: frames.slice(0, WINDOW_SIZE) };
+    }
+
+    if (streaming) {
+      // 스트리밍: 마지막 N 프레임 표시, 현재값 = 마지막 프레임
+      const window    = frames.slice(-WINDOW_SIZE);
+      const lastFrame = frames[frames.length - 1];
+      return { currentTemp: lastFrame?.temperature ?? null, windowFrames: window };
+    } else {
+      // Pre-computed: binary search로 현재 재생 위치 프레임 조회
+      const frameIdx  = findFrameIndex(frames.map((f) => f.time), currentTime);
+      const temp      = frameIdx >= 0 ? frames[frameIdx]?.temperature ?? null : null;
+      const start     = Math.max(0, frameIdx - (WINDOW_SIZE - 1));
+      return { currentTemp: temp, windowFrames: frames.slice(start, frameIdx + 1) };
+    }
+  }, [frames, currentTime, isActive, streaming]);
+
   const tempColor =
     currentTemp === null
       ? "#7D8699"
@@ -32,13 +50,6 @@ export default function TemperatureChart({ frames, currentTime, isActive }: Prop
       : currentTemp >= WARN_THRESHOLD
       ? "#F59E0B"
       : "#0057B8";
-
-  // Sliding window: 10초 구간 (10ms × 1000 frames)
-  const windowFrames = useMemo(() => {
-    if (!isActive || frameIdx < 0) return frames.slice(0, 1000);
-    const start = Math.max(0, frameIdx - 999);
-    return frames.slice(start, frameIdx + 1);
-  }, [frames, frameIdx, isActive]);
 
   const option = useMemo(() => ({
     animation: false,
@@ -98,7 +109,6 @@ export default function TemperatureChart({ frames, currentTime, isActive }: Prop
             ],
           },
         },
-        // Danger zone mark line
         markLine: {
           silent: true,
           symbol: "none",
@@ -148,7 +158,7 @@ export default function TemperatureChart({ frames, currentTime, isActive }: Prop
           <ReactECharts option={option} style={{ height: "100%", width: "100%" }} notMerge />
         ) : (
           <div className="chart-empty-state h-full flex items-center justify-center text-xs text-iron-300">
-            분석 데이터 없음
+            재생하면 실시간으로 데이터가 표시됩니다
           </div>
         )}
       </div>
