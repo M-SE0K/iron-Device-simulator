@@ -5,10 +5,20 @@
  *   Client→Server:  JSON { type: "init" | "pause" | "stop" }
  *                   Binary ArrayBuffer 1024 bytes (인터리브 PCM 프레임)
  *   Server→Client:  JSON { type: "ready" | "frame" | "error" }
+ *
+ * 터미널 로그 제어 환경변수:
+ *   LOG_FRAME_INTERVAL=N   N프레임마다 프레임 로그 출력 (기본 10, 0=전체)
+ *   LOG_LEVEL=silent       프레임 로그 완전 억제
  */
 
 import type WebSocket from "ws";
 import type { WsServerMessage } from "./types";
+import {
+  logInitReceived, logProtCall, logReady,
+  logFrame, logCtrl, logProtStop,
+  logWsClose, logError, shouldLogFrame,
+  logPipelineMetrics,
+} from "./logger";
 
 // ─── 처리 상수 ────────────────────────────────────────────────────────────────
 const SAMPLE_RATE      = 44100;
@@ -55,56 +65,75 @@ function mockFrame(time: number): { temperature: number; excursion: number } {
 
 // ─── WebSocket 연결 핸들러 ────────────────────────────────────────────────────
 export function handleWsConnection(ws: WebSocket): void {
-  let initialized  = false;
-  let frameCount   = 0;
+  let initialized = false;
+  let frameCount  = 0;
 
   // Native 엔진 함수 참조 (USE_MOCK=false 시 사용)
-  let fnInit:      (() => number)                                     | null = null;
-  let fnSetParam:  (() => number)                                     | null = null;
-  let fnStartExec: ((...args: unknown[]) => number)                   | null = null;
-  let fnStopExec:  (() => number)                                     | null = null;
+  let fnInit:      (() => number)                   | null = null;
+  let fnSetParam:  (() => number)                   | null = null;
+  let fnStartExec: ((...args: unknown[]) => number) | null = null;
+  let fnStopExec:  (() => number)                   | null = null;
 
   const send = (msg: WsServerMessage): void => {
-    if (ws.readyState === ws.OPEN) {
-      ws.send(JSON.stringify(msg));
-    }
+    if (ws.readyState === ws.OPEN) ws.send(JSON.stringify(msg));
   };
 
+  // ── cleanup: ff_prot 종료 + 락 해제 ────────────────────────────────────────
   const cleanup = (): void => {
     if (initialized && !USE_MOCK && fnStopExec) {
-      try { fnStopExec(); } catch { /* ignore */ }
+      try {
+        const t0 = performance.now();
+        fnStopExec();
+        logProtStop(performance.now() - t0);
+      } catch (err) {
+        logError("ff_prot_stop_exec", err);
+      }
     }
     initialized = false;
     if (!USE_MOCK) nativeLock = false;
+    logWsClose();
   };
 
-  // ── 메시지 수신 ────────────────────────────────────────────────────────────
+  // ── 메시지 수신 ─────────────────────────────────────────────────────────────
   ws.on("message", (data: Buffer | string, isBinary: boolean) => {
 
-    // ── Binary: PCM 프레임 1024 bytes ────────────────────────────────────────
+    // ┌─ Binary: PCM 프레임 1024 bytes ─────────────────────────────────────────
     if (isBinary) {
       if (!initialized) return;
 
       const pcm = Buffer.isBuffer(data) ? data : Buffer.from(data as unknown as ArrayBuffer);
       if (pcm.length < FRAME_BYTES) return;
 
-      const time = parseFloat(((frameCount * SAMPLES_PER_CH) / SAMPLE_RATE).toFixed(4));
+      const currentFrame = frameCount;
+      const time = parseFloat(((currentFrame * SAMPLES_PER_CH) / SAMPLE_RATE).toFixed(4));
       frameCount++;
 
       const t0 = performance.now();
 
       if (USE_MOCK) {
+        // ── Mock 경로 ──────────────────────────────────────────────────────────
         const { temperature, excursion } = mockFrame(time);
         const processingMs = parseFloat((performance.now() - t0).toFixed(3));
+
         send({ type: "frame", time, temperature, excursion, processingMs });
+
+        if (shouldLogFrame(currentFrame)) {
+          logFrame(currentFrame, processingMs, temperature, excursion, "mock");
+        }
+
       } else {
+        // ── Native 경로 ────────────────────────────────────────────────────────
+        // 1) de-interleave: LR LR LR → LL...RR...
         const planar     = deinterleave(pcm.subarray(0, FRAME_BYTES));
+
+        // 2) ff_prot_start_exec 호출
         const spkTempBuf = Buffer.alloc(8); // int32_t[2]
         const spkExcBuf  = Buffer.alloc(8); // int32_t[2]
 
         try {
           fnStartExec!(planar, SAMPLES_PER_CH, BYTES_PER_SAMPLE, CHANNELS, AMB_TEMP, spkTempBuf, spkExcBuf);
         } catch (err) {
+          logError("ff_prot_start_exec", err);
           send({ type: "error", message: `ff_prot_start_exec 오류: ${err}` });
           return;
         }
@@ -112,25 +141,34 @@ export function handleWsConnection(ws: WebSocket): void {
         const temperature  = spkTempBuf.readInt32LE(0);
         const excursion    = spkExcBuf.readInt32LE(0);
         const processingMs = parseFloat((performance.now() - t0).toFixed(3));
+
         send({ type: "frame", time, temperature, excursion, processingMs });
+
+        if (shouldLogFrame(currentFrame)) {
+          logFrame(currentFrame, processingMs, temperature, excursion, "native");
+        }
       }
       return;
     }
 
-    // ── JSON 제어 메시지 ──────────────────────────────────────────────────────
-    let msg: { type: string };
+    // ┌─ JSON 제어 메시지 ────────────────────────────────────────────────────────
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    let msg: { type: string } & Record<string, any>;
     try {
       msg = JSON.parse(data.toString());
     } catch {
       return;
     }
 
+    // ── init ──────────────────────────────────────────────────────────────────
     if (msg.type === "init") {
       if (initialized) {
-        // 이미 초기화됨 → ready 재전송
         send({ type: "ready" });
         return;
       }
+
+      const mode = USE_MOCK ? "mock" : "native";
+      logInitReceived(mode);
 
       if (!USE_MOCK) {
         if (nativeLock) {
@@ -159,13 +197,21 @@ export function handleWsConnection(ws: WebSocket): void {
             ["void *", "uint32", "uint32", "uint32", "int32", "void *", "void *"]
           );
 
-          const initRet  = fnInit!();
-          if (initRet  !== 0) throw new Error(`ff_prot_init 실패 (ret=${initRet})`);
+          // ff_prot_init()
+          let t0 = performance.now();
+          const initRet = fnInit!();
+          logProtCall("ff_prot_init", initRet, performance.now() - t0);
+          if (initRet !== 0) throw new Error(`ff_prot_init 실패 (ret=${initRet})`);
+
+          // ff_prot_set_param()
+          t0 = performance.now();
           const paramRet = fnSetParam!();
+          logProtCall("ff_prot_set_param", paramRet, performance.now() - t0);
           if (paramRet !== 0) throw new Error(`ff_prot_set_param 실패 (ret=${paramRet})`);
 
         } catch (err) {
           nativeLock = false;
+          logError("init", err);
           send({ type: "error", message: String(err) });
           return;
         }
@@ -173,27 +219,41 @@ export function handleWsConnection(ws: WebSocket): void {
 
       initialized = true;
       frameCount  = 0;
-      console.log(`[ws-engine] 세션 초기화 완료 (mode=${USE_MOCK ? "mock" : "native"})`);
+      logReady();
       send({ type: "ready" });
 
-    } else if (msg.type === "pause") {
-      // 일시정지: 서버 상태 유지, 프레임 전송만 중단 (클라이언트가 rAF 멈춤)
-      console.log("[ws-engine] 일시정지");
+    // ── metrics: 브라우저 렌더 파이프라인 역전송 ─────────────────────────────
+    } else if (msg.type === "metrics") {
+      logPipelineMetrics({
+        frameIdx:          msg.frameIdx,
+        audioTime:         msg.audioTime,
+        rttMs:             msg.rttMs,
+        serverProcMs:      msg.serverProcMs,
+        reactRenderMs:     msg.reactRenderMs,
+        echartsRenderMs:   msg.echartsRenderMs,
+        totalRecvRenderMs: msg.totalRecvRenderMs,
+        totalE2eMs:        msg.totalE2eMs,
+      });
 
+    // ── pause ─────────────────────────────────────────────────────────────────
+    } else if (msg.type === "pause") {
+      logCtrl("pause");
+
+    // ── stop ──────────────────────────────────────────────────────────────────
     } else if (msg.type === "stop") {
-      console.log("[ws-engine] 정지 — 세션 종료");
+      logCtrl("stop");
       cleanup();
       ws.close();
     }
   });
 
   ws.on("close", () => {
-    console.log("[ws-engine] 연결 닫힘 — 정리");
-    cleanup();
+    if (initialized) cleanup();
+    else logWsClose();
   });
 
   ws.on("error", (err) => {
-    console.error("[ws-engine] WS 오류:", err);
+    logError("WebSocket", err);
     cleanup();
   });
 }

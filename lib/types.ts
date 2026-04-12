@@ -31,7 +31,18 @@ export interface AnalysisResult {
 export type WsClientMessage =
   | { type: "init" }
   | { type: "pause" }
-  | { type: "stop" };
+  | { type: "stop" }
+  | {
+      type:              "metrics";
+      frameIdx:          number;
+      audioTime:         number;
+      rttMs:             number | null;
+      serverProcMs:      number | null;
+      reactRenderMs:     number | null;
+      echartsRenderMs:   number | null;
+      totalRecvRenderMs: number | null;
+      totalE2eMs:        number | null;
+    };
 
 /** 서버 → 클라이언트 */
 export type WsServerMessage =
@@ -44,30 +55,68 @@ export type WsServerMessage =
 /** 프레임 단위 디버그 로그 엔트리 */
 export interface DebugLogEntry {
   /** 브라우저 기준 수신 절대 시각 (ms) */
-  receivedAt:    number;
+  receivedAt:        number;
   /** 오디오 타임라인 상 프레임 시각 (s) */
-  audioTime:     number;
-  frameIdx:      number;
-  /** 클라이언트 왕복 지연 (ms), null이면 timestamp 분실 */
-  rttMs:         number | null;
+  audioTime:         number;
+  frameIdx:          number;
+  /** 클라이언트 왕복 지연 (ms) — send→recv */
+  rttMs:             number | null;
   /** 서버 ff_prot 처리 시간 (ms) */
-  serverProcMs:  number;
-  temperature:   number;
-  excursion:     number;
+  serverProcMs:      number;
+  temperature:       number;
+  excursion:         number;
+  /** recv → React useLayoutEffect (직전 렌더 사이클 값) */
+  reactRenderMs:     number | null;
+  /** React useLayoutEffect → ECharts rendered 이벤트 */
+  echartsRenderMs:   number | null;
+  /** recv → ECharts rendered (react + echarts 합산) */
+  totalRecvRenderMs: number | null;
+}
+
+// ─── 측정 세션 JSON 내보내기 ─────────────────────────────────────────────────
+
+export interface MeasurementExport {
+  meta: {
+    /** ISO 8601 기록 시각 */
+    recordedAt: string;
+    /** 분석 대상 오디오 파일명 */
+    audioFile: string | null;
+    /** 측정 구간 길이 (초) */
+    measurementDurationSec: number;
+    /** 수집된 총 프레임 수 */
+    frameCount: number;
+  };
+  summary: {
+    rtt:         { avg: number | null; min: number | null; max: number | null };
+    serverProc:  { avg: number | null };
+    temperature: { avg: number;        min: number;        max: number        };
+    excursion:   { avg: number;        min: number;        max: number        };
+    /** RTT + recv→render 합산 End-to-End */
+    e2e:         { avg: number | null; min: number | null; max: number | null };
+  };
+  frames: DebugLogEntry[];
 }
 
 export interface StreamDebugInfo {
-  wsConnected:       boolean;
-  framesSent:        number;
-  framesReceived:    number;
+  wsConnected:        boolean;
+  framesSent:         number;
+  framesReceived:     number;
   /** 마지막 프레임 왕복 지연 (client→server→client, ms) */
-  latestRttMs:       number | null;
+  latestRttMs:        number | null;
   /** 최근 100프레임 평균 RTT (ms) */
-  avgRttMs:          number | null;
-  minRttMs:          number | null;
-  maxRttMs:          number | null;
+  avgRttMs:           number | null;
+  minRttMs:           number | null;
+  maxRttMs:           number | null;
   /** 서버 측 ff_prot 처리 시간 (ms) */
   serverProcessingMs: number | null;
   /** rAF 루프 프레임 전송 속도 (frames/s) */
-  sendRateFps:       number | null;
+  sendRateFps:        number | null;
+  /** recv → React useLayoutEffect */
+  reactRenderMs:      number | null;
+  /** React useLayoutEffect → ECharts rendered 이벤트 */
+  echartsRenderMs:    number | null;
+  /** recv → ECharts rendered 전체 (react + echarts) */
+  totalRecvRenderMs:  number | null;
+  /** send → ECharts rendered 전체 E2E (RTT + react + echarts) */
+  totalE2eMs:         number | null;
 }

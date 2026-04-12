@@ -1,7 +1,7 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import { useMemo } from "react";
+import { useMemo, useLayoutEffect, useRef, useCallback } from "react";
 import { Thermometer } from "lucide-react";
 import { AnalysisFrame } from "@/lib/types";
 import { findFrameIndex } from "@/lib/utils";
@@ -14,13 +14,35 @@ interface Props {
   isActive: boolean;
   /** true: 스트리밍 append 모드 — 마지막 N 프레임 슬라이딩 윈도우 */
   streaming?: boolean;
+  /** React 렌더 완료 시각 콜백 (useLayoutEffect) */
+  onReactRender?: (ts: number) => void;
+  /** ECharts 캔버스 드로우 완료 시각 콜백 */
+  onEchartsRender?: (ts: number) => void;
 }
 
 const WARN_THRESHOLD   = 65;
 const DANGER_THRESHOLD = 75;
 const WINDOW_SIZE      = 1000; // 슬라이딩 윈도우 프레임 수
 
-export default function TemperatureChart({ frames, currentTime, isActive, streaming = false }: Props) {
+export default function TemperatureChart({ frames, currentTime, isActive, streaming = false, onReactRender, onEchartsRender }: Props) {
+  // ── React 렌더 완료 시각 측정 ────────────────────────────────────────────
+  // useLayoutEffect: React가 DOM을 커밋한 직후, 브라우저 페인트 전에 실행
+  const prevFrameLenRef = useRef(0);
+  useLayoutEffect(() => {
+    if (streaming && frames.length !== prevFrameLenRef.current) {
+      prevFrameLenRef.current = frames.length;
+      onReactRender?.(performance.now());
+    }
+  });
+
+  // ── ECharts rendered 이벤트 핸들러 ──────────────────────────────────────
+  const echartsEvents = useRef<Record<string, () => void>>({});
+  echartsEvents.current = {
+    rendered: useCallback(() => {
+      if (streaming && frames.length > 0) onEchartsRender?.(performance.now());
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [streaming, frames.length, onEchartsRender]),
+  };
 
   // ── 현재 값 & 윈도우 계산 ────────────────────────────────────────────────
   const { currentTemp, windowFrames } = useMemo(() => {
@@ -155,7 +177,12 @@ export default function TemperatureChart({ frames, currentTime, isActive, stream
 
       <div className="chart-body flex-1 p-2 min-h-[180px]">
         {frames.length > 0 ? (
-          <ReactECharts option={option} style={{ height: "100%", width: "100%" }} notMerge />
+          <ReactECharts
+            option={option}
+            style={{ height: "100%", width: "100%" }}
+            notMerge
+            onEvents={echartsEvents.current}
+          />
         ) : (
           <div className="chart-empty-state h-full flex items-center justify-center text-xs text-iron-300">
             재생하면 실시간으로 데이터가 표시됩니다
