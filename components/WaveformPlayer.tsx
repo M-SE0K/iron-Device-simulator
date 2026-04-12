@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, useCallback } from "react";
+import { useEffect, useRef, useState, useCallback, forwardRef, useImperativeHandle } from "react";
 import { Play, Pause, Square } from "lucide-react";
 import { cn, formatTime } from "@/lib/utils";
 import { AppStatus, AnalysisFrame, StreamDebugInfo, DebugLogEntry } from "@/lib/types";
@@ -42,7 +42,13 @@ function encodeToInt16(ch0: Float32Array, ch1: Float32Array): Int16Array {
   return out;
 }
 
-export default function WaveformPlayer({
+/** page.tsx에서 ref로 접근할 수 있는 WaveformPlayer 핸들 */
+export interface WaveformPlayerHandle {
+  /** WebSocket이 열려 있을 때 JSON 메시지를 서버로 전송 */
+  sendMessage: (msg: object) => void;
+}
+
+const WaveformPlayer = forwardRef<WaveformPlayerHandle, Props>(function WaveformPlayer({
   audioFile,
   status,
   onTimeUpdate,
@@ -51,7 +57,7 @@ export default function WaveformPlayer({
   onStreamStart,
   onDebugUpdate,
   onDebugLog,
-}: Props) {
+}: Props, ref) {
   const containerRef    = useRef<HTMLDivElement>(null);
   const wavesurferRef   = useRef<import("wavesurfer.js").default | null>(null);
   const [currentTime, setCurrentTime] = useState(0);
@@ -347,17 +353,20 @@ export default function WaveformPlayer({
         lastServerProcMsRef.current = msg.processingMs as number;
         framesReceivedRef.current++;
 
-        // 로그 엔트리 생성
+        // 로그 엔트리 생성 (render 타임은 page.tsx의 handleDebugLog에서 첨부)
         onDebugLog?.({
-          receivedAt:   recvAt,
-          audioTime:    msg.time        as number,
+          receivedAt:        recvAt,
+          audioTime:         msg.time        as number,
           frameIdx,
-          rttMs:        sentAt !== undefined
+          rttMs:             sentAt !== undefined
             ? parseFloat((recvAt - sentAt).toFixed(2))
             : null,
-          serverProcMs: msg.processingMs as number,
-          temperature:  msg.temperature  as number,
-          excursion:    msg.excursion    as number,
+          serverProcMs:      msg.processingMs as number,
+          temperature:       msg.temperature  as number,
+          excursion:         msg.excursion    as number,
+          reactRenderMs:     null,
+          echartsRenderMs:   null,
+          totalRecvRenderMs: null,
         });
 
         onFrameReceived({
@@ -413,6 +422,16 @@ export default function WaveformPlayer({
     lastSentFrameRef.current = 0;
     onStatusChange("ready");
   }, [closeWs, onStatusChange]);
+
+  // page.tsx에서 ref.current.sendMessage()로 WS 전송
+  useImperativeHandle(ref, () => ({
+    sendMessage: (msg: object) => {
+      const ws = wsRef.current;
+      if (ws?.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify(msg));
+      }
+    },
+  }));
 
   const isPlaying = status === "playing";
   const progress  = duration > 0 ? (currentTime / duration) * 100 : 0;
@@ -501,4 +520,6 @@ export default function WaveformPlayer({
       </div>
     </div>
   );
-}
+});
+
+export default WaveformPlayer;

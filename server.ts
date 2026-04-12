@@ -13,6 +13,7 @@ import { parse } from "url";
 import next from "next";
 import { WebSocketServer } from "ws";
 import { handleWsConnection } from "./lib/ws-engine";
+import { logServerReady, logWsUpgrade, logWsConnect } from "./lib/logger";
 
 const dev      = process.env.NODE_ENV !== "production";
 const hostname = "0.0.0.0";
@@ -39,7 +40,9 @@ app.prepare().then(() => {
   httpServer.on("upgrade", (req, socket, head) => {
     const { pathname } = parse(req.url ?? "/");
     if (pathname === "/ws/audio") {
+      logWsUpgrade(pathname);
       wss.handleUpgrade(req, socket as Parameters<typeof wss.handleUpgrade>[1], head, (ws) => {
+        logWsConnect();
         wss.emit("connection", ws, req);
       });
     } else {
@@ -50,7 +53,6 @@ app.prepare().then(() => {
   wss.on("connection", handleWsConnection);
 
   httpServer.listen(port, hostname, () => {
-    console.log(`> Ready on http://${hostname}:${port} [${dev ? "dev" : "prod"}]`);
-    console.log(`> WebSocket: ws://${hostname}:${port}/ws/audio`);
+    logServerReady(hostname, port, dev);
   });
 });

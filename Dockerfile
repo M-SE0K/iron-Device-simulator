@@ -41,7 +41,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg \
     && rm -rf /var/lib/apt/lists/*
 
 ENV NODE_ENV=production
-ENV USE_MOCK=true
+ENV USE_MOCK=false
 ENV SO_PATH=/app/native/libirontune.so
 
 # Next.js 빌드 결과물
@@ -52,6 +52,7 @@ COPY --from=builder /app/public ./public
 COPY --from=builder /app/server.ts ./
 COPY --from=builder /app/lib/ws-engine.ts ./lib/
 COPY --from=builder /app/lib/types.ts ./lib/
+COPY --from=builder /app/lib/logger.ts ./lib/
 COPY --from=builder /app/lib/native-engine.ts ./lib/
 COPY --from=builder /app/lib/audio-engine.ts ./lib/
 COPY --from=builder /app/lib/mock-data.ts ./lib/
