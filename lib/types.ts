@@ -1,3 +1,11 @@
+/** 분석 엔진 파라미터 (InputParameters 컴포넌트에서 수집) */
+export interface EngineParams {
+  /** AMP 출력 전력 (W). null = 미설정 → 기본 20W로 간주 */
+  ampOutputPower: number | null;
+  /** 스피커 모델 ID. "" = 미선택 → 기본 프로파일 사용 */
+  speakerModel: string;
+}
+
 /** 오디오 분석 결과 한 프레임 */
 export interface AnalysisFrame {
   /** 오디오 재생 시간(초) */

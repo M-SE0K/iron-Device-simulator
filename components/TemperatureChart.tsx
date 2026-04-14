@@ -111,8 +111,9 @@ export default function TemperatureChart({ frames, currentTime, isActive, stream
       axisLabel: { color: "#A4AABA", fontSize: 10 },
       axisLine: { show: false },
       splitLine: { lineStyle: { color: "#F5F6F8" } },
-      min: 30,
-      max: 90,
+      // 라이브러리 초기화 구간(~2.2초)은 0°C를 반환하므로 하한을 0으로 설정
+      min: 0,
+      max: 100,
     },
     series: [
       {

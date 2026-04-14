@@ -9,6 +9,7 @@ import ExcursionChart from "@/components/ExcursionChart";
 import StatusPanel from "@/components/StatusPanel";
 import { AppStatus, AnalysisFrame, StreamDebugInfo, DebugLogEntry, MeasurementExport } from "@/lib/types";
 import DebugPanel from "@/components/DebugPanel";
+import InputParameters, { InputParameterValues } from "@/components/InputParameters";
 
 export default function DashboardPage() {
   const [status, setStatus]                   = useState<AppStatus>("idle");
@@ -26,6 +27,10 @@ export default function DashboardPage() {
   });
   const [showDebug, setShowDebug] = useState(false);
   const [debugLogs, setDebugLogs] = useState<DebugLogEntry[]>([]);
+  const [inputParams, setInputParams] = useState<InputParameterValues>({
+    ampOutputPower: "",
+    speakerModel: "",
+  });
 
   // 프레임마다 setState 방지 — ref에 누적 후 100ms마다 flush
   const pendingLogsRef = useRef<DebugLogEntry[]>([]);
@@ -338,6 +343,9 @@ export default function DashboardPage() {
             <StatusPanel status={status} result={null} currentTime={currentTime} />
           </div>
 
+          {/* Input Parameters */}
+          <InputParameters values={inputParams} onChange={setInputParams} />
+
           {/* Waveform player */}
           <WaveformPlayer
             ref={waveformRef}
@@ -349,6 +357,7 @@ export default function DashboardPage() {
             onStreamStart={handleStreamStart}
             onDebugUpdate={handleDebugUpdate}
             onDebugLog={handleDebugLog}
+            inputParams={inputParams}
           />
 
           {/* 디버그 패널 */}

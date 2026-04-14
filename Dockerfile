@@ -53,9 +53,7 @@ COPY --from=builder /app/server.ts ./
 COPY --from=builder /app/lib/ws-engine.ts ./lib/
 COPY --from=builder /app/lib/types.ts ./lib/
 COPY --from=builder /app/lib/logger.ts ./lib/
-COPY --from=builder /app/lib/native-engine.ts ./lib/
-COPY --from=builder /app/lib/audio-engine.ts ./lib/
-COPY --from=builder /app/lib/mock-data.ts ./lib/
+COPY --from=builder /app/lib/utils.ts ./lib/
 
 # 설정 파일
 COPY --from=builder /app/next.config.ts ./

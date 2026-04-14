@@ -4,6 +4,7 @@ import { useEffect, useRef, useState, useCallback, forwardRef, useImperativeHand
 import { Play, Pause, Square } from "lucide-react";
 import { cn, formatTime } from "@/lib/utils";
 import { AppStatus, AnalysisFrame, StreamDebugInfo, DebugLogEntry } from "@/lib/types";
+import type { InputParameterValues } from "./InputParameters";
 
 // ─── PCM 처리 상수 ────────────────────────────────────────────────────────────
 const SAMPLE_RATE    = 44100;
@@ -23,6 +24,8 @@ interface Props {
   onDebugUpdate?: (info: Partial<StreamDebugInfo>) => void;
   /** 프레임 단위 로그 엔트리 (매 프레임 호출, 버퍼링은 호출자 책임) */
   onDebugLog?: (entry: DebugLogEntry) => void;
+  /** AMP 출력 전력 / 스피커 모델 파라미터 */
+  inputParams?: InputParameterValues;
 }
 
 // ─── WebSocket URL 생성 (SSR 안전) ───────────────────────────────────────────
@@ -57,12 +60,17 @@ const WaveformPlayer = forwardRef<WaveformPlayerHandle, Props>(function Waveform
   onStreamStart,
   onDebugUpdate,
   onDebugLog,
+  inputParams,
 }: Props, ref) {
   const containerRef    = useRef<HTMLDivElement>(null);
   const wavesurferRef   = useRef<import("wavesurfer.js").default | null>(null);
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration]       = useState(0);
   const [isReady, setIsReady]         = useState(false);
+
+  // inputParams ref: prop 변경 시 최신값을 클로저에서 참조할 수 있게 유지
+  const inputParamsRef = useRef<InputParameterValues | undefined>(inputParams);
+  useEffect(() => { inputParamsRef.current = inputParams; }, [inputParams]);
 
   // ── PCM 프레임 데이터 (AudioContext 디코딩 결과) ──────────────────────────
   const pcmFramesRef      = useRef<ArrayBuffer[]>([]);
@@ -322,7 +330,12 @@ const WaveformPlayer = forwardRef<WaveformPlayerHandle, Props>(function Waveform
     wsRef.current = ws;
 
     ws.onopen = () => {
-      ws.send(JSON.stringify({ type: "init" }));
+      const p = inputParamsRef.current;
+      ws.send(JSON.stringify({
+        type:           "init",
+        ampOutputPower: p?.ampOutputPower ?? "",
+        speakerModel:   p?.speakerModel   ?? "",
+      }));
     };
 
     ws.onmessage = (event) => {

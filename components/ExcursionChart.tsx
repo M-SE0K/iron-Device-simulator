@@ -16,8 +16,11 @@ interface Props {
   streaming?: boolean;
 }
 
-const MAX_EXCURSION = 8;   // mm
 const WINDOW_SIZE   = 1000;
+// 익스커션 단위: 라이브러리 반환값이 raw count (mm 단위 미확인)
+// 실측 범위 -256 ~ +255 → Y축 고정값 ±8mm로 설정하면 98% 데이터 누락
+// → 창 내 실제 데이터 기준 동적 스케일링 사용
+const SCALE_PADDING = 1.15; // 상하 15% 여유
 
 export default function ExcursionChart({ frames, currentTime, isActive, streaming = false }: Props) {
 
@@ -41,13 +44,27 @@ export default function ExcursionChart({ frames, currentTime, isActive, streamin
     }
   }, [frames, currentTime, isActive, streaming]);
 
-  const excColor = currentExc !== null && Math.abs(currentExc) > MAX_EXCURSION * 0.85
+  // ── 창 내 데이터 범위로 Y축 동적 계산 ─────────────────────────────────────
+  const { yMin, yMax } = useMemo(() => {
+    if (windowFrames.length === 0) return { yMin: -10, yMax: 10 };
+    const vals = windowFrames.map((f) => f.excursion);
+    const dataMin = Math.min(...vals);
+    const dataMax = Math.max(...vals);
+    const span    = Math.max(dataMax - dataMin, 1);
+    const pad     = span * (SCALE_PADDING - 1);
+    return {
+      yMin: Math.floor(dataMin - pad),
+      yMax: Math.ceil(dataMax  + pad),
+    };
+  }, [windowFrames]);
+
+  const excColor = currentExc !== null && Math.abs(currentExc) > Math.abs(yMax) * 0.85
     ? "#EF4444"
     : "#10B981";
 
   const option = useMemo(() => ({
     animation: false,
-    grid: { top: 8, right: 16, bottom: 52, left: 52 },
+    grid: { top: 8, right: 16, bottom: 52, left: 60 },
     dataZoom: [
       {
         type: "inside",
@@ -78,13 +95,14 @@ export default function ExcursionChart({ frames, currentTime, isActive, streamin
     },
     yAxis: {
       type: "value",
-      name: "mm",
+      // 단위 미확인 (raw int32 count) — 아이언디바이스 확인 후 변환 계수 적용 예정
+      name: "raw",
       nameTextStyle: { color: "#A4AABA", fontSize: 10 },
       axisLabel: { color: "#A4AABA", fontSize: 10 },
       axisLine: { show: false },
       splitLine: { lineStyle: { color: "#F5F6F8" } },
-      min: -MAX_EXCURSION - 1,
-      max: MAX_EXCURSION + 1,
+      min: yMin,
+      max: yMax,
     },
     series: [
       {
@@ -103,22 +121,6 @@ export default function ExcursionChart({ frames, currentTime, isActive, streamin
             ],
           },
         },
-        markLine: {
-          silent: true,
-          symbol: "none",
-          data: [
-            {
-              yAxis: MAX_EXCURSION,
-              lineStyle: { color: "#EF4444", type: "dashed", width: 1 },
-              label: { formatter: `+${MAX_EXCURSION}mm`, color: "#EF4444", fontSize: 9 },
-            },
-            {
-              yAxis: -MAX_EXCURSION,
-              lineStyle: { color: "#EF4444", type: "dashed", width: 1 },
-              label: { formatter: `-${MAX_EXCURSION}mm`, color: "#EF4444", fontSize: 9 },
-            },
-          ],
-        },
       },
     ],
     tooltip: {
@@ -128,10 +130,10 @@ export default function ExcursionChart({ frames, currentTime, isActive, streamin
       textStyle: { color: "#E8EAF0", fontSize: 11, fontFamily: "JetBrains Mono" },
       formatter: (params: { data: [number, number] }[]) => {
         const [t, v] = params[0].data;
-        return `${t.toFixed(2)}s &nbsp; <b>${v.toFixed(3)} mm</b>`;
+        return `${t.toFixed(2)}s &nbsp; <b>${v} raw</b>`;
       },
     },
-  }), [windowFrames]);
+  }), [windowFrames, yMin, yMax]);
 
   return (
     <div id="excursion-chart" className="card flex flex-col h-full">
@@ -142,7 +144,7 @@ export default function ExcursionChart({ frames, currentTime, isActive, streamin
         </div>
         {currentExc !== null && (
           <span id="current-excursion-value" className="font-mono text-lg font-semibold" style={{ color: excColor }}>
-            {currentExc.toFixed(2)}<span className="text-xs ml-0.5 font-normal">mm</span>
+            {currentExc}<span className="text-xs ml-0.5 font-normal text-iron-400">raw</span>
           </span>
         )}
       </div>
