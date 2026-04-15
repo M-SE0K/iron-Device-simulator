@@ -4,6 +4,8 @@ A web-based dashboard for demonstrating Iron Device Corporation's speaker protec
 
 Visualizes **speaker temperature** and **excursion displacement** in real-time via audio file upload or live microphone input.
 
+<img width="1920" height="958" alt="image" src="https://github.com/user-attachments/assets/99f08e17-383e-4aec-869f-2337b5e02ed8" />
+
 ---
 
 ## Modes
