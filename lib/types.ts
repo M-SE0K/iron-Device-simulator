@@ -14,6 +14,24 @@ export interface AnalysisFrame {
   temperature: [number, number];
   /** 스피커 진폭 변위 — [ch0(L), ch1(R)] */
   excursion: [number, number];
+  // ── Step 5: Coalescing metadata (선택적) ──────────────────────────────
+  /** 병합된 소스 프레임 수 (1이면 병합 없음) */
+  sourceCount?: number;
+  /** 병합 구간 시작 시각 */
+  timeStart?: number;
+  /** 병합 구간 종료 시각 */
+  timeEnd?: number;
+  /** 병합 구간 내 excursion 최솟값 — [ch0, ch1] */
+  excursionMin?: [number, number];
+  /** 병합 구간 내 excursion 최댓값 — [ch0, ch1] */
+  excursionMax?: [number, number];
+  /** 병합 구간 내 temperature 최댓값 — [ch0, ch1] */
+  temperatureMax?: [number, number];
+  // ── Step 6: Event-Preserving metadata ─────────────────────────────────
+  /** 이벤트 프레임 여부 */
+  isEvent?: boolean;
+  /** 이벤트 유형 */
+  eventType?: "temp_warn" | "temp_danger" | "exc_peak";
 }
 
 /** 업로드 → 분석 → 시각화 상태 */
@@ -79,6 +97,8 @@ export interface DebugLogEntry {
   echartsRenderMs:   number | null;
   /** recv → ECharts rendered (react + echarts 합산) */
   totalRecvRenderMs: number | null;
+  /** 최신성 지연 — (currentAudioTime - latestRenderedFrame.time) × 1000 */
+  freshnessLagMs:    number | null;
 }
 
 // ─── 측정 세션 JSON 내보내기 ─────────────────────────────────────────────────
@@ -95,12 +115,24 @@ export interface MeasurementExport {
     frameCount: number;
   };
   summary: {
-    rtt:         { avg: number | null; min: number | null; max: number | null };
-    serverProc:  { avg: number | null };
-    temperature: { avg: number;        min: number;        max: number        };
-    excursion:   { avg: number;        min: number;        max: number        };
+    rtt:            { avg: number | null; min: number | null; max: number | null; p50: number | null; p95: number | null; p99: number | null };
+    serverProc:     { avg: number | null };
+    recvRender:     { avg: number | null; min: number | null; max: number | null; p50: number | null; p95: number | null; p99: number | null };
     /** RTT + recv→render 합산 End-to-End */
-    e2e:         { avg: number | null; min: number | null; max: number | null };
+    e2e:            { avg: number | null; min: number | null; max: number | null; p50: number | null; p95: number | null; p99: number | null };
+    freshnessLag:   { avg: number | null; min: number | null; max: number | null; p50: number | null; p95: number | null; p99: number | null };
+    temperature:    { avg: number;        min: number;        max: number        };
+    excursion:      { avg: number;        min: number;        max: number        };
+    /** 측정 구간 중 streamingFrames 최대 길이 */
+    maxStreamingFramesLen: number;
+    /** 총 수신 프레임 대비 드롭 비율 */
+    droppedFrameRatio: number | null;
+    /** 총 드롭된 프레임 수 */
+    totalDroppedFrames: number;
+    /** 렌더 틱당 평균 소스 프레임 수 */
+    avgSourceCount: number | null;
+    /** Step 6: 보존된 이벤트 프레임 수 */
+    preservedEvents: number;
   };
   frames: DebugLogEntry[];
 }
@@ -127,4 +159,18 @@ export interface StreamDebugInfo {
   totalRecvRenderMs:  number | null;
   /** send → ECharts rendered 전체 E2E (RTT + react + echarts) */
   totalE2eMs:         number | null;
+  /** 최신성 지연 (ms) — 렌더된 최신 frame time vs 현재 오디오 재생 시각 */
+  freshnessLagMs:     number | null;
+  /** 현재 streamingFrames 배열 길이 */
+  streamingFramesLen: number;
+  /** 현재 output queue에 대기 중인 프레임 수 */
+  outputQueueLen:     number;
+  /** 렌더 틱당 병합/드롭된 소스 프레임 수 */
+  sourceCount:        number;
+  /** 누적 드롭된 프레임 수 */
+  droppedFrames:      number;
+  /** 실제 렌더 업데이트 빈도 (Hz) */
+  renderUpdateRate:   number | null;
+  /** 보존된 이벤트 프레임 누적 수 */
+  preservedEvents:    number;
 }

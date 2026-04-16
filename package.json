@@ -8,32 +8,36 @@
     "start": "node server.js",
     "start:dev": "NODE_ENV=production tsx server.ts",
     "lint": "next lint",
-    "build:server": "tsc -p tsconfig.server.json"
+    "build:server": "tsc -p tsconfig.server.json",
+    "measure": "tsx scripts/measure.ts",
+    "measure:baseline": "tsx scripts/measure.ts --label baseline --duration 60",
+    "compare": "tsx scripts/compare.ts"
   },
   "dependencies": {
+    "clsx": "^2.1.1",
+    "echarts": "^5.6.0",
+    "echarts-for-react": "^3.0.2",
+    "koffi": "^2.9.0",
+    "lucide-react": "^0.503.0",
     "next": "15.2.4",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
-    "echarts": "^5.6.0",
-    "echarts-for-react": "^3.0.2",
-    "wavesurfer.js": "^7.9.5",
-    "clsx": "^2.1.1",
     "tailwind-merge": "^3.2.0",
-    "lucide-react": "^0.503.0",
-    "koffi": "^2.9.0",
+    "wavesurfer.js": "^7.9.5",
     "ws": "^8.18.0"
   },
   "devDependencies": {
-    "typescript": "^5",
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "@types/ws": "^8.5.13",
-    "tailwindcss": "^3.4.1",
-    "postcss": "^8",
     "autoprefixer": "^10.0.1",
     "eslint": "^8",
     "eslint-config-next": "15.2.4",
-    "tsx": "^4.19.2"
+    "postcss": "^8",
+    "puppeteer": "^24.41.0",
+    "tailwindcss": "^3.4.1",
+    "tsx": "^4.19.2",
+    "typescript": "^5"
   }
 }

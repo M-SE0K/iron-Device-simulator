@@ -40,5 +40,9 @@ next-env.d.ts
 # Vercel
 .vercel
 
+# Measurement
+measurements/
+test-audio.wav
+
 #CLAUDE
 CLAUDE.md

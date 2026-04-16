@@ -398,6 +398,7 @@ const WaveformPlayer = forwardRef<WaveformPlayerHandle, Props>(function Waveform
           reactRenderMs:     null,
           echartsRenderMs:   null,
           totalRecvRenderMs: null,
+          freshnessLagMs:    null,
         });
 
         onFrameReceived({

@@ -84,6 +84,10 @@ function LogRow({ entry }: { entry: DebugLogEntry }) {
     : entry.totalRecvRenderMs > 80 ? "text-red-400"
     : entry.totalRecvRenderMs > 30 ? "text-yellow-400" : "text-emerald-400";
 
+  const freshColor = entry.freshnessLagMs === null ? "text-iron-600"
+    : entry.freshnessLagMs > 300 ? "text-red-400"
+    : entry.freshnessLagMs > 100 ? "text-yellow-400" : "text-cyan-400";
+
   const tempColor = entry.temperature >= 75 ? "text-red-400"
     : entry.temperature >= 65 ? "text-yellow-400" : "text-blue-400";
 
@@ -107,6 +111,7 @@ function LogRow({ entry }: { entry: DebugLogEntry }) {
       {cell(entry.reactRenderMs,     "ms", reactColor, "w-[52px]")}
       {cell(entry.echartsRenderMs,   "ms", echColor,   "w-[52px]")}
       {cell(entry.totalRecvRenderMs, "ms", totalColor, "w-[58px]")}
+      {cell(entry.freshnessLagMs,    "ms", freshColor, "w-[58px]")}
       <span className={cn("shrink-0 w-[58px] font-mono", tempColor)}>
         {entry.temperature.toFixed(1).padStart(5," ")}°C
       </span>
@@ -207,8 +212,28 @@ export default function DebugPanel({
 
         <Divider />
 
+        {/* Freshness */}
+        <SectionLabel label="⑤ Freshness" />
+        <Metric label="Freshness Lag" value={fmtMs(info.freshnessLagMs)} unit="ms"
+          highlight={latencyHighlight(info.freshnessLagMs, 100, 300)} />
+        <Metric label="Frames Buf" value={info.streamingFramesLen} unit=" fr" />
+
+        <Divider />
+
+        {/* Output Queue */}
+        <SectionLabel label="⑥ Queue" />
+        <Metric label="Queue Len"    value={info.outputQueueLen}   unit=" fr" />
+        <Metric label="Src/Tick"     value={info.sourceCount}      unit="" />
+        <Metric label="Dropped"      value={info.droppedFrames}    unit=" fr"
+          highlight={info.droppedFrames > 100 ? "warn" : undefined} />
+        <Metric label="Events"       value={info.preservedEvents} unit=" fr"
+          highlight={info.preservedEvents > 0 ? "ok" : undefined} />
+        <Metric label="Render Hz"    value={info.renderUpdateRate} unit=" Hz" />
+
+        <Divider />
+
         {/* 전송 통계 */}
-        <SectionLabel label="⑤ 통계" />
+        <SectionLabel label="⑦ 통계" />
         <Metric label="Sent"      value={info.framesSent}     unit=" fr" />
         <Metric label="Received"  value={info.framesReceived} unit=" fr" />
         <Metric label="In-flight" value={lostFrames}          unit=" fr"
@@ -222,6 +247,7 @@ export default function DebugPanel({
           <span className="text-red-400">● HIGH</span>
           <span className="text-sky-400">● React</span>
           <span className="text-purple-400">● ECharts</span>
+          <span className="text-cyan-400">● Fresh</span>
           <span className="text-iron-600 ml-auto">
             {logs.length} 엔트리 (최대 500)
             {isMeasuring && (
@@ -244,6 +270,7 @@ export default function DebugPanel({
           <span className="w-[52px] text-sky-700">React</span>
           <span className="w-[52px] text-purple-700">ECh</span>
           <span className="w-[58px] text-emerald-700">Recv→Rndr</span>
+          <span className="w-[58px] text-cyan-700">Fresh</span>
           <span className="w-[58px]">Temp</span>
           <span>Exc</span>
         </div>

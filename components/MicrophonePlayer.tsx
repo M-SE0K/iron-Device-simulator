@@ -182,6 +182,7 @@ export default function MicrophonePlayer({
             reactRenderMs:     null,
             echartsRenderMs:   null,
             totalRecvRenderMs: null,
+            freshnessLagMs:    null,
           });
 
         } else if (msg.type === "error") {

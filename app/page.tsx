@@ -28,6 +28,9 @@ export default function DashboardPage() {
     serverProcessingMs: null, sendRateFps: null,
     reactRenderMs: null, echartsRenderMs: null,
     totalRecvRenderMs: null, totalE2eMs: null,
+    freshnessLagMs: null, streamingFramesLen: 0,
+    outputQueueLen: 0, sourceCount: 0, droppedFrames: 0, renderUpdateRate: null,
+    preservedEvents: 0,
   });
   const [showDebug, setShowDebug] = useState(false);
   const [debugLogs, setDebugLogs] = useState<DebugLogEntry[]>([]);
@@ -59,6 +62,30 @@ export default function DashboardPage() {
   const measureLogsRef      = useRef<DebugLogEntry[]>([]);
   const measureStartTimeRef = useRef<number>(0);
 
+  // ── freshness lag 계산용 refs ─────────────────────────────────────────────
+  const currentTimeRef       = useRef(0);
+  const latestFrameTimeRef   = useRef(0);
+  // 측정 모드 중 streamingFrames 최대 길이 추적
+  const maxStreamingLenRef   = useRef(0);
+  // streamingFrames 길이 추적 (useCallback 의존성 회피)
+  const streamingLenRef      = useRef(0);
+
+  // ── Step 3: Output Queue ────────────────────────────────────────────────
+  interface QueuedFrame {
+    frame: AnalysisFrame;
+    recvAt: number;
+  }
+  const outputQueueRef       = useRef<QueuedFrame[]>([]);
+  const droppedFramesRef     = useRef(0);
+  const renderTickCountRef   = useRef(0);
+  const sourceCountSumRef    = useRef(0);
+  const preservedEventsRef   = useRef(0);
+  // Step 6: 직전 렌더 frame의 temperature (threshold crossing 감지용)
+  const prevTempRef          = useRef<[number, number] | null>(null);
+  // 렌더 업데이트 빈도 측정
+  const lastRenderRateRef    = useRef<{ time: number; count: number }>({ time: 0, count: 0 });
+  const renderUpdateRateRef  = useRef<number | null>(null);
+
   // ── 렌더 파이프라인 측정용 refs ──────────────────────────────────────────
   // 프레임 수신 시각 (WaveformPlayer → page.tsx handoff 시점)
   const frameRecvAtRef      = useRef<number>(0);
@@ -80,6 +107,7 @@ export default function DashboardPage() {
       // 측정 시작
       measureLogsRef.current      = [];
       measureStartTimeRef.current = performance.now();
+      maxStreamingLenRef.current  = 0;
       isMeasuringRef.current      = true;
       setIsMeasuring(true);
       setMeasureFrameCount(0);
@@ -100,15 +128,31 @@ export default function DashboardPage() {
         arr.length > 0 ? parseFloat(Math.min(...arr).toFixed(2)) : null;
       const safeMax = (arr: number[]) =>
         arr.length > 0 ? parseFloat(Math.max(...arr).toFixed(2)) : null;
+      const percentile = (arr: number[], p: number) => {
+        if (arr.length === 0) return null;
+        const sorted = [...arr].sort((a, b) => a - b);
+        const idx = Math.ceil(sorted.length * p / 100) - 1;
+        return parseFloat(sorted[Math.max(0, idx)].toFixed(2));
+      };
+      const fullStats = (arr: number[]) => ({
+        avg: avg(arr), min: safeMin(arr), max: safeMax(arr),
+        p50: percentile(arr, 50), p95: percentile(arr, 95), p99: percentile(arr, 99),
+      });
 
       const rttVals  = logs.map(l => l.rttMs).filter((v): v is number => v !== null);
       const srvVals  = logs.map(l => l.serverProcMs);
       const tempVals = logs.map(l => l.temperature);
       const excVals  = logs.map(l => l.excursion);
+      const recvRenderVals = logs
+        .map(l => l.totalRecvRenderMs)
+        .filter((v): v is number => v !== null);
       const e2eVals  = logs
         .map(l => (l.rttMs !== null && l.totalRecvRenderMs !== null)
           ? parseFloat((l.rttMs + l.totalRecvRenderMs).toFixed(2))
           : null)
+        .filter((v): v is number => v !== null);
+      const freshnessVals = logs
+        .map(l => l.freshnessLagMs)
         .filter((v): v is number => v !== null);
 
       const data: MeasurementExport = {
@@ -119,11 +163,22 @@ export default function DashboardPage() {
           frameCount:             logs.length,
         },
         summary: {
-          rtt:         { avg: avg(rttVals),  min: safeMin(rttVals),  max: safeMax(rttVals)  },
-          serverProc:  { avg: avg(srvVals)  },
-          temperature: { avg: avg(tempVals) ?? 0, min: safeMin(tempVals) ?? 0, max: safeMax(tempVals) ?? 0 },
-          excursion:   { avg: avg(excVals)  ?? 0, min: safeMin(excVals)  ?? 0, max: safeMax(excVals)  ?? 0 },
-          e2e:         { avg: avg(e2eVals),  min: safeMin(e2eVals),  max: safeMax(e2eVals)  },
+          rtt:            fullStats(rttVals),
+          serverProc:     { avg: avg(srvVals) },
+          recvRender:     fullStats(recvRenderVals),
+          e2e:            fullStats(e2eVals),
+          freshnessLag:   fullStats(freshnessVals),
+          temperature:    { avg: avg(tempVals) ?? 0, min: safeMin(tempVals) ?? 0, max: safeMax(tempVals) ?? 0 },
+          excursion:      { avg: avg(excVals)  ?? 0, min: safeMin(excVals)  ?? 0, max: safeMax(excVals)  ?? 0 },
+          maxStreamingFramesLen: maxStreamingLenRef.current,
+          totalDroppedFrames:   droppedFramesRef.current,
+          droppedFrameRatio:    logs.length > 0
+            ? parseFloat((droppedFramesRef.current / (droppedFramesRef.current + logs.length)).toFixed(4))
+            : null,
+          avgSourceCount:       renderTickCountRef.current > 0
+            ? parseFloat((sourceCountSumRef.current / renderTickCountRef.current).toFixed(2))
+            : null,
+          preservedEvents:      preservedEventsRef.current,
         },
         frames: logs,
       };
@@ -197,13 +252,181 @@ export default function DashboardPage() {
 
   const handleStreamStart = useCallback(() => {
     setStreamingFrames([]);
+    outputQueueRef.current     = [];
+    droppedFramesRef.current   = 0;
+    renderTickCountRef.current = 0;
+    sourceCountSumRef.current  = 0;
+    preservedEventsRef.current = 0;
+    prevTempRef.current        = null;
   }, []);
 
-  // ── 프레임 수신 — 수신 시각 기록 후 state 업데이트 ───────────────────────
+  // ── Step 2: Bounded State Window ─────────────────────────────────────────
+  const STREAM_WINDOW = 1000;
+  // ── Step 3: Render Scheduler 주기 (ms) ──────────────────────────────────
+  const RENDER_INTERVAL = 33; // ~30Hz
+  const isPlaying = status === "playing";
+
+  // ── 프레임 수신 — 큐에 push만 (state update 하지 않음) ──────────────────
   const handleFrameReceived = useCallback((frame: AnalysisFrame) => {
-    frameRecvAtRef.current = performance.now();
-    setStreamingFrames((prev) => [...prev, frame]);
+    outputQueueRef.current.push({
+      frame,
+      recvAt: performance.now(),
+    });
+    latestFrameTimeRef.current = frame.time;
   }, []);
+
+  // ── Step 5: Coalescing 함수 — bucket을 하나의 요약 frame으로 병합 ──────
+  function coalesceFrames(bucket: QueuedFrame[]): AnalysisFrame {
+    if (bucket.length === 1) return bucket[0].frame;
+
+    const frames = bucket.map(q => q.frame);
+    const latest = frames[frames.length - 1];
+
+    return {
+      ...latest,
+      sourceCount: frames.length,
+      timeStart:   frames[0].time,
+      timeEnd:     latest.time,
+      // 온도: 최신값 사용, 구간 내 최댓값 별도 보존
+      temperatureMax: [
+        Math.max(...frames.map(f => f.temperature[0])),
+        Math.max(...frames.map(f => f.temperature[1])),
+      ],
+      // 익스커션: 최신값 사용, 구간 내 min/max envelope 보존
+      excursionMin: [
+        Math.min(...frames.map(f => f.excursion[0])),
+        Math.min(...frames.map(f => f.excursion[1])),
+      ],
+      excursionMax: [
+        Math.max(...frames.map(f => f.excursion[0])),
+        Math.max(...frames.map(f => f.excursion[1])),
+      ],
+    };
+  }
+
+  // ── Step 6: 이벤트 감지 함수 ──────────────────────────────────────────────
+  const TEMP_WARN   = 65;
+  const TEMP_DANGER = 75;
+
+  function detectEvents(bucket: QueuedFrame[], prevTemp: [number, number] | null): QueuedFrame[] {
+    const events: QueuedFrame[] = [];
+    for (let i = 0; i < bucket.length; i++) {
+      const f = bucket[i].frame;
+      const prev = i > 0 ? bucket[i - 1].frame : null;
+      // 이전 온도: bucket 내 이전 frame 또는 직전 렌더 사이클의 마지막 온도
+      const prevT = prev ? prev.temperature : prevTemp;
+
+      // Temperature threshold crossing 감지
+      if (prevT) {
+        for (let ch = 0; ch < 2; ch++) {
+          const was = prevT[ch];
+          const now = f.temperature[ch];
+          // WARN crossing (아래→위 또는 위→아래)
+          if ((was < TEMP_WARN && now >= TEMP_WARN) || (was >= TEMP_WARN && now < TEMP_WARN)) {
+            events.push(bucket[i]);
+            bucket[i].frame = { ...f, isEvent: true, eventType: "temp_warn" };
+            break;
+          }
+          // DANGER crossing
+          if ((was < TEMP_DANGER && now >= TEMP_DANGER) || (was >= TEMP_DANGER && now < TEMP_DANGER)) {
+            events.push(bucket[i]);
+            bucket[i].frame = { ...f, isEvent: true, eventType: "temp_danger" };
+            break;
+          }
+        }
+      }
+      // 이미 이벤트로 잡힌 frame은 skip
+      if (bucket[i].frame.isEvent) continue;
+
+      // Excursion peak 감지: 앞뒤 frame보다 절대값이 큰 극값
+      if (prev && i < bucket.length - 1) {
+        const next = bucket[i + 1].frame;
+        for (let ch = 0; ch < 2; ch++) {
+          const cur = Math.abs(f.excursion[ch]);
+          if (cur > Math.abs(prev.excursion[ch]) && cur > Math.abs(next.excursion[ch])) {
+            events.push(bucket[i]);
+            bucket[i].frame = { ...f, isEvent: true, eventType: "exc_peak" };
+            break;
+          }
+        }
+      }
+    }
+    return events;
+  }
+
+  // ── Step 3: Render Scheduler — 33ms마다 큐를 drain하여 state update ─────
+  useEffect(() => {
+    if (!isPlaying) return;
+
+    // 재생 시작 시 큐 관련 카운터 초기화
+    outputQueueRef.current    = [];
+    droppedFramesRef.current  = 0;
+    renderTickCountRef.current = 0;
+    sourceCountSumRef.current = 0;
+    preservedEventsRef.current = 0;
+    prevTempRef.current        = null;
+    lastRenderRateRef.current = { time: performance.now(), count: 0 };
+    renderUpdateRateRef.current = null;
+
+    const timer = setInterval(() => {
+      const bucket = outputQueueRef.current;
+      outputQueueRef.current = [];
+
+      if (bucket.length === 0) return;
+
+      // Step 6: 이벤트 감지
+      const eventFrames = detectEvents(bucket, prevTempRef.current);
+
+      // Step 5: Coalescing 정책 — 요약 frame으로 병합
+      const renderFrame = coalesceFrames(bucket);
+      const latest = bucket[bucket.length - 1];
+
+      // 직전 온도 기록 (다음 tick의 crossing 감지용)
+      prevTempRef.current = latest.frame.temperature;
+
+      // 렌더링할 frame 목록: 이벤트 frame + coalesced frame
+      // 이벤트 frame은 coalesced의 latest와 중복될 수 있으므로 제거
+      const renderFrames: AnalysisFrame[] = [];
+      for (const ev of eventFrames) {
+        if (ev !== latest) {
+          renderFrames.push(ev.frame);
+        }
+      }
+      renderFrames.push(renderFrame); // coalesced frame은 항상 마지막
+
+      // 큐 메트릭 업데이트
+      const preserved = renderFrames.length - 1; // coalesced 제외한 보존 이벤트 수
+      preservedEventsRef.current += preserved;
+      const dropped = bucket.length - renderFrames.length;
+      droppedFramesRef.current += Math.max(0, dropped);
+      renderTickCountRef.current++;
+      sourceCountSumRef.current += bucket.length;
+
+      // recv 시각은 실제 수신 시점 기록 (정확한 latency 측정)
+      frameRecvAtRef.current = latest.recvAt;
+
+      setStreamingFrames((prev) => {
+        const next = [...prev, ...renderFrames];
+        streamingLenRef.current = next.length;
+        if (isMeasuringRef.current && next.length > maxStreamingLenRef.current) {
+          maxStreamingLenRef.current = next.length;
+        }
+        return next.length > STREAM_WINDOW ? next.slice(-STREAM_WINDOW) : next;
+      });
+
+      // 렌더 업데이트 빈도 측정 (1초 윈도우)
+      const now = performance.now();
+      const rateCheck = lastRenderRateRef.current;
+      if (now - rateCheck.time >= 1000) {
+        renderUpdateRateRef.current = parseFloat(
+          ((renderTickCountRef.current - rateCheck.count) / ((now - rateCheck.time) / 1000)).toFixed(1)
+        );
+        lastRenderRateRef.current = { time: now, count: renderTickCountRef.current };
+      }
+    }, RENDER_INTERVAL);
+
+    return () => clearInterval(timer);
+  }, [isPlaying]);
 
   // ── 디버그 업데이트 시 최신 rtt/srv 캐시 ────────────────────────────────
   const handleDebugUpdate = useCallback((info: Partial<StreamDebugInfo>) => {
@@ -228,6 +451,13 @@ export default function DashboardPage() {
       ? parseFloat((rtt + totalRecvMs).toFixed(2))
       : null;
 
+    // freshness lag 계산: 현재 오디오 재생 시각 - 최신 렌더된 frame의 time
+    const audioNow       = currentTimeRef.current;
+    const renderedTime   = latestFrameTimeRef.current;
+    const freshnessLagMs = audioNow > 0 && renderedTime > 0
+      ? parseFloat(((audioNow - renderedTime) * 1000).toFixed(2))
+      : null;
+
     const reactMs = parseFloat((reactRenderAtRef.current - frameRecvAtRef.current).toFixed(2));
     latestRenderMetrics.current = { reactMs, echartsMs, totalRecvMs, totalE2eMs };
 
@@ -237,6 +467,15 @@ export default function DashboardPage() {
       echartsRenderMs:   echartsMs,
       totalRecvRenderMs: totalRecvMs,
       totalE2eMs,
+      freshnessLagMs,
+      streamingFramesLen: streamingLenRef.current,
+      outputQueueLen:    outputQueueRef.current.length,
+      sourceCount:       sourceCountSumRef.current > 0 && renderTickCountRef.current > 0
+        ? parseFloat((sourceCountSumRef.current / renderTickCountRef.current).toFixed(1))
+        : 0,
+      droppedFrames:     droppedFramesRef.current,
+      renderUpdateRate:  renderUpdateRateRef.current,
+      preservedEvents:   preservedEventsRef.current,
     }));
 
     // ── 서버로 metrics 역전송 (METRICS_INTERVAL마다 1회) ─────────────────────
@@ -272,11 +511,18 @@ export default function DashboardPage() {
     latestAudioTimeRef.current = entry.audioTime;
     // 직전 렌더 사이클의 render 타임을 첨부
     const m = latestRenderMetrics.current;
+    // freshness lag 계산
+    const audioNow     = currentTimeRef.current;
+    const frameTime    = entry.audioTime;
+    const freshLag     = audioNow > 0 && frameTime > 0
+      ? parseFloat(((audioNow - frameTime) * 1000).toFixed(2))
+      : null;
     const enriched: DebugLogEntry = {
       ...entry,
       reactRenderMs:     m.reactMs,
       echartsRenderMs:   m.echartsMs,
       totalRecvRenderMs: m.totalRecvMs,
+      freshnessLagMs:    freshLag,
     };
     pendingLogsRef.current.push(enriched);
     // 측정 모드: 제한 없이 별도 버퍼에 누적
@@ -307,8 +553,7 @@ export default function DashboardPage() {
     }
   }, []);
 
-  const isPlaying = status === "playing";
-  const isActive  = isPlaying || status === "paused";
+  const isActive  = status === "playing" || status === "paused";
 
   return (
     <div id="dashboard-root" className="flex flex-col h-screen overflow-hidden">
@@ -401,7 +646,7 @@ export default function DashboardPage() {
               ref={waveformRef}
               audioFile={audioFile}
               status={status}
-              onTimeUpdate={setCurrentTime}
+              onTimeUpdate={(t: number) => { currentTimeRef.current = t; setCurrentTime(t); }}
               onStatusChange={handleStatusChange}
               onFrameReceived={handleFrameReceived}
               onStreamStart={handleStreamStart}

@@ -54,9 +54,17 @@ export default function ExcursionChart({ frames, currentTime, isActive, streamin
   const { yMin, yMax } = useMemo(() => {
     if (windowFrames.length === 0) return { yMin: -10, yMax: 10 };
 
-    const valsL = windowFrames.map((f) => f.excursion[0]);
-    const valsR = windowFrames.map((f) => f.excursion[1]);
-    const vals  =
+    // envelope (min/max)이 있으면 그 범위도 포함
+    const valsL: number[] = [];
+    const valsR: number[] = [];
+    for (const f of windowFrames) {
+      valsL.push(f.excursion[0]);
+      valsR.push(f.excursion[1]);
+      if (f.excursionMin) { valsL.push(f.excursionMin[0]); valsR.push(f.excursionMin[1]); }
+      if (f.excursionMax) { valsL.push(f.excursionMax[0]); valsR.push(f.excursionMax[1]); }
+    }
+
+    const vals =
       channelMode === "L"    ? valsL :
       channelMode === "R"    ? valsR :
       /* Both */               [...valsL, ...valsR];
@@ -91,7 +99,7 @@ export default function ExcursionChart({ frames, currentTime, isActive, streamin
 
     const seriesL = {
       name: "L (ch0)",
-      type: "line",
+      type: "line" as const,
       data: windowFrames.map((f) => [f.time, f.excursion[0]]),
       smooth: 0.3,
       symbol: "none",
@@ -109,7 +117,7 @@ export default function ExcursionChart({ frames, currentTime, isActive, streamin
 
     const seriesR = {
       name: "R (ch1)",
-      type: "line",
+      type: "line" as const,
       data: windowFrames.map((f) => [f.time, f.excursion[1]]),
       smooth: 0.3,
       symbol: "none",
@@ -124,6 +132,10 @@ export default function ExcursionChart({ frames, currentTime, isActive, streamin
         },
       } : undefined,
     };
+
+    // Note: envelope 데이터(excursionMin/Max)는 AnalysisFrame에 보존되어 있으나,
+    // 차트에 추가 series로 렌더링하면 ECharts 부하가 3배 증가하여 latency에 영향을 준다.
+    // envelope 시각화는 비실시간 분석 뷰에서만 사용하고, 실시간 차트는 메인 선만 표시한다.
 
     const series =
       channelMode === "L"    ? [seriesL] :
