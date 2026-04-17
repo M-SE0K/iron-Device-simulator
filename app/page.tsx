@@ -266,7 +266,7 @@ export default function DashboardPage() {
   // ── Step 2: Bounded State Window ─────────────────────────────────────────
   const STREAM_WINDOW = 1000;
   // ── Step 3: Render Scheduler 주기 (ms) ──────────────────────────────────
-  const RENDER_INTERVAL = 15; // ~30Hz
+  const RENDER_INTERVAL =16; //
   const isPlaying = status === "playing";
 
   // ── 프레임 수신 — 큐에 push만 (state update 하지 않음) ──────────────────
