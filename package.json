@@ -11,6 +11,7 @@
     "build:server": "tsc -p tsconfig.server.json",
     "measure": "tsx scripts/measure.ts",
     "measure:baseline": "tsx scripts/measure.ts --label baseline --duration 60",
+    "measure:baseline:long": "tsx scripts/measure.ts --label baseline --track jazz_long_audio --duration 300",
     "compare": "tsx scripts/compare.ts"
   },
   "dependencies": {

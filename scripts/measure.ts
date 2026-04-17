@@ -61,6 +61,7 @@ function parseArgs() {
     headless: true,
     speaker:  "Z3 SPK",
     power:    "20",
+    track:    "" as string, // 특정 파일명 필터 (빈 문자열 = 전체)
   };
 
   for (let i = 0; i < args.length; i++) {
@@ -72,6 +73,7 @@ function parseArgs() {
       case "--no-headless": opts.headless = false; break;
       case "--speaker":     opts.speaker  = args[++i]; break;
       case "--power":       opts.power    = args[++i]; break;
+      case "--track":       opts.track    = args[++i]; break;
     }
   }
   return opts;
@@ -295,7 +297,11 @@ function printSummary(data: Record<string, unknown>) {
 // ── 메인 ────────────────────────────────────────────────────────────────────
 async function main() {
   const opts   = parseArgs();
-  const tracks = getAudioFiles();
+  let tracks = getAudioFiles();
+  if (opts.track) {
+    tracks = tracks.filter(t => basename(t.path).includes(opts.track));
+    if (tracks.length === 0) throw new Error(`--track "${opts.track}" 에 해당하는 파일이 없습니다`);
+  }
 
   console.log(`\n${"█".repeat(60)}`);
   console.log(`  Automated Measurement: ${opts.label}`);
