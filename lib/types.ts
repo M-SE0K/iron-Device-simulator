@@ -133,6 +133,8 @@ export interface MeasurementExport {
     avgSourceCount: number | null;
     /** Step 6: 보존된 이벤트 프레임 수 */
     preservedEvents: number;
+    /** Step 6: 이벤트 프레임 목록 (audioTime, eventType) */
+    eventLog: { audioTime: number; eventType: "temp_warn" | "temp_danger" | "exc_peak" }[];
   };
   frames: DebugLogEntry[];
 }

@@ -80,6 +80,7 @@ export default function DashboardPage() {
   const renderTickCountRef   = useRef(0);
   const sourceCountSumRef    = useRef(0);
   const preservedEventsRef   = useRef(0);
+  const eventLogRef          = useRef<{ audioTime: number; eventType: "temp_warn" | "temp_danger" | "exc_peak" }[]>([]);
   // Step 6: 직전 렌더 frame의 temperature (threshold crossing 감지용)
   const prevTempRef          = useRef<[number, number] | null>(null);
   // 렌더 업데이트 빈도 측정
@@ -179,6 +180,7 @@ export default function DashboardPage() {
             ? parseFloat((sourceCountSumRef.current / renderTickCountRef.current).toFixed(2))
             : null,
           preservedEvents:      preservedEventsRef.current,
+          eventLog:             eventLogRef.current,
         },
         frames: logs,
       };
@@ -257,13 +259,14 @@ export default function DashboardPage() {
     renderTickCountRef.current = 0;
     sourceCountSumRef.current  = 0;
     preservedEventsRef.current = 0;
+    eventLogRef.current        = [];
     prevTempRef.current        = null;
   }, []);
 
   // ── Step 2: Bounded State Window ─────────────────────────────────────────
   const STREAM_WINDOW = 1000;
   // ── Step 3: Render Scheduler 주기 (ms) ──────────────────────────────────
-  const RENDER_INTERVAL = 33; // ~30Hz
+  const RENDER_INTERVAL = 15; // ~30Hz
   const isPlaying = status === "playing";
 
   // ── 프레임 수신 — 큐에 push만 (state update 하지 않음) ──────────────────
@@ -364,6 +367,7 @@ export default function DashboardPage() {
     renderTickCountRef.current = 0;
     sourceCountSumRef.current = 0;
     preservedEventsRef.current = 0;
+    eventLogRef.current        = [];
     prevTempRef.current        = null;
     lastRenderRateRef.current = { time: performance.now(), count: 0 };
     renderUpdateRateRef.current = null;
@@ -397,6 +401,11 @@ export default function DashboardPage() {
       // 큐 메트릭 업데이트
       const preserved = renderFrames.length - 1; // coalesced 제외한 보존 이벤트 수
       preservedEventsRef.current += preserved;
+      for (const ev of eventFrames) {
+        if (ev !== latest && ev.frame.eventType) {
+          eventLogRef.current.push({ audioTime: ev.frame.time, eventType: ev.frame.eventType });
+        }
+      }
       const dropped = bucket.length - renderFrames.length;
       droppedFramesRef.current += Math.max(0, dropped);
       renderTickCountRef.current++;
