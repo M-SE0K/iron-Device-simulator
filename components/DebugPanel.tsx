@@ -91,8 +91,9 @@ function LogRow({ entry }: { entry: DebugLogEntry }) {
   const tempColor = entry.temperature >= 75 ? "text-red-400"
     : entry.temperature >= 65 ? "text-yellow-400" : "text-blue-400";
 
-  const excColor = Math.abs(entry.excursion) > 6.8 ? "text-red-400" : "text-emerald-400";
-  const excStr   = (entry.excursion >= 0 ? "+" : "") + entry.excursion.toFixed(3);
+  const excMm    = entry.excursion / 1000;
+  const excColor = Math.abs(excMm) > 6.8 ? "text-red-400" : "text-emerald-400";
+  const excStr   = (excMm >= 0 ? "+" : "") + excMm.toFixed(3);
 
   function cell(val: number | null, unit: string, color: string, w: string) {
     return (

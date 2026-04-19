@@ -66,8 +66,7 @@ COPY --from=deps /app/node_modules ./node_modules
 # .so 마운트 디렉토리
 RUN mkdir -p /app/native
 
-# .so 파일을 이미지에 포함할 경우 주석 해제:
-# COPY libirontune.so ${SO_PATH}
+COPY libirontune.so ${SO_PATH}
 
 EXPOSE 3000
 CMD ["npx", "tsx", "server.ts"]
