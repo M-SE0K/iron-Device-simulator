@@ -21,6 +21,9 @@ interface Props {
 
 const WINDOW_SIZE   = 1000;
 const SCALE_PADDING = 1.15;
+// 서버 raw 값 → UI 표기 단위([mm]) 변환 계수
+const MM_SCALE      = 1 / 1000;
+const toMm = (v: number) => v * MM_SCALE;
 
 // 채널별 색상
 const CH_COLOR: Record<ChannelMode, { ch0: string; ch1: string }> = {
@@ -52,7 +55,7 @@ export default function ExcursionChart({ frames, currentTime, isActive, streamin
 
   // ── 창 내 데이터 범위로 Y축 동적 계산 ─────────────────────────────────────
   const { yMin, yMax } = useMemo(() => {
-    if (windowFrames.length === 0) return { yMin: -10, yMax: 10 };
+    if (windowFrames.length === 0) return { yMin: -0.01, yMax: 0.01 };
 
     // envelope (min/max)이 있으면 그 범위도 포함
     const valsL: number[] = [];
@@ -69,13 +72,13 @@ export default function ExcursionChart({ frames, currentTime, isActive, streamin
       channelMode === "R"    ? valsR :
       /* Both */               [...valsL, ...valsR];
 
-    const dataMin = Math.min(...vals);
-    const dataMax = Math.max(...vals);
-    const span    = Math.max(dataMax - dataMin, 1);
+    const dataMin = toMm(Math.min(...vals));
+    const dataMax = toMm(Math.max(...vals));
+    const span    = Math.max(dataMax - dataMin, 0.001);
     const pad     = span * (SCALE_PADDING - 1);
     return {
-      yMin: Math.floor(dataMin - pad),
-      yMax: Math.ceil(dataMax  + pad),
+      yMin: dataMin - pad,
+      yMax: dataMax + pad,
     };
   }, [windowFrames, channelMode]);
 
@@ -89,7 +92,7 @@ export default function ExcursionChart({ frames, currentTime, isActive, streamin
   }, [currentExc, channelMode]);
 
   const excColor =
-    displayExc !== null && Math.abs(displayExc) > Math.abs(yMax) * 0.85
+    displayExc !== null && Math.abs(toMm(displayExc)) > Math.abs(yMax) * 0.85
       ? "#EF4444"
       : CH_COLOR[channelMode].ch0;
 
@@ -100,7 +103,7 @@ export default function ExcursionChart({ frames, currentTime, isActive, streamin
     const seriesL = {
       name: "L (ch0)",
       type: "line" as const,
-      data: windowFrames.map((f) => [f.time, f.excursion[0]]),
+      data: windowFrames.map((f) => [f.time, toMm(f.excursion[0])]),
       smooth: 0.3,
       symbol: "none",
       lineStyle: { color: colors.ch0, width: 1.5 },
@@ -118,7 +121,7 @@ export default function ExcursionChart({ frames, currentTime, isActive, streamin
     const seriesR = {
       name: "R (ch1)",
       type: "line" as const,
-      data: windowFrames.map((f) => [f.time, f.excursion[1]]),
+      data: windowFrames.map((f) => [f.time, toMm(f.excursion[1])]),
       smooth: 0.3,
       symbol: "none",
       lineStyle: { color: colors.ch1, width: 1.5 },
@@ -170,9 +173,9 @@ export default function ExcursionChart({ frames, currentTime, isActive, streamin
       },
       yAxis: {
         type: "value",
-        name: "raw",
+        name: "mm",
         nameTextStyle: { color: "#A4AABA", fontSize: 10 },
-        axisLabel: { color: "#A4AABA", fontSize: 10 },
+        axisLabel: { color: "#A4AABA", fontSize: 10, formatter: (v: number) => v.toFixed(3) },
         axisLine: { show: false },
         splitLine: { lineStyle: { color: "#F5F6F8" } },
         min: yMin,
@@ -186,7 +189,7 @@ export default function ExcursionChart({ frames, currentTime, isActive, streamin
         textStyle: { color: "#E8EAF0", fontSize: 11, fontFamily: "JetBrains Mono" },
         formatter: (params: { seriesName: string; data: [number, number] }[]) => {
           const t = params[0].data[0];
-          const lines = params.map((p) => `${p.seriesName}: <b>${p.data[1]} raw</b>`);
+          const lines = params.map((p) => `${p.seriesName}: <b>${p.data[1].toFixed(3)} mm</b>`);
           return `${t.toFixed(2)}s<br/>${lines.join("<br/>")}`;
         },
       },
@@ -223,13 +226,14 @@ export default function ExcursionChart({ frames, currentTime, isActive, streamin
           {/* 현재값 표시 */}
           {currentExc !== null && channelMode === "Both" ? (
             <div className="flex items-center gap-1.5 font-mono text-sm font-semibold">
-              <span style={{ color: CH_COLOR.Both.ch0 }}>{currentExc[0]}</span>
+              <span style={{ color: CH_COLOR.Both.ch0 }}>{toMm(currentExc[0]).toFixed(3)}</span>
               <span className="text-iron-300 text-xs">/</span>
-              <span style={{ color: CH_COLOR.Both.ch1 }}>{currentExc[1]}</span>
+              <span style={{ color: CH_COLOR.Both.ch1 }}>{toMm(currentExc[1]).toFixed(3)}</span>
+              <span className="text-xs ml-0.5 font-normal text-iron-400">mm</span>
             </div>
           ) : displayExc !== null ? (
             <span id="current-excursion-value" className="font-mono text-lg font-semibold" style={{ color: excColor }}>
-              {displayExc}<span className="text-xs ml-0.5 font-normal text-iron-400">raw</span>
+              {toMm(displayExc).toFixed(3)}<span className="text-xs ml-0.5 font-normal text-iron-400">mm</span>
             </span>
           ) : null}
         </div>
