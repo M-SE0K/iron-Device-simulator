@@ -1,7 +1,7 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import { useMemo, useState } from "react";
+import { useMemo, useState, useRef, useCallback, useEffect } from "react";
 import { Activity } from "lucide-react";
 import { AnalysisFrame } from "@/lib/types";
 import { findFrameIndex } from "@/lib/utils";
@@ -17,6 +17,8 @@ interface Props {
   isActive: boolean;
   /** true: 스트리밍 append 모드 — 마지막 N 프레임 슬라이딩 윈도우 */
   streaming?: boolean;
+  /** 오디오 총 길이(초) — 설정 시 X축을 [0, audioDuration]으로 고정 */
+  audioDuration?: number | null;
 }
 
 const WINDOW_SIZE   = 1000;
@@ -32,8 +34,23 @@ const CH_COLOR: Record<ChannelMode, { ch0: string; ch1: string }> = {
   Both: { ch0: "#10B981", ch1: "#F97316" },
 };
 
-export default function ExcursionChart({ frames, currentTime, isActive, streaming = false }: Props) {
+export default function ExcursionChart({ frames, currentTime, isActive, streaming = false, audioDuration }: Props) {
   const [channelMode, setChannelMode] = useState<ChannelMode>("Both");
+
+  // ── 줌 상태 보존 ─────────────────────────────────────────────────────────
+  const zoomRef = useRef({ start: 0, end: 100 });
+  useEffect(() => { zoomRef.current = { start: 0, end: 100 }; }, [audioDuration]);
+
+  const echartsEvents = useRef<Record<string, (...args: unknown[]) => void>>({});
+  echartsEvents.current = {
+    datazoom: useCallback((params: unknown) => {
+      const p = params as { batch?: Array<{ start?: number; end?: number }>; start?: number; end?: number };
+      const src = p.batch?.[0] ?? p;
+      if (src.start !== undefined && src.end !== undefined) {
+        zoomRef.current = { start: src.start, end: src.end };
+      }
+    }, []),
+  };
 
   // ── 현재 값 & 윈도우 계산 ────────────────────────────────────────────────
   const { currentExc, windowFrames } = useMemo(() => {
@@ -42,9 +59,11 @@ export default function ExcursionChart({ frames, currentTime, isActive, streamin
     }
 
     if (streaming) {
-      const window    = frames.slice(-WINDOW_SIZE);
-      const lastFrame = frames[frames.length - 1];
-      return { currentExc: lastFrame?.excursion ?? null, windowFrames: window };
+      // audioDuration이 설정된 경우(파일 모드): 전체 누적 프레임을 그대로 사용
+      // 설정되지 않은 경우(마이크 모드): 최근 WINDOW_SIZE 프레임만 유지
+      const windowFrames = audioDuration != null ? frames : frames.slice(-WINDOW_SIZE);
+      const lastFrame    = frames[frames.length - 1];
+      return { currentExc: lastFrame?.excursion ?? null, windowFrames };
     } else {
       const frameIdx = findFrameIndex(frames.map((f) => f.time), currentTime);
       const exc      = frameIdx >= 0 ? frames[frameIdx]?.excursion ?? null : null;
@@ -99,6 +118,7 @@ export default function ExcursionChart({ frames, currentTime, isActive, streamin
   // ── ECharts 옵션 ─────────────────────────────────────────────────────────
   const option = useMemo(() => {
     const colors = CH_COLOR[channelMode];
+    const { start, end } = zoomRef.current;
 
     const seriesL = {
       name: "L (ch0)",
@@ -152,9 +172,18 @@ export default function ExcursionChart({ frames, currentTime, isActive, streamin
         ? { top: "auto", bottom: 56, textStyle: { color: "#A4AABA", fontSize: 10 } }
         : { show: false },
       dataZoom: [
-        { type: "inside", xAxisIndex: 0, filterMode: "filter" },
+        {
+          type: "inside",
+          xAxisIndex: 0,
+          filterMode: "filter",
+          start, end,
+          zoomOnMouseWheel: true,
+          moveOnMouseMove: true,
+          moveOnMouseWheel: false,
+        },
         {
           type: "slider", xAxisIndex: 0, height: 16, bottom: 4,
+          start, end,
           borderColor: "#E8EAF0", backgroundColor: "#F5F6F8",
           fillerColor: "rgba(16,185,129,0.12)",
           handleStyle: { color: "#10B981", borderColor: "#10B981" },
@@ -165,8 +194,9 @@ export default function ExcursionChart({ frames, currentTime, isActive, streamin
       ],
       xAxis: {
         type: "value",
-        min: windowFrames[0]?.time ?? 0,
-        max: windowFrames[windowFrames.length - 1]?.time ?? 10,
+        // audioDuration이 있으면 [0, 총길이]로 고정 — 없으면 데이터 범위에 따라 동적
+        min: audioDuration != null ? 0 : (windowFrames[0]?.time ?? 0),
+        max: audioDuration != null ? audioDuration : (windowFrames[windowFrames.length - 1]?.time ?? 10),
         axisLabel: { formatter: (v: number) => `${v.toFixed(2)}s`, color: "#A4AABA", fontSize: 10 },
         axisLine: { lineStyle: { color: "#E8EAF0" } },
         splitLine: { lineStyle: { color: "#F5F6F8" } },
@@ -194,7 +224,9 @@ export default function ExcursionChart({ frames, currentTime, isActive, streamin
         },
       },
     };
-  }, [windowFrames, channelMode, yMin, yMax]);
+  }, [windowFrames, channelMode, yMin, yMax, audioDuration]);
+
+  const showChart = audioDuration != null || frames.length > 0;
 
   return (
     <div id="excursion-chart" className="card flex flex-col h-full">
@@ -240,8 +272,8 @@ export default function ExcursionChart({ frames, currentTime, isActive, streamin
       </div>
 
       <div className="chart-body flex-1 p-2 min-h-[180px]">
-        {frames.length > 0 ? (
-          <ReactECharts option={option} style={{ height: "100%", width: "100%" }} notMerge />
+        {showChart ? (
+          <ReactECharts key={channelMode} option={option} style={{ height: "100%", width: "100%" }} notMerge={false} onEvents={echartsEvents.current} />
         ) : (
           <div className="chart-empty-state h-full flex items-center justify-center text-xs text-iron-300">
             재생하면 실시간으로 데이터가 표시됩니다

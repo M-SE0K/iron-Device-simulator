@@ -9,7 +9,6 @@ import WaveformPlayer, { WaveformPlayerHandle } from "@/components/WaveformPlaye
 import MicrophonePlayer from "@/components/MicrophonePlayer";
 import TemperatureChart from "@/components/TemperatureChart";
 import ExcursionChart from "@/components/ExcursionChart";
-import StatusPanel from "@/components/StatusPanel";
 import { AppStatus, AnalysisFrame, StreamDebugInfo, DebugLogEntry, MeasurementExport } from "@/lib/types";
 import DebugPanel from "@/components/DebugPanel";
 import InputParameters, { InputParameterValues } from "@/components/InputParameters";
@@ -19,6 +18,7 @@ export default function DashboardPage() {
   const [status, setStatus]                   = useState<AppStatus>("idle");
   const [audioFile, setAudioFile]             = useState<File | null>(null);
   const [currentTime, setCurrentTime]         = useState(0);
+  const [audioDuration, setAudioDuration]     = useState<number | null>(null);
   const [errorMsg, setErrorMsg]               = useState<string | null>(null);
   const [streamingFrames, setStreamingFrames] = useState<AnalysisFrame[]>([]);
 
@@ -210,13 +210,13 @@ export default function DashboardPage() {
   // ── 파일 선택 / 초기화 ────────────────────────────────────────────────────
   const handleFileSelected = useCallback((file: File) => {
     setAudioFile(file);
+    setAudioDuration(null);
     setStreamingFrames([]);
     setDebugLogs([]);
     pendingLogsRef.current = [];
     setCurrentTime(0);
     setStatus("idle");
     setErrorMsg(null);
-    // 측정 모드 초기화
     isMeasuringRef.current = false;
     setIsMeasuring(false);
     measureLogsRef.current = [];
@@ -225,13 +225,13 @@ export default function DashboardPage() {
 
   const handleReset = useCallback(() => {
     setAudioFile(null);
+    setAudioDuration(null);
     setStreamingFrames([]);
     setDebugLogs([]);
     pendingLogsRef.current = [];
     setCurrentTime(0);
     setStatus("idle");
     setErrorMsg(null);
-    // 측정 모드 초기화
     isMeasuringRef.current = false;
     setIsMeasuring(false);
     measureLogsRef.current = [];
@@ -240,6 +240,7 @@ export default function DashboardPage() {
 
   const handleInputModeChange = useCallback((mode: "file" | "mic") => {
     setInputMode(mode);
+    setAudioDuration(null);
     setStreamingFrames([]);
     setDebugLogs([]);
     pendingLogsRef.current = [];
@@ -264,7 +265,8 @@ export default function DashboardPage() {
   }, []);
 
   // ── Step 2: Bounded State Window ─────────────────────────────────────────
-  const STREAM_WINDOW = 1000;
+  // 16ms 렌더 인터벌 기준 ~62fps → 200,000 ≈ 53분 분량의 여유
+  const STREAM_WINDOW = 200_000;
   // ── Step 3: Render Scheduler 주기 (ms) ──────────────────────────────────
   const RENDER_INTERVAL =16; //
   const isPlaying = status === "playing";
@@ -357,7 +359,7 @@ export default function DashboardPage() {
     return events;
   }
 
-  // ── Step 3: Render Scheduler — 33ms마다 큐를 drain하여 state update ─────
+  // ── Step 3: Render Scheduler — 16ms마다 큐를 drain하여 state update ─────
   useEffect(() => {
     if (!isPlaying) return;
 
@@ -568,32 +570,64 @@ export default function DashboardPage() {
     <div id="dashboard-root" className="flex flex-col h-screen overflow-hidden">
       <Header />
 
-      <main id="dashboard-main" className="flex-1 overflow-auto p-4 lg:p-6">
-        <div id="dashboard-content" className="max-w-screen-xl mx-auto h-full flex flex-col gap-4">
+      <main id="dashboard-main" className="flex-1 overflow-hidden p-3">
+        <div id="dashboard-content" className="h-full w-full flex flex-col gap-3">
 
-          {/* Top row */}
-          <div id="dashboard-top-row" className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <div id="upload-section" className="md:col-span-2 space-y-3">
-              {/* 입력 모드 탭 */}
-              <div className="flex gap-1 text-xs font-mono">
-                {(["file", "mic"] as const).map((m) => (
-                  <button
-                    key={m}
-                    onClick={() => handleInputModeChange(m)}
-                    className={cn(
-                      "px-2.5 py-1 rounded border transition-all",
-                      inputMode === m
-                        ? "bg-brand-blue text-white border-brand-blue"
-                        : "text-iron-400 border-iron-200 hover:border-iron-400"
-                    )}
-                  >
-                    {m === "file" ? "파일" : "마이크"}
-                  </button>
-                ))}
-              </div>
+          {/* 좌/우 2열 메인 그리드 */}
+          <div id="dashboard-grid" className="grid grid-cols-1 lg:grid-cols-2 gap-3 flex-1 min-h-0">
 
-              <div className="flex items-start gap-2">
-                <div className="flex-1">
+            {/* 좌측: upload-section / InputParameters / Waveform — 스택
+                ┌─ 비율 조정 가이드 ──────────────────────────────────────────┐
+                │ upload-section : flex-[2]   ← 작게 하려면 숫자 ↓ (예: 1)    │
+                │ WaveformPlayer : flex-[3]   ← 크게 하려면 숫자 ↑ (예: 5)    │
+                │ InputParameters: shrink-0   ← 자연 높이 (변경 불필요)        │
+                └────────────────────────────────────────────────────────────┘ */}
+            <div id="left-column" className="flex flex-col gap-3 min-h-0">
+              {/* upload-section: 비율 조정 → flex-[숫자] 변경 */}
+              <div id="upload-section" className="flex-[2] min-h-0 flex flex-col gap-2">
+                {/* 입력 모드 탭 + DEBUG/REC 액션 */}
+                <div className="flex items-center gap-1 text-xs font-mono shrink-0">
+                  {(["file", "mic"] as const).map((m) => (
+                    <button
+                      key={m}
+                      onClick={() => handleInputModeChange(m)}
+                      className={cn(
+                        "px-2.5 py-1 rounded border transition-all",
+                        inputMode === m
+                          ? "bg-brand-blue text-white border-brand-blue"
+                          : "text-iron-400 border-iron-200 hover:border-iron-400"
+                      )}
+                    >
+                      {m === "file" ? "파일" : "마이크"}
+                    </button>
+                  ))}
+                  <div className="ml-auto flex gap-1.5">
+                    <button
+                      onClick={() => setShowDebug((v) => !v)}
+                      className={`px-2 py-1 rounded border transition-all ${
+                        showDebug
+                          ? "bg-[#0d1117] text-green-400 border-green-700"
+                          : "bg-iron-50 text-iron-400 border-iron-200 hover:border-iron-400"
+                      }`}
+                      title="레이턴시 디버그 패널 토글"
+                    >
+                      {showDebug ? "DEBUG ON" : "DEBUG"}
+                    </button>
+                    <button
+                      onClick={handleMeasureToggle}
+                      className={`px-2 py-1 rounded border transition-all ${
+                        isMeasuring
+                          ? "bg-red-950 text-red-400 border-red-700 hover:bg-red-900 animate-pulse"
+                          : "bg-iron-50 text-iron-400 border-iron-200 hover:border-iron-400"
+                      }`}
+                      title="측정 모드 — 시작/중지 및 JSON 다운로드"
+                    >
+                      {isMeasuring ? `■ ${measureFrameCount}fr` : "● REC"}
+                    </button>
+                  </div>
+                </div>
+
+                <div className="flex-1 min-h-0 min-w-0">
                   {inputMode === "file" ? (
                     <AudioUploader
                       status={status}
@@ -613,59 +647,63 @@ export default function DashboardPage() {
                     />
                   )}
                 </div>
-                <div className="flex flex-col gap-1.5 mt-1">
-                  <button
-                    onClick={() => setShowDebug((v) => !v)}
-                    className={`px-2 py-1 rounded text-xs font-mono border transition-all ${
-                      showDebug
-                        ? "bg-[#0d1117] text-green-400 border-green-700"
-                        : "bg-iron-50 text-iron-400 border-iron-200 hover:border-iron-400"
-                    }`}
-                    title="레이턴시 디버그 패널 토글"
-                  >
-                    {showDebug ? "DEBUG ON" : "DEBUG"}
-                  </button>
-                  <button
-                    onClick={handleMeasureToggle}
-                    className={`px-2 py-1 rounded text-xs font-mono border transition-all ${
-                      isMeasuring
-                        ? "bg-red-950 text-red-400 border-red-700 hover:bg-red-900 animate-pulse"
-                        : "bg-iron-50 text-iron-400 border-iron-200 hover:border-iron-400"
-                    }`}
-                    title="측정 모드 — 시작/중지 및 JSON 다운로드"
-                  >
-                    {isMeasuring ? `■ ${measureFrameCount}fr` : "● REC"}
-                  </button>
-                </div>
+                {errorMsg && (
+                  <p id="error-message" className="error-message text-xs text-red-500 px-1 shrink-0">오류: {errorMsg}</p>
+                )}
               </div>
-              {errorMsg && (
-                <p id="error-message" className="error-message text-xs text-red-500 px-1">오류: {errorMsg}</p>
+
+              {/* Input Parameters card — 자연 높이 */}
+              <div className="shrink-0">
+                <InputParameters values={inputParams} onChange={setInputParams} />
+              </div>
+
+              {/* Waveform player — 비율 조정 → flex-[숫자] 변경 */}
+              {inputMode === "file" && (
+                <div className="flex-[3] min-h-0">
+                  <WaveformPlayer
+                    ref={waveformRef}
+                    audioFile={audioFile}
+                    status={status}
+                    onTimeUpdate={(t: number) => { currentTimeRef.current = t; setCurrentTime(t); }}
+                    onStatusChange={handleStatusChange}
+                    onFrameReceived={handleFrameReceived}
+                    onStreamStart={handleStreamStart}
+                    onDebugUpdate={handleDebugUpdate}
+                    onDebugLog={handleDebugLog}
+                    inputParams={inputParams}
+                    onDurationReady={setAudioDuration}
+                  />
+                </div>
               )}
             </div>
 
-            <StatusPanel status={status} result={null} currentTime={currentTime} />
+            {/* 우측: 온도 차트 / 익스큐션 차트 — 스택 */}
+            <div id="charts-section" className="flex flex-col gap-3 min-h-0">
+              <div className="flex-1 min-h-0">
+                <TemperatureChart
+                  frames={streamingFrames}
+                  currentTime={currentTime}
+                  isActive={isActive}
+                  streaming
+                  audioDuration={audioDuration}
+                  onReactRender={handleReactRender}
+                  onEchartsRender={handleEchartsRender}
+                />
+              </div>
+              <div className="flex-1 min-h-0">
+                <ExcursionChart
+                  frames={streamingFrames}
+                  currentTime={currentTime}
+                  isActive={isActive}
+                  streaming
+                  audioDuration={audioDuration}
+                />
+              </div>
+            </div>
+
           </div>
 
-          {/* Input Parameters */}
-          <InputParameters values={inputParams} onChange={setInputParams} />
-
-          {/* Waveform player — 파일 모드에서만 */}
-          {inputMode === "file" && (
-            <WaveformPlayer
-              ref={waveformRef}
-              audioFile={audioFile}
-              status={status}
-              onTimeUpdate={(t: number) => { currentTimeRef.current = t; setCurrentTime(t); }}
-              onStatusChange={handleStatusChange}
-              onFrameReceived={handleFrameReceived}
-              onStreamStart={handleStreamStart}
-              onDebugUpdate={handleDebugUpdate}
-              onDebugLog={handleDebugLog}
-              inputParams={inputParams}
-            />
-          )}
-
-          {/* 디버그 패널 */}
+          {/* 디버그 패널 — 전체 폭 */}
           {showDebug && (
             <DebugPanel
               info={debugInfo}
@@ -675,24 +713,6 @@ export default function DashboardPage() {
               onMeasureToggle={handleMeasureToggle}
             />
           )}
-
-          {/* 실시간 차트 */}
-          <div id="charts-section" className="grid grid-cols-1 lg:grid-cols-2 gap-4 flex-1 min-h-0">
-            <TemperatureChart
-              frames={streamingFrames}
-              currentTime={currentTime}
-              isActive={isActive}
-              streaming
-              onReactRender={handleReactRender}
-              onEchartsRender={handleEchartsRender}
-            />
-            <ExcursionChart
-              frames={streamingFrames}
-              currentTime={currentTime}
-              isActive={isActive}
-              streaming
-            />
-          </div>
 
         </div>
       </main>

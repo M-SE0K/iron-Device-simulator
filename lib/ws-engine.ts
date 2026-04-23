@@ -3,7 +3,7 @@
  *
  * 메시지 프로토콜:
  *   Client→Server:  JSON { type: "init" | "pause" | "stop" }
- *                   Binary ArrayBuffer 1024 bytes (인터리브 PCM 프레임)
+ *                   Binary ArrayBuffer 1920 bytes (인터리브 PCM 프레임)
  *   Server→Client:  JSON { type: "ready" | "frame" | "error" }
  *
  * 터미널 로그 제어 환경변수:
@@ -21,11 +21,11 @@ import {
 } from "./logger";
 
 // ─── 처리 상수 ────────────────────────────────────────────────────────────────
-const SAMPLE_RATE      = 44100;
+const SAMPLE_RATE      = 48000;
 const CHANNELS         = 2;
 const BYTES_PER_SAMPLE = 2;
-const SAMPLES_PER_CH   = 256;
-const FRAME_BYTES      = SAMPLES_PER_CH * CHANNELS * BYTES_PER_SAMPLE; // 1024
+const SAMPLES_PER_CH   = 480;
+const FRAME_BYTES      = SAMPLES_PER_CH * CHANNELS * BYTES_PER_SAMPLE; // 1920
 const AMB_TEMP         = 25;
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -64,7 +64,7 @@ function powerTempMult(watt: number | null): number {
 // ─── PCM 변환: 인터리브(L R L R) → 플래너(LL...RR...) ───────────────────────
 function deinterleave(src: Buffer): Buffer {
   const dst           = Buffer.alloc(src.length);
-  const channelOffset = SAMPLES_PER_CH * BYTES_PER_SAMPLE; // 512
+  const channelOffset = SAMPLES_PER_CH * BYTES_PER_SAMPLE; // 960
   const sampleStride  = CHANNELS * BYTES_PER_SAMPLE;        // 4
 
   for (let ch = 0; ch < CHANNELS; ch++) {
@@ -118,7 +118,7 @@ export function handleWsConnection(ws: WebSocket): void {
 
   // 연결별 엔진 파라미터 (init 메시지에서 수신)
   let engineParams: EngineParams = { ampOutputPower: null, speakerModel: "" };
-  // 실제 샘플레이트 (마이크 모드에서 44100 이외 값 가능)
+  // 실제 샘플레이트 (마이크 모드에서 48000 이외 값 가능)
   let connSampleRate: number = SAMPLE_RATE;
 
   // Native 엔진 함수 참조 (USE_MOCK=false 시 사용)
@@ -150,7 +150,7 @@ export function handleWsConnection(ws: WebSocket): void {
   // ── 메시지 수신 ─────────────────────────────────────────────────────────────
   ws.on("message", (data: Buffer | string, isBinary: boolean) => {
 
-    // ┌─ Binary: PCM 프레임 1024 bytes ─────────────────────────────────────────
+    // ┌─ Binary: PCM 프레임 1920 bytes ─────────────────────────────────────────
     if (isBinary) {
       if (!initialized) return;
 
@@ -259,7 +259,7 @@ export function handleWsConnection(ws: WebSocket): void {
         ampOutputPower: isFinite(rawPower) && rawPower > 0 ? rawPower : null,
         speakerModel:   typeof msg.speakerModel === "string" ? msg.speakerModel : "",
       };
-      // 샘플레이트 (마이크 모드: 실제 값 전달, 파일 모드: 생략 → 기본값 44100)
+      // 샘플레이트 (마이크 모드: 실제 값 전달, 파일 모드: 생략 → 기본값 48000)
       const rawRate = typeof msg.sampleRate === "number" ? msg.sampleRate : 0;
       connSampleRate = rawRate > 0 ? rawRate : SAMPLE_RATE;
 

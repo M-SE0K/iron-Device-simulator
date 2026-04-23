@@ -13,9 +13,9 @@ let ws: WebSocket | null = null;
 let initPayload: WorkerInitPayload | null = null;
 
 let pcmBuffer: ArrayBuffer | null = null;
-let sampleRate = 44100;
-let samplesPerCh = 256;
-let frameBytes = 1024;
+let sampleRate = 48000;
+let samplesPerCh = 480;
+let frameBytes = 1920;
 let totalFrames = 0;
 
 let connected = false;

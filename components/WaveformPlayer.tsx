@@ -7,9 +7,16 @@ import { AppStatus, AnalysisFrame, StreamDebugInfo, DebugLogEntry } from "@/lib/
 import type { InputParameterValues } from "./InputParameters";
 
 // ─── PCM 처리 상수 ────────────────────────────────────────────────────────────
-const SAMPLE_RATE    = 44100;
-const SAMPLES_PER_CH = 256;
-const FRAME_BYTES    = SAMPLES_PER_CH * 2 * 2; // 256 samples × 2ch × 2 bytes = 1024
+const SAMPLE_RATE    = 48000;
+const SAMPLES_PER_CH = 480;
+const FRAME_BYTES    = SAMPLES_PER_CH * 2 * 2; // 480 samples × 2ch × 2 bytes = 1920
+
+// ─── 카드 내부 비율 (%) — 자유롭게 조절 ──────────────────────────────────────
+// header(타이틀 영역) + body(파형 + 컨트롤) = 100
+const WAVEFORM_BODY_PERCENT   = 80;        // body가 차지할 카드 높이 비율
+const WAVEFORM_HEADER_PERCENT = 100 - WAVEFORM_BODY_PERCENT;
+// 'auto' = body 영역에 자동으로 맞춤. 숫자(px)로 고정 높이 지정도 가능.
+const WAVEFORM_CANVAS_HEIGHT: number | "auto" = "auto";
 
 interface Props {
   audioFile: File | null;
@@ -26,6 +33,8 @@ interface Props {
   onDebugLog?: (entry: DebugLogEntry) => void;
   /** AMP 출력 전력 / 스피커 모델 파라미터 */
   inputParams?: InputParameterValues;
+  /** 오디오 총 길이 확정 시 콜백 (초 단위) */
+  onDurationReady?: (duration: number) => void;
 }
 
 // ─── WebSocket URL 생성 (SSR 안전) ───────────────────────────────────────────
@@ -61,6 +70,7 @@ const WaveformPlayer = forwardRef<WaveformPlayerHandle, Props>(function Waveform
   onDebugUpdate,
   onDebugLog,
   inputParams,
+  onDurationReady,
 }: Props, ref) {
   const containerRef    = useRef<HTMLDivElement>(null);
   const wavesurferRef   = useRef<import("wavesurfer.js").default | null>(null);
@@ -236,7 +246,7 @@ const WaveformPlayer = forwardRef<WaveformPlayerHandle, Props>(function Waveform
         barWidth:      2,
         barGap:        1,
         barRadius:     2,
-        height:        72,
+        height:        WAVEFORM_CANVAS_HEIGHT,
         normalize:     true,
         interact:      true,
       });
@@ -246,6 +256,7 @@ const WaveformPlayer = forwardRef<WaveformPlayerHandle, Props>(function Waveform
         setDuration(dur);
         setIsReady(true);
         onStatusChange("ready");
+        onDurationReady?.(dur);
       });
 
       ws.on("timeupdate", (time) => {
@@ -469,8 +480,12 @@ const WaveformPlayer = forwardRef<WaveformPlayerHandle, Props>(function Waveform
   const progress  = duration > 0 ? (currentTime / duration) * 100 : 0;
 
   return (
-    <div id="waveform-player" className="card">
-      <div className="card-header">
+    <div id="waveform-player" className="card h-full flex flex-col overflow-hidden">
+      {/* 카드 헤더 — 비율: WAVEFORM_HEADER_PERCENT% */}
+      <div
+        className="card-header shrink-0"
+        style={{ height: `${WAVEFORM_HEADER_PERCENT}%` }}
+      >
         <span className="card-title">Waveform</span>
         {isReady && (
           <span id="waveform-time-display" className="font-mono text-xs text-iron-400">
@@ -479,14 +494,18 @@ const WaveformPlayer = forwardRef<WaveformPlayerHandle, Props>(function Waveform
         )}
       </div>
 
-      <div className="waveform-body p-4 space-y-4">
-        {/* WaveSurfer 캔버스 */}
+      {/* 카드 바디 — 비율: WAVEFORM_BODY_PERCENT% */}
+      <div
+        className="waveform-body p-4 flex flex-col gap-3 min-h-0 overflow-hidden"
+        style={{ height: `${WAVEFORM_BODY_PERCENT}%` }}
+      >
+        {/* WaveSurfer 캔버스 — body 안에서 남는 공간을 모두 차지 */}
         <div
           id="waveform-canvas"
           ref={containerRef}
           className={cn(
-            "w-full rounded-lg bg-iron-50 overflow-hidden",
-            !audioFile && "flex items-center justify-center h-[72px]"
+            "w-full flex-1 min-h-0 rounded-lg bg-iron-50 overflow-hidden",
+            !audioFile && "flex items-center justify-center"
           )}
         >
           {!audioFile && (
@@ -496,7 +515,7 @@ const WaveformPlayer = forwardRef<WaveformPlayerHandle, Props>(function Waveform
 
         {/* 진행 바 */}
         {isReady && (
-          <div id="playback-progress-track" className="h-1 bg-iron-100 rounded-full overflow-hidden">
+          <div id="playback-progress-track" className="h-1 bg-iron-100 rounded-full overflow-hidden shrink-0">
             <div
               id="playback-progress-fill"
               className="h-full bg-brand-blue transition-all duration-100"
@@ -505,8 +524,8 @@ const WaveformPlayer = forwardRef<WaveformPlayerHandle, Props>(function Waveform
           </div>
         )}
 
-        {/* 재생 컨트롤 */}
-        <div id="player-controls" className="flex items-center gap-2">
+        {/* 재생 컨트롤 + 현재 재생 시간 */}
+        <div id="player-controls" className="flex items-center gap-2 shrink-0">
           <button
             id="play-pause-btn"
             onClick={handlePlayPause}
@@ -535,6 +554,18 @@ const WaveformPlayer = forwardRef<WaveformPlayerHandle, Props>(function Waveform
           >
             <Square size={14} />
           </button>
+
+          {/* 현재 재생 시간 — 큰 표시 */}
+          <span
+            id="playback-time"
+            className={cn(
+              "ml-3 font-mono text-base font-semibold tabular-nums",
+              isReady ? "text-iron-800" : "text-iron-300"
+            )}
+          >
+            {formatTime(currentTime)}
+            <span className="text-iron-400 font-normal"> / {formatTime(duration)}</span>
+          </span>
 
           {/* 스트리밍 연결 상태 표시 */}
           {isReady && (

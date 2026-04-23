@@ -32,7 +32,7 @@ export default function AudioUploader({ status, onFileSelected, onReset, selecte
 
   if (selectedFile) {
     return (
-      <div id="audio-uploader" className="audio-file-preview card p-4 flex items-center gap-3">
+      <div id="audio-uploader" className="audio-file-preview card h-full p-4 flex items-center gap-3">
         <div className="file-icon-wrapper w-9 h-9 rounded-lg bg-brand-blue/10 flex items-center justify-center shrink-0">
           <FileAudio size={18} className="text-brand-blue" />
         </div>
@@ -63,7 +63,7 @@ export default function AudioUploader({ status, onFileSelected, onReset, selecte
       onDragLeave={() => setIsDragging(false)}
       onDrop={handleDrop}
       className={cn(
-        "card p-8 flex flex-col items-center justify-center gap-3 cursor-pointer transition-all select-none",
+        "card h-full p-8 flex flex-col items-center justify-center gap-3 cursor-pointer transition-all select-none",
         "border-2 border-dashed",
         isDragging
           ? "border-brand-blue bg-brand-blue/5"

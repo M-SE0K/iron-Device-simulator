@@ -1,7 +1,7 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import { useMemo, useLayoutEffect, useRef, useCallback, useState } from "react";
+import { useMemo, useLayoutEffect, useRef, useCallback, useState, useEffect } from "react";
 import { Thermometer } from "lucide-react";
 import { AnalysisFrame } from "@/lib/types";
 import { findFrameIndex } from "@/lib/utils";
@@ -17,6 +17,8 @@ interface Props {
   isActive: boolean;
   /** true: 스트리밍 append 모드 — 마지막 N 프레임 슬라이딩 윈도우 */
   streaming?: boolean;
+  /** 오디오 총 길이(초) — 설정 시 X축을 [0, audioDuration]으로 고정 */
+  audioDuration?: number | null;
   /** React 렌더 완료 시각 콜백 (useLayoutEffect) */
   onReactRender?: (ts: number) => void;
   /** ECharts 캔버스 드로우 완료 시각 콜백 */
@@ -34,8 +36,13 @@ const CH_COLOR: Record<ChannelMode, { ch0: string; ch1: string }> = {
   Both: { ch0: "#0057B8", ch1: "#7C3AED" },
 };
 
-export default function TemperatureChart({ frames, currentTime, isActive, streaming = false, onReactRender, onEchartsRender }: Props) {
+export default function TemperatureChart({ frames, currentTime, isActive, streaming = false, audioDuration, onReactRender, onEchartsRender }: Props) {
   const [channelMode, setChannelMode] = useState<ChannelMode>("Both");
+
+  // ── 줌 상태 보존 — ref로 관리해서 렌더 유발 없이 option에 반영 ────────────
+  const zoomRef = useRef({ start: 0, end: 100 });
+  // 새 파일 로드(audioDuration 변경) 시 줌 초기화
+  useEffect(() => { zoomRef.current = { start: 0, end: 100 }; }, [audioDuration]);
 
   // ── React 렌더 완료 시각 측정 ────────────────────────────────────────────
   const prevFrameLenRef = useRef(0);
@@ -46,13 +53,21 @@ export default function TemperatureChart({ frames, currentTime, isActive, stream
     }
   });
 
-  // ── ECharts rendered 이벤트 핸들러 ──────────────────────────────────────
-  const echartsEvents = useRef<Record<string, () => void>>({});
+  // ── ECharts 이벤트 핸들러 ────────────────────────────────────────────────
+  const echartsEvents = useRef<Record<string, (...args: unknown[]) => void>>({});
   echartsEvents.current = {
     rendered: useCallback(() => {
       if (streaming && frames.length > 0) onEchartsRender?.(performance.now());
     // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [streaming, frames.length, onEchartsRender]),
+    // datazoom 이벤트에서 현재 줌 상태를 ref에 저장
+    datazoom: useCallback((params: unknown) => {
+      const p = params as { batch?: Array<{ start?: number; end?: number }>; start?: number; end?: number };
+      const src = p.batch?.[0] ?? p;
+      if (src.start !== undefined && src.end !== undefined) {
+        zoomRef.current = { start: src.start, end: src.end };
+      }
+    }, []),
   };
 
   // ── 현재 값 & 윈도우 계산 ────────────────────────────────────────────────
@@ -62,9 +77,11 @@ export default function TemperatureChart({ frames, currentTime, isActive, stream
     }
 
     if (streaming) {
-      const window    = frames.slice(-WINDOW_SIZE);
-      const lastFrame = frames[frames.length - 1];
-      return { currentTemp: lastFrame?.temperature ?? null, windowFrames: window };
+      // audioDuration이 설정된 경우(파일 모드): 전체 누적 프레임을 그대로 사용
+      // 설정되지 않은 경우(마이크 모드): 최근 WINDOW_SIZE 프레임만 유지
+      const windowFrames = audioDuration != null ? frames : frames.slice(-WINDOW_SIZE);
+      const lastFrame    = frames[frames.length - 1];
+      return { currentTemp: lastFrame?.temperature ?? null, windowFrames };
     } else {
       const frameIdx = findFrameIndex(frames.map((f) => f.time), currentTime);
       const temp     = frameIdx >= 0 ? frames[frameIdx]?.temperature ?? null : null;
@@ -90,6 +107,7 @@ export default function TemperatureChart({ frames, currentTime, isActive, stream
   // ── ECharts 옵션 ─────────────────────────────────────────────────────────
   const option = useMemo(() => {
     const colors = CH_COLOR[channelMode];
+    const { start, end } = zoomRef.current; // 현재 줌 상태 (ref → 렌더 유발 없음)
 
     const seriesL = {
       name: "L (ch0)",
@@ -148,9 +166,18 @@ export default function TemperatureChart({ frames, currentTime, isActive, stream
         ? { top: "auto", bottom: 56, textStyle: { color: "#A4AABA", fontSize: 10 } }
         : { show: false },
       dataZoom: [
-        { type: "inside", xAxisIndex: 0, filterMode: "filter" },
+        {
+          type: "inside",
+          xAxisIndex: 0,
+          filterMode: "filter",
+          start, end,             // 저장된 줌 상태 유지
+          zoomOnMouseWheel: true,
+          moveOnMouseMove: true,
+          moveOnMouseWheel: false,
+        },
         {
           type: "slider", xAxisIndex: 0, height: 16, bottom: 4,
+          start, end,             // 슬라이더도 동기화
           borderColor: "#E8EAF0", backgroundColor: "#F5F6F8",
           fillerColor: "rgba(0,87,184,0.12)",
           handleStyle: { color: "#0057B8", borderColor: "#0057B8" },
@@ -161,8 +188,9 @@ export default function TemperatureChart({ frames, currentTime, isActive, stream
       ],
       xAxis: {
         type: "value",
-        min: windowFrames[0]?.time ?? 0,
-        max: windowFrames[windowFrames.length - 1]?.time ?? 10,
+        // audioDuration이 있으면 [0, 총길이]로 고정 — 없으면 데이터 범위에 따라 동적
+        min: audioDuration != null ? 0 : (windowFrames[0]?.time ?? 0),
+        max: audioDuration != null ? audioDuration : (windowFrames[windowFrames.length - 1]?.time ?? 10),
         axisLabel: { formatter: (v: number) => `${v.toFixed(2)}s`, color: "#A4AABA", fontSize: 10 },
         axisLine: { lineStyle: { color: "#E8EAF0" } },
         splitLine: { lineStyle: { color: "#F5F6F8" } },
@@ -190,7 +218,9 @@ export default function TemperatureChart({ frames, currentTime, isActive, stream
         },
       },
     };
-  }, [windowFrames, channelMode]);
+  }, [windowFrames, channelMode, audioDuration]);
+
+  const showChart = audioDuration != null || frames.length > 0;
 
   return (
     <div id="temperature-chart" className="card flex flex-col h-full">
@@ -235,11 +265,12 @@ export default function TemperatureChart({ frames, currentTime, isActive, stream
       </div>
 
       <div className="chart-body flex-1 p-2 min-h-[180px]">
-        {frames.length > 0 ? (
+        {showChart ? (
           <ReactECharts
+            key={channelMode}
             option={option}
             style={{ height: "100%", width: "100%" }}
-            notMerge
+            notMerge={false}
             onEvents={echartsEvents.current}
           />
         ) : (

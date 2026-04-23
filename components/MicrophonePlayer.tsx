@@ -6,8 +6,8 @@ import { AppStatus, AnalysisFrame, StreamDebugInfo, DebugLogEntry } from "@/lib/
 import type { InputParameterValues } from "./InputParameters";
 
 // ─── 처리 상수 ────────────────────────────────────────────────────────────────
-const SAMPLES_PER_CH = 256;
-const FRAME_BYTES    = SAMPLES_PER_CH * 2 * 2; // 1024 bytes
+const SAMPLES_PER_CH = 480;
+const FRAME_BYTES    = SAMPLES_PER_CH * 2 * 2; // 1920 bytes
 
 interface Props {
   status: AppStatus;
@@ -99,7 +99,7 @@ export default function MicrophonePlayer({
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: {
           channelCount:     2,
-          sampleRate:       { ideal: 44100 },
+          sampleRate:       { ideal: 48000 },
           echoCancellation: false,  // 스피커 보호 분석 — 원음 필요
           noiseSuppression: false,
           autoGainControl:  false,
