@@ -142,6 +142,8 @@ export interface MeasurementExport {
   frames: DebugLogEntry[];
   /** 정책 적용 전 수신된 모든 raw 프레임 (충실도 MAE 계산용 기준값) */
   rawFrames: { time: number; temperature: [number, number]; excursion: [number, number] }[];
+  /** 실제 화면에 렌더링된 프레임 시퀀스 (코얼레싱 정책 적용 후) */
+  renderedFrames: { time: number; temperature: [number, number]; excursion: [number, number] }[];
 }
 
 export interface StreamDebugInfo {

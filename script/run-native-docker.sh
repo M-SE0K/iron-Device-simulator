@@ -13,11 +13,12 @@ echo "▶ Docker 이미지 빌드 중..."
 docker build --platform linux/amd64 -t "$IMAGE" "$PROJECT_ROOT"
 
 echo ""
-echo "▶ 컨테이너 실행 중 (Native 모드, port 3000)..."
+echo "▶ 컨테이너 실행 중 (Native 모드, port 3001)..."
 docker run \
   --platform linux/amd64 \
-  -p 3000:3000 \
+  -p 3001:3000 \
   -e USE_MOCK=false \
+  -e USE_QUEUE="${USE_QUEUE:-true}" \
   -e SO_PATH="$SO_CONTAINER" \
   -v "$SO_HOST":"$SO_CONTAINER" \
   "$IMAGE"
