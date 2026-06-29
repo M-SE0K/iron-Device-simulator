@@ -50,10 +50,7 @@ COPY --from=builder /app/public ./public
 
 # 커스텀 서버 + 라이브러리 소스 (tsx로 실행)
 COPY --from=builder /app/server.ts ./
-COPY --from=builder /app/lib/ws-engine.ts ./lib/
-COPY --from=builder /app/lib/types.ts ./lib/
-COPY --from=builder /app/lib/logger.ts ./lib/
-COPY --from=builder /app/lib/utils.ts ./lib/
+COPY --from=builder /app/lib ./lib/
 
 # 설정 파일
 COPY --from=builder /app/next.config.ts ./
