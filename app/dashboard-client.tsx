@@ -8,7 +8,6 @@ import MicrophonePlayer from "@/components/MicrophonePlayer";
 import TemperatureChart from "@/components/TemperatureChart";
 import ExcursionChart from "@/components/ExcursionChart";
 import { AppStatus, AnalysisFrame, StreamDebugInfo, DebugLogEntry, MeasurementExport } from "@/lib/types";
-import DebugPanel from "@/components/DebugPanel";
 import InputParameters, { InputParameterValues } from "@/components/InputParameters";
 import { cn } from "@/lib/utils";
 
@@ -20,27 +19,18 @@ export default function DashboardPage({ useQueue }: { useQueue: boolean }) {
   const [errorMsg, setErrorMsg]               = useState<string | null>(null);
   const [streamingFrames, setStreamingFrames] = useState<AnalysisFrame[]>([]);
 
-  const [debugInfo, setDebugInfo] = useState<StreamDebugInfo>({
-    wsConnected: false, framesSent: 0, framesReceived: 0,
-    latestRttMs: null, avgRttMs: null, minRttMs: null, maxRttMs: null,
-    serverProcessingMs: null, sendRateFps: null,
-    reactRenderMs: null, echartsRenderMs: null,
-    totalRecvRenderMs: null, totalE2eMs: null,
-    freshnessLagMs: null, streamingFramesLen: 0,
-    outputQueueLen: 0, sourceCount: 0, droppedFrames: 0, renderUpdateRate: null,
-    preservedEvents: 0,
-  });
-  const [showDebug, setShowDebug] = useState(false);
-  const [debugLogs, setDebugLogs] = useState<DebugLogEntry[]>([]);
   const [inputParams, setInputParams] = useState<InputParameterValues>({
     ampOutputPower: "",
     speakerModel: "",
   });
   const [inputMode, setInputMode] = useState<"file" | "mic">("file");
 
-  // 프레임마다 setState 방지 — ref에 누적 후 100ms마다 flush
-  const pendingLogsRef = useRef<DebugLogEntry[]>([]);
-  const MAX_LOG_ENTRIES = 500;
+  // ── 분석 모드: realtime(실시간 추적) / batch(분석 후 렌더) ──────────────────
+  const [analysisMode, setAnalysisMode]   = useState<"realtime" | "batch">("realtime");
+  const [isAnalyzing, setIsAnalyzing]     = useState(false);
+  const [batchProgress, setBatchProgress] = useState<{ done: number; total: number }>({ done: 0, total: 0 });
+  // 배치 분석으로 산출한 전체 output frame 시퀀스 (Reference / fidelity ground-truth)
+  const referenceFramesRef = useRef<AnalysisFrame[]>([]);
 
   // ── WaveformPlayer ref (sendMessage 접근용) ──────────────────────────────
   const waveformRef = useRef<WaveformPlayerHandle>(null);
@@ -221,8 +211,6 @@ export default function DashboardPage({ useQueue }: { useQueue: boolean }) {
     setAudioFile(file);
     setAudioDuration(null);
     setStreamingFrames([]);
-    setDebugLogs([]);
-    pendingLogsRef.current = [];
     setCurrentTime(0);
     setStatus("idle");
     setErrorMsg(null);
@@ -230,14 +218,15 @@ export default function DashboardPage({ useQueue }: { useQueue: boolean }) {
     setIsMeasuring(false);
     measureLogsRef.current = [];
     setMeasureFrameCount(0);
+    referenceFramesRef.current = [];
+    setBatchProgress({ done: 0, total: 0 });
+    setIsAnalyzing(false);
   }, []);
 
   const handleReset = useCallback(() => {
     setAudioFile(null);
     setAudioDuration(null);
     setStreamingFrames([]);
-    setDebugLogs([]);
-    pendingLogsRef.current = [];
     setCurrentTime(0);
     setStatus("idle");
     setErrorMsg(null);
@@ -245,14 +234,15 @@ export default function DashboardPage({ useQueue }: { useQueue: boolean }) {
     setIsMeasuring(false);
     measureLogsRef.current = [];
     setMeasureFrameCount(0);
+    referenceFramesRef.current = [];
+    setBatchProgress({ done: 0, total: 0 });
+    setIsAnalyzing(false);
   }, []);
 
   const handleInputModeChange = useCallback((mode: "file" | "mic") => {
     setInputMode(mode);
     setAudioDuration(null);
     setStreamingFrames([]);
-    setDebugLogs([]);
-    pendingLogsRef.current = [];
     setCurrentTime(0);
     setStatus("idle");
     setErrorMsg(null);
@@ -272,6 +262,80 @@ export default function DashboardPage({ useQueue }: { useQueue: boolean }) {
     eventLogRef.current        = [];
     prevTempRef.current        = null;
   }, []);
+
+  // ── JSON 다운로드 헬퍼 ────────────────────────────────────────────────────
+  const downloadJson = useCallback((obj: unknown, filename: string) => {
+    const blob = new Blob([JSON.stringify(obj, null, 2)], { type: "application/json" });
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement("a");
+    a.href     = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }, []);
+
+  // ── 분석 모드 전환 ────────────────────────────────────────────────────────
+  const handleAnalysisModeChange = useCallback((mode: "realtime" | "batch") => {
+    setAnalysisMode(mode);
+    setStreamingFrames([]);
+    referenceFramesRef.current = [];
+    setBatchProgress({ done: 0, total: 0 });
+    setCurrentTime(0);
+    setErrorMsg(null);
+  }, []);
+
+  // ── 배치 분석 실행: 전체 PCM 분석 → 전체 곡선 한 번에 렌더 ──────────────────
+  const handleRunBatch = useCallback(async () => {
+    const player = waveformRef.current;
+    if (!player) return;
+    setErrorMsg(null);
+    setIsAnalyzing(true);
+    setStatus("analyzing");
+    setStreamingFrames([]);
+    setBatchProgress({ done: 0, total: 0 });
+    try {
+      const frames = await player.runBatchAnalysis((done, total) => setBatchProgress({ done, total }));
+      referenceFramesRef.current = frames;
+      setStreamingFrames(frames);
+      setStatus("ready");
+    } catch (err) {
+      console.error("[Dashboard] 배치 분석 실패:", err);
+      setErrorMsg(`배치 분석 실패: ${err instanceof Error ? err.message : String(err)}`);
+      setStatus("error");
+    } finally {
+      setIsAnalyzing(false);
+    }
+  }, []);
+
+  // ── Reference(전체 output frame 시퀀스) JSON 저장 ──────────────────────────
+  const handleExportReference = useCallback(() => {
+    const frames = referenceFramesRef.current;
+    if (frames.length === 0) return;
+    const timestamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
+    downloadJson(
+      {
+        meta: {
+          recordedAt:  new Date().toISOString(),
+          audioFile:   audioFile?.name ?? null,
+          sampleRate:  48000,
+          frameCount:  frames.length,
+          durationSec: audioDuration ?? (frames.length > 0 ? frames[frames.length - 1].time : 0),
+          engineParams: {
+            ampOutputPower: inputParams.ampOutputPower,
+            speakerModel:   inputParams.speakerModel,
+          },
+        },
+        frames: frames.map((f) => ({
+          time:        f.time,
+          temperature: f.temperature,
+          excursion:   f.excursion,
+        })),
+      },
+      `iron-device-reference-${timestamp}.json`,
+    );
+  }, [audioFile, audioDuration, inputParams, downloadJson]);
 
   // ── Step 2: Bounded State Window ─────────────────────────────────────────
   // 16ms 렌더 인터벌 기준 ~62fps → 200,000 ≈ 53분 분량의 여유
@@ -487,14 +551,11 @@ export default function DashboardPage({ useQueue }: { useQueue: boolean }) {
   const handleDebugUpdate = useCallback((info: Partial<StreamDebugInfo>) => {
     if (info.latestRttMs !== undefined)       { latestRttRef.current = info.latestRttMs; latestRttMsRef.current = info.latestRttMs; }
     if (info.serverProcessingMs !== undefined) latestSrvProcMsRef.current = info.serverProcessingMs;
-    setDebugInfo((prev) => ({ ...prev, ...info }));
   }, []);
 
   // ── React 렌더 완료 콜백 (TemperatureChart useLayoutEffect에서 호출) ──────
   const handleReactRender = useCallback((ts: number) => {
     reactRenderAtRef.current = ts;
-    const reactMs = parseFloat((ts - frameRecvAtRef.current).toFixed(2));
-    setDebugInfo((prev) => ({ ...prev, reactRenderMs: reactMs }));
   }, []);
 
   // ── ECharts 렌더 완료 콜백 (TemperatureChart onEvents rendered에서 호출) ──
@@ -519,23 +580,6 @@ export default function DashboardPage({ useQueue }: { useQueue: boolean }) {
     if (isMeasuringRef.current && freshnessLagMs !== null) {
       renderFreshnessLogsRef.current.push(freshnessLagMs);
     }
-
-    setDebugInfo((prev) => ({
-      ...prev,
-      reactRenderMs:     reactMs,
-      echartsRenderMs:   echartsMs,
-      totalRecvRenderMs: totalRecvMs,
-      totalE2eMs,
-      freshnessLagMs,
-      streamingFramesLen: streamingLenRef.current,
-      outputQueueLen:    outputQueueRef.current.length,
-      sourceCount:       sourceCountSumRef.current > 0 && renderTickCountRef.current > 0
-        ? parseFloat((sourceCountSumRef.current / renderTickCountRef.current).toFixed(1))
-        : 0,
-      droppedFrames:     droppedFramesRef.current,
-      renderUpdateRate:  renderUpdateRateRef.current,
-      preservedEvents:   preservedEventsRef.current,
-    }));
 
     // ── 서버로 metrics 역전송 (METRICS_INTERVAL마다 1회) ─────────────────────
     metricsCountRef.current++;
@@ -583,26 +627,11 @@ export default function DashboardPage({ useQueue }: { useQueue: boolean }) {
       totalRecvRenderMs: m.totalRecvMs,
       freshnessLagMs:    freshLag,
     };
-    pendingLogsRef.current.push(enriched);
     // 측정 모드: 제한 없이 별도 버퍼에 누적
     if (isMeasuringRef.current) {
       measureLogsRef.current.push(enriched);
     }
   }, []);
-
-  // ── 100ms마다 pending 로그 flush ──────────────────────────────────────────
-  useEffect(() => {
-    if (!showDebug) return;
-    const timer = setInterval(() => {
-      if (pendingLogsRef.current.length === 0) return;
-      setDebugLogs((prev) => {
-        const next = [...prev, ...pendingLogsRef.current];
-        pendingLogsRef.current = [];
-        return next.length > MAX_LOG_ENTRIES ? next.slice(-MAX_LOG_ENTRIES) : next;
-      });
-    }, 100);
-    return () => clearInterval(timer);
-  }, [showDebug]);
 
   // ── 상태 변경 ─────────────────────────────────────────────────────────────
   const handleStatusChange = useCallback((s: AppStatus) => {
@@ -612,7 +641,9 @@ export default function DashboardPage({ useQueue }: { useQueue: boolean }) {
     }
   }, []);
 
-  const isActive  = status === "playing" || status === "paused";
+  // 배치 모드: 분석 완료 후(재생 전)에도 전체 곡선을 표시해야 하므로 frames 존재 시 active
+  const isActive  = status === "playing" || status === "paused"
+    || (analysisMode === "batch" && streamingFrames.length > 0);
 
   return (
     <div id="dashboard-root" className="flex flex-col h-screen overflow-hidden">
@@ -651,17 +682,6 @@ export default function DashboardPage({ useQueue }: { useQueue: boolean }) {
                   ))}
                   <div className="ml-auto flex gap-1.5">
                     <button
-                      onClick={() => setShowDebug((v) => !v)}
-                      className={`px-2 py-1 rounded border transition-all ${
-                        showDebug
-                          ? "bg-[#0d1117] text-green-400 border-green-700"
-                          : "bg-iron-50 text-iron-400 border-iron-200 hover:border-iron-400"
-                      }`}
-                      title="레이턴시 디버그 패널 토글"
-                    >
-                      {showDebug ? "DEBUG ON" : "DEBUG"}
-                    </button>
-                    <button
                       onClick={handleMeasureToggle}
                       className={`px-2 py-1 rounded border transition-all ${
                         isMeasuring
@@ -674,6 +694,67 @@ export default function DashboardPage({ useQueue }: { useQueue: boolean }) {
                     </button>
                   </div>
                 </div>
+
+                {/* 분석 모드 토글 + 배치 컨트롤 (파일 모드 전용) */}
+                {inputMode === "file" && (
+                  <div className="flex items-center gap-1.5 text-xs font-mono shrink-0">
+                    {([
+                      { key: "realtime", label: "실시간 추적" },
+                      { key: "batch",    label: "분석 후 렌더" },
+                    ] as const).map((m) => (
+                      <button
+                        key={m.key}
+                        onClick={() => handleAnalysisModeChange(m.key)}
+                        disabled={isAnalyzing}
+                        className={cn(
+                          "px-2.5 py-1 rounded border transition-all",
+                          analysisMode === m.key
+                            ? "bg-iron-800 text-white border-iron-800"
+                            : "text-iron-400 border-iron-200 hover:border-iron-400",
+                          isAnalyzing && "opacity-50 cursor-not-allowed",
+                        )}
+                      >
+                        {m.label}
+                      </button>
+                    ))}
+
+                    {analysisMode === "batch" && (
+                      <div className="ml-auto flex items-center gap-1.5">
+                        {isAnalyzing && batchProgress.total > 0 && (
+                          <span className="text-iron-400 tabular-nums">
+                            {batchProgress.done}/{batchProgress.total}
+                          </span>
+                        )}
+                        <button
+                          onClick={handleRunBatch}
+                          disabled={!audioFile || isAnalyzing}
+                          className={cn(
+                            "px-2.5 py-1 rounded border transition-all",
+                            !audioFile || isAnalyzing
+                              ? "text-iron-300 border-iron-200 cursor-not-allowed"
+                              : "bg-brand-blue text-white border-brand-blue hover:bg-brand-blue-dark",
+                          )}
+                          title="전체 음원을 한 번에 분석하여 차트에 렌더링"
+                        >
+                          {isAnalyzing ? "분석 중…" : "분석 시작"}
+                        </button>
+                        <button
+                          onClick={handleExportReference}
+                          disabled={referenceFramesRef.current.length === 0}
+                          className={cn(
+                            "px-2 py-1 rounded border transition-all",
+                            referenceFramesRef.current.length === 0
+                              ? "text-iron-300 border-iron-200 cursor-not-allowed"
+                              : "bg-iron-50 text-iron-500 border-iron-200 hover:border-iron-400",
+                          )}
+                          title="분석된 전체 output frame 시퀀스를 Reference JSON으로 저장"
+                        >
+                          REF JSON
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                )}
 
                 <div className="flex-1 min-h-0 min-w-0">
                   {inputMode === "file" ? (
@@ -720,6 +801,7 @@ export default function DashboardPage({ useQueue }: { useQueue: boolean }) {
                     onDebugLog={handleDebugLog}
                     inputParams={inputParams}
                     onDurationReady={setAudioDuration}
+                    enableStreaming={analysisMode === "realtime"}
                   />
                 </div>
               )}
@@ -750,17 +832,6 @@ export default function DashboardPage({ useQueue }: { useQueue: boolean }) {
             </div>
 
           </div>
-
-          {/* 디버그 패널 — 전체 폭 */}
-          {showDebug && (
-            <DebugPanel
-              info={debugInfo}
-              logs={debugLogs}
-              isMeasuring={isMeasuring}
-              measureFrameCount={measureFrameCount}
-              onMeasureToggle={handleMeasureToggle}
-            />
-          )}
 
         </div>
       </main>

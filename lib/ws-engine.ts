@@ -111,6 +111,71 @@ function mockFrame(time: number, params: EngineParams): { temperature: [number, 
   return { temperature: [temp0, temp1], excursion: [exc0, exc1] };
 }
 
+// ─── 단일 프레임 분석 (재생/소켓 경로와 무관한 순수 분석 함수) ────────────────
+// 실시간 스트리밍 경로와 배치 분석 경로가 공유한다.
+// native가 null이면 mock 모드, NativeFns가 주어지면 native 모드.
+interface NativeFns {
+  fnStartExec: (...args: unknown[]) => number;
+}
+
+interface FrameResult {
+  temperature: [number, number];
+  excursion:   [number, number];
+  processingMs: number;
+  /** native 모드 디버그용 raw 값 [T0, T1, E0, E1] */
+  raw?: [number, number, number, number];
+}
+
+function analyzeFrame(
+  pcm:    Buffer,
+  time:   number,
+  params: EngineParams,
+  native: NativeFns | null,
+): FrameResult {
+  const t0 = performance.now();
+
+  // ── Mock 경로 ──────────────────────────────────────────────────────────────
+  if (!native) {
+    const { temperature, excursion } = mockFrame(time, params);
+    return { temperature, excursion, processingMs: parseFloat((performance.now() - t0).toFixed(3)) };
+  }
+
+  // ── Native 경로 ────────────────────────────────────────────────────────────
+  // 1) de-interleave: LR LR LR → LL...RR...
+  const planar     = deinterleave(pcm.subarray(0, FRAME_BYTES));
+  const spkTempBuf = Buffer.alloc(8); // int32_t[2]
+  const spkExcBuf  = Buffer.alloc(8); // int32_t[2]
+
+  // 2) ff_prot_start_exec 호출 (예외는 호출자에서 처리)
+  native.fnStartExec(planar, SAMPLES_PER_CH, BYTES_PER_SAMPLE, CHANNELS, AMB_TEMP, spkTempBuf, spkExcBuf);
+
+  // ff_prot_set_param은 NOP이므로 파라미터를 출력에 후처리 스케일로 적용 -> 추후 라이브러리 제공하면 수정 필요함.
+  // so_report.md §10 참고: K, Mms_x_K 등 전역변수 직접 주입 없이 스케일 근사 -> 추후 라이브러리 제공하면 수정 필요함.
+  const profile  = SPEAKER_PROFILES[params.speakerModel] ?? DEFAULT_PROFILE;
+  const pwrScale = powerTempMult(params.ampOutputPower);
+
+  const rawTemp0 = spkTempBuf.readInt32LE(0);
+  const rawTemp1 = spkTempBuf.readInt32LE(4);
+  const rawExc0  = spkExcBuf.readInt32LE(0);
+  const rawExc1  = spkExcBuf.readInt32LE(4);
+
+  const temperature: [number, number] = [
+    Math.round(rawTemp0 * profile.tempMult * pwrScale),
+    Math.round(rawTemp1 * profile.tempMult * pwrScale),
+  ];
+  const excursion: [number, number] = [
+    Math.round(rawExc0 * profile.excMult),
+    Math.round(rawExc1 * profile.excMult),
+  ];
+
+  return {
+    temperature,
+    excursion,
+    processingMs: parseFloat((performance.now() - t0).toFixed(3)),
+    raw: [rawTemp0, rawTemp1, rawExc0, rawExc1],
+  };
+}
+
 // ─── WebSocket 연결 핸들러 ────────────────────────────────────────────────────
 export function handleWsConnection(ws: WebSocket): void {
   let initialized = false;
@@ -161,75 +226,35 @@ export function handleWsConnection(ws: WebSocket): void {
       const time = parseFloat(((currentFrame * SAMPLES_PER_CH) / connSampleRate).toFixed(4));
       frameCount++;
 
-      const t0 = performance.now();
+      // 실시간/배치 공통 분석 함수 호출 (mock=null, native=fnStartExec 주입)
+      let result: FrameResult;
+      try {
+        result = analyzeFrame(pcm, time, engineParams, USE_MOCK ? null : { fnStartExec: fnStartExec! });
+      } catch (err) {
+        logError("ff_prot_start_exec", err);
+        send({ type: "error", message: `ff_prot_start_exec 오류: ${err}` });
+        return;
+      }
 
-      if (USE_MOCK) {
-        // ── Mock 경로 ──────────────────────────────────────────────────────────
-        const { temperature, excursion } = mockFrame(time, engineParams);
-        const processingMs = parseFloat((performance.now() - t0).toFixed(3));
+      const { temperature, excursion, processingMs } = result;
+      send({ type: "frame", time, temperature, excursion, processingMs });
 
-        send({ type: "frame", time, temperature, excursion, processingMs });
-
-        if (shouldLogFrame(currentFrame)) {
+      if (shouldLogFrame(currentFrame)) {
+        if (USE_MOCK) {
           logFrame(currentFrame, processingMs, temperature[0], excursion[0], "mock");
           console.debug(
             `[ws-engine][mock] #${currentFrame}` +
             `  T=[${temperature[0].toFixed(1)}, ${temperature[1].toFixed(1)}]°C` +
             `  Exc=[${excursion[0].toFixed(2)}, ${excursion[1].toFixed(2)}]`
           );
-        }
-
-      } else {
-        // ── Native 경로 ────────────────────────────────────────────────────────
-        // 1) de-interleave: LR LR LR → LL...RR...
-        const planar     = deinterleave(pcm.subarray(0, FRAME_BYTES));
-
-        // 2) ff_prot_start_exec 호출
-        const spkTempBuf = Buffer.alloc(8); // int32_t[2]
-        const spkExcBuf  = Buffer.alloc(8); // int32_t[2]
-
-        try {
-          fnStartExec!(planar, SAMPLES_PER_CH, BYTES_PER_SAMPLE, CHANNELS, AMB_TEMP, spkTempBuf, spkExcBuf);
-        } catch (err) {
-          logError("ff_prot_start_exec", err);
-          send({ type: "error", message: `ff_prot_start_exec 오류: ${err}` });
-          return;
-        }
-
-        // ff_prot_set_param은 NOP이므로 파라미터를 출력에 후처리 스케일로 적용 -> 추후 라이브러리 제공하면 수정 필요함.
-        // so_report.md §10 참고: K, Mms_x_K 등 전역변수 직접 주입 없이 스케일 근사 -> 추후 라이브러리 제공하면 수정 필요함.
-        const profile    = SPEAKER_PROFILES[engineParams.speakerModel] ?? DEFAULT_PROFILE;
-        const pwrScale   = powerTempMult(engineParams.ampOutputPower);
-
-        const rawTemp0 = spkTempBuf.readInt32LE(0);
-        const rawTemp1 = spkTempBuf.readInt32LE(4);
-        const rawExc0  = spkExcBuf.readInt32LE(0);
-        const rawExc1  = spkExcBuf.readInt32LE(4);
-
-        // 새 .so는 2ch 구조이지만 thermal 모델이 ch1 결과를 아직 채우지 못해
-        // fb_spk_temp[1]==0 으로 들어오는 경우가 있다. 이때만 ch0를 미러.
-        // (excursion 경로는 ch1까지 정상 산출되므로 raw 그대로 사용)
-        const effectiveTemp1 = rawTemp1 === 0 && rawTemp0 !== 0 ? rawTemp0 : rawTemp1;
-
-        const temperature: [number, number] = [
-          Math.round(rawTemp0       * profile.tempMult * pwrScale),
-          Math.round(effectiveTemp1 * profile.tempMult * pwrScale),
-        ];
-        const excursion: [number, number] = [
-          Math.round(rawExc0 * profile.excMult),
-          Math.round(rawExc1 * profile.excMult),
-        ];
-        const processingMs = parseFloat((performance.now() - t0).toFixed(3));
-
-        send({ type: "frame", time, temperature, excursion, processingMs });
-
-        if (shouldLogFrame(currentFrame)) {
+        } else {
+          const [rT0, rT1, rE0, rE1] = result.raw ?? [0, 0, 0, 0];
           logFrame(currentFrame, processingMs, temperature[0], excursion[0], "native");
           console.debug(
             `[ws-engine][native] #${currentFrame}` +
             `  T=[${temperature[0]}, ${temperature[1]}]` +
             `  Exc=[${excursion[0]}, ${excursion[1]}]` +
-            `  raw=[T0=${rawTemp0} T1=${rawTemp1} E0=${rawExc0} E1=${rawExc1}]`
+            `  raw=[T0=${rT0} T1=${rT1} E0=${rE0} E1=${rE1}]`
           );
         }
       }
