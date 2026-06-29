@@ -19,6 +19,10 @@ interface Props {
   streaming?: boolean;
   /** 오디오 총 길이(초) — 설정 시 X축을 [0, audioDuration]으로 고정 */
   audioDuration?: number | null;
+  /** true(realtime): X축이 슬라이딩 윈도우를 따라감 / false(batch): [0, audioDuration] 고정 */
+  followWindow?: boolean;
+  /** LTTB 다운샘플링 on/off (측정 A/B용, 기본 on) */
+  lttb?: boolean;
   /** React 렌더 완료 시각 콜백 (useLayoutEffect) */
   onReactRender?: (ts: number) => void;
   /** ECharts 캔버스 드로우 완료 시각 콜백 */
@@ -36,7 +40,7 @@ const CH_COLOR: Record<ChannelMode, { ch0: string; ch1: string }> = {
   Both: { ch0: "#0057B8", ch1: "#7C3AED" },
 };
 
-export default function TemperatureChart({ frames, currentTime, isActive, streaming = false, audioDuration, onReactRender, onEchartsRender }: Props) {
+export default function TemperatureChart({ frames, currentTime, isActive, streaming = false, audioDuration, followWindow = false, lttb = true, onReactRender, onEchartsRender }: Props) {
   const [channelMode, setChannelMode] = useState<ChannelMode>("Both");
 
   // ── 줌 상태 보존 — ref로 관리해서 렌더 유발 없이 option에 반영 ────────────
@@ -109,12 +113,16 @@ export default function TemperatureChart({ frames, currentTime, isActive, stream
     const colors = CH_COLOR[channelMode];
     const { start, end } = zoomRef.current; // 현재 줌 상태 (ref → 렌더 유발 없음)
 
+    // 다량 포인트 드로우 비용 상한: LTTB 다운샘플 + large 모드 (lttb=false면 미적용)
+    const samplingOpts = lttb ? { sampling: "lttb", large: true, largeThreshold: 2000 } : {};
+
     const seriesL = {
       name: "L (ch0)",
       type: "line",
       data: windowFrames.map((f) => [f.time, f.temperature[0]]),
       smooth: true,
       symbol: "none",
+      ...samplingOpts,
       lineStyle: { color: colors.ch0, width: 2 },
       areaStyle: channelMode !== "Both" ? {
         color: {
@@ -141,6 +149,7 @@ export default function TemperatureChart({ frames, currentTime, isActive, stream
       data: windowFrames.map((f) => [f.time, f.temperature[1]]),
       smooth: true,
       symbol: "none",
+      ...samplingOpts,
       lineStyle: { color: colors.ch1, width: 2 },
       areaStyle: channelMode !== "Both" ? {
         color: {
@@ -212,9 +221,10 @@ export default function TemperatureChart({ frames, currentTime, isActive, stream
       ],
       xAxis: {
         type: "value",
-        // audioDuration이 있으면 [0, 총길이]로 고정 — 없으면 데이터 범위에 따라 동적
-        min: audioDuration != null ? 0 : (windowFrames[0]?.time ?? 0),
-        max: audioDuration != null ? audioDuration : (windowFrames[windowFrames.length - 1]?.time ?? 10),
+        // batch(followWindow=false)+audioDuration: [0, 총길이] 고정
+        // realtime(followWindow=true) 또는 마이크: 현재 윈도우 범위를 따라 스크롤
+        min: (audioDuration != null && !followWindow) ? 0 : (windowFrames[0]?.time ?? 0),
+        max: (audioDuration != null && !followWindow) ? audioDuration : (windowFrames[windowFrames.length - 1]?.time ?? 10),
         axisLabel: { formatter: (v: number) => `${v.toFixed(2)}s`, color: "#A4AABA", fontSize: 10 },
         axisLine: { lineStyle: { color: "#E8EAF0" } },
         splitLine: { lineStyle: { color: "#F5F6F8" } },
@@ -242,7 +252,7 @@ export default function TemperatureChart({ frames, currentTime, isActive, stream
         },
       },
     };
-  }, [windowFrames, channelMode, audioDuration]);
+  }, [windowFrames, channelMode, audioDuration, followWindow, lttb]);
 
   const showChart = audioDuration != null || frames.length > 0;
 

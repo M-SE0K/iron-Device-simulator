@@ -337,11 +337,21 @@ export default function DashboardPage({ useQueue }: { useQueue: boolean }) {
     );
   }, [audioFile, audioDuration, inputParams, downloadJson]);
 
-  // ── Step 2: Bounded State Window ─────────────────────────────────────────
-  // 16ms 렌더 인터벌 기준 ~62fps → 200,000 ≈ 53분 분량의 여유
-  const STREAM_WINDOW = 200_000;
+  // ── 렌더 윈도우 (저장/렌더 분리) ─────────────────────────────────────────
+  // 실시간 스트리밍 상태(streamingFrames)는 최근 RENDER_WINDOW 프레임만 유지한다.
+  // 이렇게 하면 매 렌더 틱의 배열 복사·차트 map()·ECharts setOption 비용이
+  // 곡 길이와 무관하게 상수로 묶이고, freshness 중심의 슬라이딩 윈도우 뷰가 된다.
+  // 전체 곡 곡선(overview)은 batch(분석 후 렌더) 모드가 담당한다
+  // (handleRunBatch는 setStreamingFrames에 전체 시퀀스를 직접 주입 → 여기서 안 잘림).
+  // ~62Hz 코얼레싱 기준 3000 ≈ 약 48초의 최근 구간.
+  // ── 실험 토글: URL 쿼리로 제어 (측정 A/B용, 재빌드 불필요) ───────────────
+  //   ?win=200000 → RENDER_WINDOW(버퍼 상한), ?lttb=0 → 차트 LTTB 끔
+  //   미지정 시 기본값(win=3000, lttb=on) = 프로덕션 동작.
+  const expParams    = typeof window !== "undefined" ? new URLSearchParams(window.location.search) : null;
+  const RENDER_WINDOW = expParams?.get("win") ? Math.max(1, parseInt(expParams.get("win")!, 10) || 3000) : 3000;
+  const LTTB_ENABLED  = expParams?.get("lttb") !== "0";
   // ── Step 3: Render Scheduler 주기 (ms) ──────────────────────────────────
-  const RENDER_INTERVAL =16; //
+  const RENDER_INTERVAL = 16;
   const isPlaying = status === "playing";
 
   // ── 프레임 수신 — useQueue 모드에 따라 큐 push 또는 FIFO append ────────
@@ -372,7 +382,7 @@ export default function DashboardPage({ useQueue }: { useQueue: boolean }) {
         if (isMeasuringRef.current && next.length > maxStreamingLenRef.current) {
           maxStreamingLenRef.current = next.length;
         }
-        return next.length > STREAM_WINDOW ? next.slice(-STREAM_WINDOW) : next;
+        return next.length > RENDER_WINDOW ? next.slice(-RENDER_WINDOW) : next;
       });
     }
   }, [useQueue]);
@@ -530,7 +540,7 @@ export default function DashboardPage({ useQueue }: { useQueue: boolean }) {
         if (isMeasuringRef.current && next.length > maxStreamingLenRef.current) {
           maxStreamingLenRef.current = next.length;
         }
-        return next.length > STREAM_WINDOW ? next.slice(-STREAM_WINDOW) : next;
+        return next.length > RENDER_WINDOW ? next.slice(-RENDER_WINDOW) : next;
       });
 
       // 렌더 업데이트 빈도 측정 (1초 윈도우)
@@ -831,6 +841,8 @@ export default function DashboardPage({ useQueue }: { useQueue: boolean }) {
                   isActive={isActive}
                   streaming
                   audioDuration={audioDuration}
+                  followWindow={analysisMode === "realtime"}
+                  lttb={LTTB_ENABLED}
                   onReactRender={handleReactRender}
                   onEchartsRender={handleEchartsRender}
                 />
@@ -842,6 +854,8 @@ export default function DashboardPage({ useQueue }: { useQueue: boolean }) {
                   isActive={isActive}
                   streaming
                   audioDuration={audioDuration}
+                  followWindow={analysisMode === "realtime"}
+                  lttb={LTTB_ENABLED}
                 />
               </div>
             </div>
