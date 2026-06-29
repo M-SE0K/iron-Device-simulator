@@ -723,9 +723,20 @@ export default function DashboardPage({ useQueue }: { useQueue: boolean }) {
                     {analysisMode === "batch" && (
                       <div className="ml-auto flex items-center gap-1.5">
                         {isAnalyzing && batchProgress.total > 0 && (
-                          <span className="text-iron-400 tabular-nums">
-                            {batchProgress.done}/{batchProgress.total}
-                          </span>
+                          <div
+                            className="flex items-center gap-1.5"
+                            title={`${batchProgress.done} / ${batchProgress.total} 프레임`}
+                          >
+                            <div className="relative h-1.5 w-24 overflow-hidden rounded-full bg-iron-200">
+                              <div
+                                className="absolute inset-y-0 left-0 rounded-full bg-brand-blue transition-[width] duration-200 ease-out"
+                                style={{ width: `${Math.round((batchProgress.done / batchProgress.total) * 100)}%` }}
+                              />
+                            </div>
+                            <span className="w-8 text-right text-iron-500 tabular-nums">
+                              {Math.round((batchProgress.done / batchProgress.total) * 100)}%
+                            </span>
+                          </div>
                         )}
                         <button
                           onClick={handleRunBatch}
