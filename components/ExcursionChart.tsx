@@ -73,26 +73,30 @@ export default function ExcursionChart({ frames, currentTime, isActive, streamin
   }, [frames, currentTime, isActive, streaming]);
 
   // ── 창 내 데이터 범위로 Y축 동적 계산 ─────────────────────────────────────
+  // 표시 중인 채널의 메인값 + envelope(min/max)을 모두 포함해 범위를 잡고 패딩을 둔다.
+  // (windowFrames가 매우 클 수 있어 Math.min/max(...arr) 대신 루프로 계산 — 스택 초과 방지)
   const { yMin, yMax } = useMemo(() => {
     if (windowFrames.length === 0) return { yMin: -0.01, yMax: 0.01 };
 
-    // envelope (min/max)이 있으면 그 범위도 포함
-    const valsL: number[] = [];
-    const valsR: number[] = [];
+    let rawMin = Infinity;
+    let rawMax = -Infinity;
+    const consider = (v: number) => { if (v < rawMin) rawMin = v; if (v > rawMax) rawMax = v; };
     for (const f of windowFrames) {
-      valsL.push(f.excursion[0]);
-      valsR.push(f.excursion[1]);
-      if (f.excursionMin) { valsL.push(f.excursionMin[0]); valsR.push(f.excursionMin[1]); }
-      if (f.excursionMax) { valsL.push(f.excursionMax[0]); valsR.push(f.excursionMax[1]); }
+      if (channelMode !== "R") {
+        consider(f.excursion[0]);
+        if (f.excursionMin) consider(f.excursionMin[0]);
+        if (f.excursionMax) consider(f.excursionMax[0]);
+      }
+      if (channelMode !== "L") {
+        consider(f.excursion[1]);
+        if (f.excursionMin) consider(f.excursionMin[1]);
+        if (f.excursionMax) consider(f.excursionMax[1]);
+      }
     }
+    if (!isFinite(rawMin) || !isFinite(rawMax)) return { yMin: -0.01, yMax: 0.01 };
 
-    const vals =
-      channelMode === "L"    ? valsL :
-      channelMode === "R"    ? valsR :
-      /* Both */               [...valsL, ...valsR];
-
-    const dataMin = toMm(Math.min(...vals));
-    const dataMax = toMm(Math.max(...vals));
+    const dataMin = toMm(rawMin);
+    const dataMax = toMm(rawMax);
     const span    = Math.max(dataMax - dataMin, 0.001);
     const pad     = span * (SCALE_PADDING - 1);
     return {

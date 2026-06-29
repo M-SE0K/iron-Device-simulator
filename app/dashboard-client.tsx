@@ -762,7 +762,7 @@ export default function DashboardPage({ useQueue }: { useQueue: boolean }) {
                           )}
                           title="분석된 전체 output frame 시퀀스를 Reference JSON으로 저장"
                         >
-                          REF JSON
+                          JSON DOWNLOAD
                         </button>
                       </div>
                     )}

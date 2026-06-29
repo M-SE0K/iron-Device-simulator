@@ -159,6 +159,30 @@ export default function TemperatureChart({ frames, currentTime, isActive, stream
       channelMode === "R"    ? [{ ...seriesR, markLine: seriesL.markLine }] :
       /* Both */               [seriesL, seriesR];
 
+    // ── Y축 동적 범위 ────────────────────────────────────────────────────────
+    // 기본은 0~100 고정(정상 범위에서 차트가 흔들리지 않도록).
+    // 표시 중인 채널 값이 범위를 벗어나면 헤드룸을 두고 '깔끔한' 단위로 확장한다.
+    // (windowFrames가 매우 클 수 있어 Math.max(...arr) 대신 루프로 계산 — 스택 초과 방지)
+    let dataMax = -Infinity;
+    let dataMin = Infinity;
+    for (const f of windowFrames) {
+      if (channelMode !== "R") { const v = f.temperature[0]; if (v > dataMax) dataMax = v; if (v < dataMin) dataMin = v; }
+      if (channelMode !== "L") { const v = f.temperature[1]; if (v > dataMax) dataMax = v; if (v < dataMin) dataMin = v; }
+    }
+    const niceStep = (v: number) => (v <= 200 ? 10 : v <= 500 ? 25 : v <= 1000 ? 50 : 100);
+    let yMax = 100;
+    if (isFinite(dataMax) && dataMax > 100) {
+      const withHeadroom = dataMax * 1.08;            // 8% 여유
+      const step = niceStep(withHeadroom);
+      yMax = Math.ceil(withHeadroom / step) * step;   // 10/25/50/100 단위로 올림
+    }
+    let yMin = 0;
+    if (isFinite(dataMin) && dataMin < 0) {
+      const withHeadroom = dataMin * 1.08;
+      const step = niceStep(Math.abs(withHeadroom));
+      yMin = Math.floor(withHeadroom / step) * step;
+    }
+
     return {
       animation: false,
       grid: { top: 8, right: 16, bottom: 52, left: 52 },
@@ -202,8 +226,8 @@ export default function TemperatureChart({ frames, currentTime, isActive, stream
         axisLabel: { color: "#A4AABA", fontSize: 10 },
         axisLine: { show: false },
         splitLine: { lineStyle: { color: "#F5F6F8" } },
-        min: 0,
-        max: 100,
+        min: yMin,
+        max: yMax,
       },
       series,
       tooltip: {
