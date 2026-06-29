@@ -55,13 +55,13 @@ Open http://localhost:3000 in your browser.
 
 ### macOS — Native Mode (Docker)
 
-> On macOS, use `script/run-native-docker.sh`.
+> On macOS, use `scripts/run-native-docker.sh`.
 
 Edit `SO_HOST` in the script to point to your local `.so` file, then run:
 
 ```bash
-vi script/run-native-docker.sh   # set SO_HOST path
-./script/run-native-docker.sh
+vi scripts/run-native-docker.sh   # set SO_HOST path
+./scripts/run-native-docker.sh
 ```
 
 On Apple Silicon (M1/M2/M3/M4), the container runs under QEMU x86-64 emulation. The initial build may take a while.
@@ -84,13 +84,13 @@ npm run dev
 
 ### Linux x86-64 — Native Mode
 
-> On Linux, use `script/run-native.sh`.
+> On Linux, use `scripts/run-native-linux.sh`.
 
 **Run via script (recommended):**
 
 ```bash
-vi script/run-native.sh   # set SO_HOST path
-./script/run-native.sh
+vi scripts/run-native-linux.sh   # set SO_HOST path
+./scripts/run-native-linux.sh
 ```
 
 **Run directly:**
