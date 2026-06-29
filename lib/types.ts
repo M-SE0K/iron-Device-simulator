@@ -44,31 +44,7 @@ export type AppStatus =
   | "paused"     // 일시정지
   | "error";     // 에러
 
-export interface AnalysisResult {
-  filename: string;
-  duration: number;   // 전체 길이(초)
-  sampleRate: number;
-  frames: AnalysisFrame[];
-}
-
 // ─── WebSocket 메시지 타입 ───────────────────────────────────────────────────
-
-/** 클라이언트 → 서버 */
-export type WsClientMessage =
-  | { type: "init" }
-  | { type: "pause" }
-  | { type: "stop" }
-  | {
-      type:              "metrics";
-      frameIdx:          number;
-      audioTime:         number;
-      rttMs:             number | null;
-      serverProcMs:      number | null;
-      reactRenderMs:     number | null;
-      echartsRenderMs:   number | null;
-      totalRecvRenderMs: number | null;
-      totalE2eMs:        number | null;
-    };
 
 /** 서버 → 클라이언트 */
 export type WsServerMessage =
