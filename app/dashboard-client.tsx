@@ -646,14 +646,15 @@ export default function DashboardPage({ useQueue }: { useQueue: boolean }) {
     || (analysisMode === "batch" && streamingFrames.length > 0);
 
   return (
-    <div id="dashboard-root" className="flex flex-col h-screen overflow-hidden">
+    <div id="dashboard-root" className="flex flex-col min-h-screen lg:h-screen lg:overflow-hidden">
       <Header />
 
-      <main id="dashboard-main" className="flex-1 overflow-hidden p-3">
-        <div id="dashboard-content" className="h-full w-full flex flex-col gap-3">
+      {/* lg 미만: 세로 스크롤 허용 / lg 이상: 단일 뷰포트(내용이 넘치면 내부 스크롤) */}
+      <main id="dashboard-main" className="flex-1 min-h-0 overflow-y-auto p-3">
+        <div id="dashboard-content" className="lg:h-full w-full flex flex-col gap-3">
 
-          {/* 좌/우 2열 메인 그리드 */}
-          <div id="dashboard-grid" className="grid grid-cols-1 lg:grid-cols-2 gap-3 flex-1 min-h-0">
+          {/* 좌/우 2열 메인 그리드 — lg 미만에서는 1열로 쌓이며 자연 높이 + 최소 높이 보장 */}
+          <div id="dashboard-grid" className="grid grid-cols-1 lg:grid-cols-2 gap-3 lg:flex-1 lg:min-h-[600px]">
 
             {/* 좌측: upload-section / InputParameters / Waveform — 스택
                 ┌─ 비율 조정 가이드 ──────────────────────────────────────────┐
@@ -662,8 +663,9 @@ export default function DashboardPage({ useQueue }: { useQueue: boolean }) {
                 │ InputParameters: shrink-0   ← 자연 높이 (변경 불필요)        │
                 └────────────────────────────────────────────────────────────┘ */}
             <div id="left-column" className="flex flex-col gap-3 min-h-0">
-              {/* upload-section: 비율 조정 → flex-[숫자] 변경 */}
-              <div id="upload-section" className="flex-[2] min-h-0 flex flex-col gap-2">
+              {/* upload-section: 비율 조정 → flex-[숫자] 변경.
+                  lg 미만: 고정 높이로 내부 h-full 카드가 확정 높이를 갖도록 함 */}
+              <div id="upload-section" className="h-[220px] lg:h-auto lg:min-h-0 lg:flex-[2] flex flex-col gap-2">
                 {/* 입력 모드 탭 + DEBUG/REC 액션 */}
                 <div className="flex items-center gap-1 text-xs font-mono shrink-0">
                   {(["file", "mic"] as const).map((m) => (
@@ -786,9 +788,10 @@ export default function DashboardPage({ useQueue }: { useQueue: boolean }) {
                 <InputParameters values={inputParams} onChange={setInputParams} />
               </div>
 
-              {/* Waveform player — 비율 조정 → flex-[숫자] 변경 */}
+              {/* Waveform player — 비율 조정 → flex-[숫자] 변경.
+                  lg 미만: 고정 높이(h-[260px])로 카드 % 높이 사슬을 확정시켜 겹침 방지 */}
               {inputMode === "file" && (
-                <div className="flex-[3] min-h-0">
+                <div className="h-[260px] lg:h-auto lg:min-h-0 lg:flex-[3]">
                   <WaveformPlayer
                     ref={waveformRef}
                     audioFile={audioFile}
@@ -807,9 +810,10 @@ export default function DashboardPage({ useQueue }: { useQueue: boolean }) {
               )}
             </div>
 
-            {/* 우측: 온도 차트 / 익스큐션 차트 — 스택 */}
+            {/* 우측: 온도 차트 / 익스큐션 차트 — 스택.
+                lg 미만: 각 차트에 고정 높이(h-[300px])를 줘 ECharts height:100% 기준을 확정 */}
             <div id="charts-section" className="flex flex-col gap-3 min-h-0">
-              <div className="flex-1 min-h-0">
+              <div className="h-[300px] lg:h-auto lg:min-h-0 lg:flex-1">
                 <TemperatureChart
                   frames={streamingFrames}
                   currentTime={currentTime}
@@ -820,7 +824,7 @@ export default function DashboardPage({ useQueue }: { useQueue: boolean }) {
                   onEchartsRender={handleEchartsRender}
                 />
               </div>
-              <div className="flex-1 min-h-0">
+              <div className="h-[300px] lg:h-auto lg:min-h-0 lg:flex-1">
                 <ExcursionChart
                   frames={streamingFrames}
                   currentTime={currentTime}
