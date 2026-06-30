@@ -12,8 +12,8 @@ import { createServer } from "http";
 import { parse } from "url";
 import next from "next";
 import { WebSocketServer } from "ws";
-import { handleWsConnection } from "./lib/ws-engine";
-import { logServerReady, logWsUpgrade, logWsConnect } from "./lib/logger";
+import { handleWsConnection } from "./src/features/audio/lib/ws-engine";
+import { logServerReady, logWsUpgrade, logWsConnect } from "./src/features/audio/lib/logger";
 
 const dev      = process.env.NODE_ENV !== "production";
 const hostname = "0.0.0.0";

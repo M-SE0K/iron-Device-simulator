@@ -10,5 +10,12 @@
     "strict": false,
     "resolveJsonModule": true
   },
-  "include": ["server.ts", "lib/ws-engine.ts", "lib/types.ts"]
+  "include": [
+    "server.ts",
+    "src/features/audio/lib/ws-engine.ts",
+    "src/features/audio/types.ts"
+  ],
+  "exclude": [
+    "node_modules"
+  ]
 }
