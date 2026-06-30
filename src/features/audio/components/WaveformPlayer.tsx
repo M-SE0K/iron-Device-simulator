@@ -66,6 +66,17 @@ export interface WaveformPlayerHandle {
    * @param onProgress (done, total) 진행률 콜백
    */
   runBatchAnalysis: (onProgress?: (done: number, total: number) => void) => Promise<AnalysisFrame[]>;
+  /**
+   * 진행 중인 실시간 스트리밍 WebSocket을 닫는다.
+   * 네이티브 엔진은 동시 1세션만 허용(nativeLock)하므로, 모드 전환 시 이전 WS를
+   * 닫아 락을 해제해야 다른 모드(배치/실시간)를 초기화 없이 실행할 수 있다.
+   */
+  stopStreaming: () => void;
+  /**
+   * 재생을 일시정지한다 (WebSocket은 닫지 않음 → 재개 시 스트림/차트 보존).
+   * 모드 전환 시 떠나는 플레이어의 오디오만 멈추는 용도.
+   */
+  pause: () => void;
 }
 
 const WaveformPlayer = forwardRef<WaveformPlayerHandle, Props>(function WaveformPlayer({
@@ -445,18 +456,24 @@ const WaveformPlayer = forwardRef<WaveformPlayerHandle, Props>(function Waveform
     };
   }, [startRaf, onStreamStart, onFrameReceived, onStatusChange]);
 
+  // ── 일시정지 (WebSocket 유지 → 재개 시 스트림/차트 보존) ──────────────────
+  const pausePlayback = useCallback(() => {
+    const wv = wavesurferRef.current;
+    if (!wv || !wv.isPlaying()) return;
+    wv.pause();
+    stopRaf();
+    if (wsRef.current?.readyState === WebSocket.OPEN) {
+      wsRef.current.send(JSON.stringify({ type: "pause" }));
+    }
+    onStatusChange("paused");
+  }, [stopRaf, onStatusChange]);
+
   // ── 재생/일시정지 ─────────────────────────────────────────────────────────
   const handlePlayPause = useCallback(() => {
     if (!wavesurferRef.current || !isReady) return;
 
     if (wavesurferRef.current.isPlaying()) {
-      // 일시정지
-      wavesurferRef.current.pause();
-      stopRaf();
-      if (wsRef.current?.readyState === WebSocket.OPEN) {
-        wsRef.current.send(JSON.stringify({ type: "pause" }));
-      }
-      onStatusChange("paused");
+      pausePlayback();
     } else {
       // 재생
       wavesurferRef.current.play();
@@ -464,7 +481,7 @@ const WaveformPlayer = forwardRef<WaveformPlayerHandle, Props>(function Waveform
       // 배치 모드: 실시간 스트리밍 없이 오디오 재생만 (차트는 이미 분석 완료 상태)
       if (enableStreaming) openWsAndStream();
     }
-  }, [isReady, stopRaf, openWsAndStream, onStatusChange, enableStreaming]);
+  }, [isReady, pausePlayback, openWsAndStream, onStatusChange, enableStreaming]);
 
   // ── 정지 ─────────────────────────────────────────────────────────────────
   const handleStop = useCallback(() => {
@@ -581,7 +598,9 @@ const WaveformPlayer = forwardRef<WaveformPlayerHandle, Props>(function Waveform
       }
     },
     runBatchAnalysis,
-  }), [runBatchAnalysis]);
+    stopStreaming: closeWs,
+    pause: pausePlayback,
+  }), [runBatchAnalysis, closeWs, pausePlayback]);
 
   const isPlaying = status === "playing";
   const progress  = duration > 0 ? (currentTime / duration) * 100 : 0;
