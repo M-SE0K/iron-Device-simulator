@@ -12,12 +12,24 @@
     "measure": "tsx scripts/measure.ts",
     "measure:baseline": "tsx scripts/measure.ts --label baseline --duration 60",
     "measure:baseline:long": "tsx scripts/measure.ts --label baseline --track jazz_long_audio --duration 300",
-    "compare": "tsx scripts/compare.ts"
+    "compare": "tsx scripts/compare.ts",
+    "db:up": "docker compose up -d",
+    "db:down": "docker compose down",
+    "db:migrate": "prisma migrate dev",
+    "db:seed": "tsx prisma/seed.ts",
+    "db:studio": "prisma studio",
+    "db:reset": "prisma migrate reset"
+  },
+  "prisma": {
+    "seed": "tsx prisma/seed.ts"
   },
   "dependencies": {
+    "@prisma/client": "^6.19.3",
+    "bcryptjs": "^3.0.3",
     "clsx": "^2.1.1",
     "echarts": "^5.6.0",
     "echarts-for-react": "^3.0.2",
+    "jose": "^6.2.3",
     "koffi": "^2.9.0",
     "lucide-react": "^0.503.0",
     "next": "15.2.4",
@@ -28,6 +40,7 @@
     "ws": "^8.18.0"
   },
   "devDependencies": {
+    "@types/bcryptjs": "^2.4.6",
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
@@ -36,6 +49,7 @@
     "eslint": "^8",
     "eslint-config-next": "15.2.4",
     "postcss": "^8",
+    "prisma": "^6.19.3",
     "puppeteer": "^24.41.0",
     "tailwindcss": "^3.4.1",
     "tsx": "^4.19.2",

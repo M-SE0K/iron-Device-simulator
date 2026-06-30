@@ -1,0 +1,119 @@
+// Iron Device 고도화 — 통합 데이터 모델
+// 설계 문서: docs/05-data-model.md
+// 변경 시: npx prisma migrate dev --name <설명>
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ── 열거형 ──────────────────────────────
+enum Role {
+  ADMIN
+  USER
+  // 확장 후보: UPLOADER (명세 §5)
+}
+
+enum UserStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+enum SpaceType {
+  SHARE
+  WORK
+}
+
+// ── 1. 사용자 / 인증 (→ docs/01, 04) ─────
+model User {
+  id           String     @id @default(cuid())
+  email        String     @unique
+  passwordHash String
+  role         Role       @default(USER)
+  status       UserStatus @default(PENDING) // admin 승인 탭이 토글 (명세 §7)
+  createdAt    DateTime   @default(now())
+
+  sessions Session[]
+  folders  Folder[] // 소유한 WORK 폴더
+  projects Project[] // 소유한 WORK 프로젝트
+}
+
+model Session {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+}
+
+// ── 2. 공간 트리 (→ docs/02) ────────────
+model Folder {
+  id        String    @id @default(cuid())
+  name      String
+  spaceType SpaceType
+  parentId  String? // self-FK (null = 루트)
+  parent    Folder?   @relation("FolderTree", fields: [parentId], references: [id], onDelete: Cascade)
+  children  Folder[]  @relation("FolderTree")
+  ownerId   String? // null(SHARE) | userId(WORK)
+  owner     User?     @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  createdAt DateTime  @default(now())
+
+  projects Project[]
+
+  @@index([spaceType, parentId])
+  @@index([ownerId])
+}
+
+// ── 3. 프로젝트 (→ docs/02, 03) ─────────
+model Project {
+  id            String    @id @default(cuid())
+  name          String
+  spaceType     SpaceType
+  ownerId       String? // null(SHARE) | userId(WORK)
+  owner         User?     @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  folderId      String
+  folder        Folder    @relation(fields: [folderId], references: [id])
+  baseProjectId String? // Fork 출처 (Work만; 명세 §4)
+  baseProject   Project?  @relation("Fork", fields: [baseProjectId], references: [id])
+  forks         Project[] @relation("Fork")
+  createdAt     DateTime  @default(now())
+
+  measurements Measurement[]
+
+  @@index([spaceType, folderId])
+  @@index([ownerId])
+  @@index([baseProjectId])
+}
+
+// ── 4. 분석 결과 (현 measurements/*.json 승격) ──
+model Measurement {
+  id          String   @id @default(cuid())
+  projectId   String
+  project     Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  label       String // "baseline" / "proposed" 등
+  speaker     String? // "Z3 SPK" 등
+  powerW      Float?
+  durationSec Float
+  frameCount  Int
+  recordedAt  DateTime @default(now())
+
+  summary Json // MeasurementExport.summary 통째로
+  frames  MeasurementFrames?
+
+  @@index([projectId, label])
+}
+
+model MeasurementFrames {
+  id             String      @id @default(cuid())
+  measurementId  String      @unique
+  measurement    Measurement @relation(fields: [measurementId], references: [id], onDelete: Cascade)
+  rawFrames      Json
+  renderedFrames Json
+}
