@@ -2,7 +2,8 @@
 //   form fields: file(필수, audio/*), folderId(필수, 내 소유 WORK 폴더), name(선택, 기본=파일명)
 import { NextResponse } from "next/server";
 import { requireApprovedUser } from "@/features/auth/lib/auth-server";
-import { createProjectWithAudio, WorkspaceError } from "@/features/workspace/lib/workspace-server";
+import { createProjectWithAudio } from "@/features/workspace/lib/workspace-server";
+import { HttpError, principalFrom } from "@/features/auth/lib/authz";
 
 export const runtime = "nodejs";
 
@@ -42,7 +43,7 @@ export async function POST(req: Request) {
     const project = await createProjectWithAudio({
       name,
       folderId,
-      userId: auth.sub,
+      principal: principalFrom(auth),
       file: { filename: file.name, mimeType: file.type, data },
     });
     return NextResponse.json(
@@ -50,7 +51,7 @@ export async function POST(req: Request) {
       { status: 201 },
     );
   } catch (e) {
-    if (e instanceof WorkspaceError) {
+    if (e instanceof HttpError) {
       return NextResponse.json({ error: e.message }, { status: e.status });
     }
     throw e;

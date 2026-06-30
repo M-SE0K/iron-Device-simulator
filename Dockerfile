@@ -29,6 +29,11 @@ RUN npm ci
 # Stage 2 — Prisma Client 생성 + Next.js 빌드
 FROM --platform=linux/amd64 node:20-slim AS builder
 WORKDIR /app
+# QEMU 에뮬레이션 빌드 안정화: 타입체크/린트 스킵(next.config 가 읽음) + 텔레메트리 끔
+#   → 메모리 부족으로 인한 next build EPIPE/OOM 회피 (검증은 로컬 tsc·next build 에서 수행)
+ENV DOCKER_BUILD=1
+ENV NEXT_TELEMETRY_DISABLED=1
+ENV NODE_OPTIONS=--max-old-space-size=3072
 # Prisma 엔진 런타임은 OpenSSL 필요
 RUN apt-get update && apt-get install -y --no-install-recommends openssl \
     && rm -rf /var/lib/apt/lists/*

@@ -4,6 +4,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/shared/db/prisma";
 import { requireApprovedUser } from "@/features/auth/lib/auth-server";
+import { can, principalFrom } from "@/features/auth/lib/authz";
 
 export const runtime = "nodejs";
 
@@ -20,8 +21,9 @@ export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }
   if (!project || !project.audio) {
     return NextResponse.json({ error: "음원을 찾을 수 없습니다." }, { status: 404 });
   }
-  if (project.spaceType === "WORK" && project.ownerId !== auth.sub) {
-    return NextResponse.json({ error: "접근 권한이 없습니다." }, { status: 403 });
+  // 읽기 인가: WORK=소유자, SHARE=승인자 전원 (authz.can 으로 일원화)
+  if (!can(principalFrom(auth), "read", project)) {
+    return NextResponse.json({ error: "음원을 찾을 수 없습니다." }, { status: 404 });
   }
 
   const { data, mimeType, filename, sizeBytes } = project.audio;

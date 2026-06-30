@@ -4,6 +4,7 @@ export const dynamic = "force-dynamic";
 
 import SideNav from "@/shared/components/SideNav";
 import WorkspaceTree from "@/features/workspace/components/WorkspaceTree";
+import CalibrationDrawer from "@/features/workspace/components/CalibrationDrawer";
 
 export default function WorkspacePage() {
   return (
@@ -11,6 +12,10 @@ export default function WorkspacePage() {
       <header className="bg-white border-b border-iron-100 px-4 sm:px-6 h-14 shrink-0 flex items-center gap-3">
         <SideNav />
         <span className="text-sm font-bold text-iron-900 tracking-tight">IRON DEVICE</span>
+        {/* 우측: 캘리브레이션 파라미터 드로어 트리거 */}
+        <div className="ml-auto">
+          <CalibrationDrawer />
+        </div>
       </header>
       <main className="flex-1 min-h-0 p-4">
         <WorkspaceTree />

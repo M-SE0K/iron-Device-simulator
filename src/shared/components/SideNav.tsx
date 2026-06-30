@@ -1,20 +1,16 @@
 "use client";
 
-// 좌측 슬라이딩 내비게이션 드로어 (대시보드 ↔ 워크스페이스 전환)
-// 트리거(햄버거)와 패널을 한 컴포넌트로 캡슐화 — Header / workspace 페이지 어디에든 <SideNav /> 드롭.
+// 좌측 슬라이딩 드로어 — 내용물로 워크스페이스 트리(WorkspaceTree)를 담는다.
+// 트리거(햄버거)·오버레이·슬라이드 패널 동작은 유지하고, 본문만 내비 링크 → WorkspaceTree 로 교체.
+// 성능: 드로어를 처음 연 시점에 1회 마운트(지연) 후 계속 유지 → 매 페이지 로드마다 트리 fetch 하지 않음.
 import { useEffect, useState } from "react";
-import Link from "next/link";
-import { usePathname, useRouter } from "next/navigation";
-import { FolderTree, LayoutDashboard, LogOut, Menu, X } from "lucide-react";
-
-const NAV = [
-  { href: "/", label: "대시보드", icon: LayoutDashboard },
-  { href: "/workspace", label: "워크스페이스", icon: FolderTree },
-] as const;
+import { useRouter } from "next/navigation";
+import { LogOut, Menu, X } from "lucide-react";
+import WorkspaceTree from "@/features/workspace/components/WorkspaceTree";
 
 export default function SideNav() {
   const [open, setOpen] = useState(false);
-  const pathname = usePathname();
+  const [mounted, setMounted] = useState(false); // 첫 오픈 후 WorkspaceTree 유지
   const router = useRouter();
 
   // Esc 로 닫기 + 열렸을 때 배경 스크롤 잠금
@@ -29,21 +25,23 @@ export default function SideNav() {
     };
   }, [open]);
 
+  const openDrawer = () => {
+    setMounted(true);
+    setOpen(true);
+  };
+
   async function logout() {
     await fetch("/api/auth/logout", { method: "POST" });
     router.push("/login");
   }
-
-  const isActive = (href: string) =>
-    href === "/" ? pathname === "/" : pathname.startsWith(href);
 
   return (
     <>
       {/* 트리거 (좌측 탭) */}
       <button
         type="button"
-        onClick={() => setOpen(true)}
-        aria-label="메뉴 열기"
+        onClick={openDrawer}
+        aria-label="워크스페이스 열기"
         aria-expanded={open}
         className="flex items-center justify-center w-9 h-9 rounded-lg text-iron-500 hover:bg-iron-100 hover:text-iron-900 transition"
       >
@@ -59,50 +57,32 @@ export default function SideNav() {
         }`}
       />
 
-      {/* 슬라이딩 패널 */}
+      {/* 슬라이딩 패널 — 본문은 워크스페이스 트리(선택 전용) */}
       <aside
-        className={`fixed top-0 left-0 z-50 h-full w-64 bg-white border-r border-iron-100 shadow-xl flex flex-col transition-transform duration-300 ease-out ${
+        className={`fixed top-0 left-0 z-50 h-full w-80 max-w-[88vw] bg-iron-50 border-r border-iron-100 shadow-xl flex flex-col transition-transform duration-300 ease-out ${
           open ? "translate-x-0" : "-translate-x-full"
         }`}
         role="dialog"
-        aria-label="내비게이션"
+        aria-label="워크스페이스"
         aria-hidden={!open}
       >
-        <div className="h-14 px-4 shrink-0 flex items-center justify-between border-b border-iron-100">
-          <span className="text-sm font-bold text-iron-900 tracking-tight">IRON DEVICE</span>
+        <div className="h-14 px-4 shrink-0 flex items-center justify-between border-b border-iron-100 bg-white">
           <button
             type="button"
             onClick={() => setOpen(false)}
-            aria-label="메뉴 닫기"
+            aria-label="닫기"
             className="flex items-center justify-center w-8 h-8 rounded-lg text-iron-400 hover:bg-iron-100 hover:text-iron-700 transition"
           >
             <X className="w-4 h-4" />
           </button>
         </div>
 
-        <nav className="flex-1 p-2 overflow-auto">
-          {NAV.map(({ href, label, icon: Icon }) => {
-            const active = isActive(href);
-            return (
-              <Link
-                key={href}
-                href={href}
-                onClick={() => setOpen(false)}
-                aria-current={active ? "page" : undefined}
-                className={`flex items-center gap-3 px-3 py-2.5 mb-1 rounded-lg text-sm transition ${
-                  active
-                    ? "bg-brand-blue/10 text-brand-blue font-medium"
-                    : "text-iron-600 hover:bg-iron-100"
-                }`}
-              >
-                <Icon className="w-4 h-4 shrink-0" />
-                {label}
-              </Link>
-            );
-          })}
-        </nav>
+        {/* 본문: 워크스페이스 트리 (선택 전용 — 프로젝트 클릭 시 /workspace 로 이동 + 닫기) */}
+        <div className="flex-1 min-h-0 p-3 overflow-hidden">
+          {mounted && <WorkspaceTree variant="nav" onSelect={() => setOpen(false)} />}
+        </div>
 
-        <div className="p-2 border-t border-iron-100 shrink-0">
+        <div className="p-2 border-t border-iron-100 shrink-0 bg-white">
           <button
             type="button"
             onClick={logout}

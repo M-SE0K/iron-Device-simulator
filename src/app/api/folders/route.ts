@@ -3,7 +3,8 @@
 //   POST { name, parentId } — WORK 하위 폴더 생성 (소유자만)
 import { NextResponse } from "next/server";
 import { requireApprovedUser } from "@/features/auth/lib/auth-server";
-import { createFolder, listFolderChildren, WorkspaceError } from "@/features/workspace/lib/workspace-server";
+import { createFolder, listFolderChildren } from "@/features/workspace/lib/workspace-server";
+import { HttpError, principalFrom } from "@/features/auth/lib/authz";
 
 export const runtime = "nodejs";
 
@@ -47,14 +48,14 @@ export async function POST(req: Request) {
     const folder = await createFolder({
       name: body.name ?? "",
       parentId: body.parentId,
-      userId: auth.sub,
+      principal: principalFrom(auth),
     });
     return NextResponse.json(
       { folder: { id: folder.id, name: folder.name, parentId: folder.parentId } },
       { status: 201 },
     );
   } catch (e) {
-    if (e instanceof WorkspaceError) {
+    if (e instanceof HttpError) {
       return NextResponse.json({ error: e.message }, { status: e.status });
     }
     throw e;

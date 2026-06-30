@@ -1,4 +1,4 @@
-/** 분석 엔진 파라미터 (InputParameters 컴포넌트에서 수집) */
+/** 분석 엔진 파라미터 (CalibrationDrawer/calibration-context에서 수집) */
 export interface EngineParams {
   /** AMP 출력 전력 (W). null = 미설정 → 기본 20W로 간주 */
   ampOutputPower: number | null;

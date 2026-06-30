@@ -3,6 +3,7 @@
 import { prisma } from "@/shared/db/prisma";
 import type { SpaceType } from "@prisma/client";
 import type { FolderListResponse } from "@/features/workspace/types";
+import { assertCan, HttpError, type Principal } from "@/features/auth/lib/authz";
 
 /**
  * 사용자의 WORK 루트 폴더를 보장(없으면 생성, 멱등).
@@ -76,20 +77,19 @@ export async function listFolderChildren(opts: {
   };
 }
 
-// ── CRUD (Work Space 한정) ──────────────────────────────
-// Share 는 읽기 전용(admin 관리)이므로 아래 변경 작업은 모두 WORK + 소유자 검증을 거친다.
-// docs/04 인가 계층이 도입되면 이 가드들을 그쪽으로 승격할 수 있다.
+// ── CRUD ────────────────────────────────────────────────
+// 인가 판단은 모두 authz.can()/assertCan() 로 위임(docs/04 §6 "규칙은 한 곳").
+// 자원(부모 폴더/대상 폴더·프로젝트)을 로드한 뒤 principal·action 으로 평가한다.
+// spaceType 은 부모/자원에서 파생 → 동일 엔드포인트로 WORK(소유자) / SHARE(ADMIN) 모두 커버.
 
 /** 업로드 허용 한도 (DB Bytes 저장 — 짧은 클립 전제) */
 export const MAX_AUDIO_BYTES = 50 * 1024 * 1024; // 50MB
 const ALLOWED_AUDIO_EXT = ["wav", "mp3", "flac", "aac", "ogg", "m4a", "opus", "webm"];
 
-/** 라우트가 HTTP 상태로 매핑할 수 있는 작업 오류 */
-export class WorkspaceError extends Error {
-  status: number;
+/** 입력 검증 오류 (인가 외) — authz 의 HttpError 를 공유해 라우트가 한 번에 캐치 */
+export class WorkspaceError extends HttpError {
   constructor(status: number, message: string) {
-    super(message);
-    this.status = status;
+    super(status, message);
     this.name = "WorkspaceError";
   }
 }
@@ -101,59 +101,62 @@ function cleanName(raw: string | null | undefined): string {
   return name;
 }
 
-/** 내가 소유한 WORK 폴더인지 검증 (아니면 throw) */
-async function assertOwnedWorkFolder(folderId: string, userId: string) {
+/** 폴더 로드 + action 인가 (없으면 404) */
+async function loadFolderFor(folderId: string, action: "create" | "update" | "delete", principal: Principal) {
   const folder = await prisma.folder.findUnique({ where: { id: folderId } });
-  if (!folder || folder.spaceType !== "WORK" || folder.ownerId !== userId) {
-    throw new WorkspaceError(404, "폴더를 찾을 수 없습니다.");
-  }
+  if (!folder) throw new WorkspaceError(404, "폴더를 찾을 수 없습니다.");
+  assertCan(principal, action, folder);
   return folder;
 }
 
-/** 내가 소유한 WORK 프로젝트인지 검증 (아니면 throw) */
-async function assertOwnedWorkProject(projectId: string, userId: string) {
+/** 프로젝트 로드 + action 인가 (없으면 404) */
+async function loadProjectFor(projectId: string, action: "update" | "delete", principal: Principal) {
   const project = await prisma.project.findUnique({ where: { id: projectId } });
-  if (!project || project.spaceType !== "WORK" || project.ownerId !== userId) {
-    throw new WorkspaceError(404, "프로젝트를 찾을 수 없습니다.");
-  }
+  if (!project) throw new WorkspaceError(404, "프로젝트를 찾을 수 없습니다.");
+  assertCan(principal, action, project);
   return project;
 }
 
-/** WORK 하위 폴더 생성 (parentId 는 내 소유 WORK 폴더여야 함) */
-export async function createFolder(opts: { name: string; parentId: string; userId: string }) {
+/** 하위 폴더 생성 — 부모에 'create' 인가 통과 시. spaceType/ownerId 는 부모에서 파생 */
+export async function createFolder(opts: { name: string; parentId: string; principal: Principal }) {
   const name = cleanName(opts.name);
-  await assertOwnedWorkFolder(opts.parentId, opts.userId);
+  const parent = await loadFolderFor(opts.parentId, "create", opts.principal); // 부모 기준 인가
   return prisma.folder.create({
-    data: { name, spaceType: "WORK", parentId: opts.parentId, ownerId: opts.userId },
+    data: {
+      name,
+      spaceType: parent.spaceType,
+      parentId: parent.id,
+      ownerId: parent.spaceType === "WORK" ? opts.principal.userId : null,
+    },
   });
 }
 
-/** WORK 폴더 이름 변경 */
-export async function renameFolder(opts: { folderId: string; name: string; userId: string }) {
+/** 폴더 이름 변경 */
+export async function renameFolder(opts: { folderId: string; name: string; principal: Principal }) {
   const name = cleanName(opts.name);
-  await assertOwnedWorkFolder(opts.folderId, opts.userId);
+  await loadFolderFor(opts.folderId, "update", opts.principal);
   return prisma.folder.update({ where: { id: opts.folderId }, data: { name } });
 }
 
-/** WORK 폴더 삭제 (자식·프로젝트·음원 cascade). 루트는 삭제 금지(사용자 작업공간 보존) */
-export async function deleteFolder(opts: { folderId: string; userId: string }) {
-  const folder = await assertOwnedWorkFolder(opts.folderId, opts.userId);
+/** 폴더 삭제 (자식·프로젝트·음원 cascade). 루트는 삭제 금지(작업공간 보존) */
+export async function deleteFolder(opts: { folderId: string; principal: Principal }) {
+  const folder = await loadFolderFor(opts.folderId, "delete", opts.principal);
   if (folder.parentId === null) {
-    throw new WorkspaceError(400, "Work Space 루트 폴더는 삭제할 수 없습니다.");
+    throw new WorkspaceError(400, "루트 폴더는 삭제할 수 없습니다.");
   }
   await prisma.folder.delete({ where: { id: opts.folderId } });
 }
 
-/** 음원 업로드 → WORK 프로젝트 + AudioAsset 생성 (folderId 는 내 소유 WORK 폴더) */
+/** 음원 업로드 → 프로젝트 + AudioAsset 생성. 대상 폴더에 'create' 인가 통과 시 */
 export async function createProjectWithAudio(opts: {
   name: string;
   folderId: string;
-  userId: string;
+  principal: Principal;
   // ArrayBuffer-backed (Prisma Bytes 입력 타입과 일치) — 라우트에서 new Uint8Array(arrayBuffer) 로 생성
   file: { filename: string; mimeType: string; data: Uint8Array<ArrayBuffer> };
 }) {
   const name = cleanName(opts.name);
-  await assertOwnedWorkFolder(opts.folderId, opts.userId);
+  const folder = await loadFolderFor(opts.folderId, "create", opts.principal);
 
   const { filename, mimeType, data } = opts.file;
   const ext = filename.includes(".") ? filename.split(".").pop()!.toLowerCase() : "";
@@ -169,9 +172,9 @@ export async function createProjectWithAudio(opts: {
   return prisma.project.create({
     data: {
       name,
-      spaceType: "WORK",
-      ownerId: opts.userId,
-      folderId: opts.folderId,
+      spaceType: folder.spaceType,
+      ownerId: folder.spaceType === "WORK" ? opts.principal.userId : null,
+      folderId: folder.id,
       audio: {
         create: {
           filename,
@@ -184,15 +187,15 @@ export async function createProjectWithAudio(opts: {
   });
 }
 
-/** WORK 프로젝트 이름 변경 */
-export async function renameProject(opts: { projectId: string; name: string; userId: string }) {
+/** 프로젝트 이름 변경 */
+export async function renameProject(opts: { projectId: string; name: string; principal: Principal }) {
   const name = cleanName(opts.name);
-  await assertOwnedWorkProject(opts.projectId, opts.userId);
+  await loadProjectFor(opts.projectId, "update", opts.principal);
   return prisma.project.update({ where: { id: opts.projectId }, data: { name } });
 }
 
-/** WORK 프로젝트 삭제 (음원·측정 cascade) */
-export async function deleteProject(opts: { projectId: string; userId: string }) {
-  await assertOwnedWorkProject(opts.projectId, opts.userId);
+/** 프로젝트 삭제 (음원·측정 cascade) */
+export async function deleteProject(opts: { projectId: string; principal: Principal }) {
+  await loadProjectFor(opts.projectId, "delete", opts.principal);
   await prisma.project.delete({ where: { id: opts.projectId } });
 }

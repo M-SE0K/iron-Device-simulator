@@ -6,6 +6,7 @@
 //
 // 트리 상태는 폴더 children 을 folderId 로 캐시하는 중앙 모델로 관리한다(변경 후 해당 노드만 재로딩).
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import {
   ChevronDown,
   ChevronRight,
@@ -28,6 +29,7 @@ import type {
   ProjectNode,
   SpaceTypeT,
 } from "@/features/workspace/types";
+import ProjectAnalysisPanel from "@/features/workspace/components/ProjectAnalysisPanel";
 
 const ROOT_KEY: Record<SpaceTypeT, string> = { SHARE: "__SHARE__", WORK: "__WORK__" };
 
@@ -239,7 +241,22 @@ function RootSection({
   );
 }
 
-export default function WorkspaceTree() {
+interface WorkspaceTreeProps {
+  /**
+   * "full"(기본) = 트리 + 우측 분석 패널(임베드 대시보드).
+   * "nav"        = 트리만(선택 전용). 프로젝트 선택 시 /workspace?project=id 로 이동하고 onSelect 호출.
+   *                SideNav 드로어처럼 "선택" 용도로 쓸 때 사용한다.
+   */
+  variant?: "full" | "nav";
+  /** nav 모드에서 프로젝트 선택 직후 호출(드로어 닫기 등) */
+  onSelect?: () => void;
+}
+
+export default function WorkspaceTree({ variant = "full", onSelect }: WorkspaceTreeProps = {}) {
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const navMode = variant === "nav";
+
   const [cache, setCache] = useState<Record<string, FolderListResponse>>({});
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [loadingKeys, setLoadingKeys] = useState<Set<string>>(new Set());
@@ -280,18 +297,22 @@ export default function WorkspaceTree() {
     }
   }, []);
 
-  // 최초: 두 루트 로드
+  // 최초: 루트 로드 — 트리는 드로어(nav)에만 있으므로 nav 모드에서만 로드한다.
   useEffect(() => {
+    if (!navMode) {
+      setRootsLoading(false); // full(분석 페이지)은 트리 없음 → 로딩 스킵
+      return;
+    }
     (async () => {
       try {
-        await Promise.all([loadChildren("SHARE", ROOT_KEY.SHARE), loadChildren("WORK", ROOT_KEY.WORK)]);
+        await Promise.all([loadChildren("WORK", ROOT_KEY.WORK), loadChildren("SHARE", ROOT_KEY.SHARE)]);
       } catch {
         setError("트리를 불러오지 못했습니다.");
       } finally {
         setRootsLoading(false);
       }
     })();
-  }, [loadChildren]);
+  }, [navMode, loadChildren]);
 
   const toggle = useCallback(
     (space: SpaceTypeT, folder: FolderNode) => {
@@ -307,17 +328,39 @@ export default function WorkspaceTree() {
     [expanded, cache, loadChildren],
   );
 
-  const selectProject = useCallback(async (p: ProjectNode) => {
-    setSelectedId(p.id);
+  /** id 로 프로젝트 상세를 로드해 우측 패널에 표시 (full 모드) */
+  const selectById = useCallback(async (id: string) => {
+    setSelectedId(id);
     setSelected(null);
     setDetailLoading(true);
     try {
-      const res = await fetch(`/api/projects/${p.id}`);
+      const res = await fetch(`/api/projects/${id}`);
       if (res.ok) setSelected((await res.json()).project as ProjectDetail);
     } finally {
       setDetailLoading(false);
     }
   }, []);
+
+  // 트리 노드 클릭 시 동작: nav 모드는 /workspace 로 이동(선택 전용), full 모드는 인라인 표시
+  const selectProject = useCallback(
+    (p: ProjectNode) => {
+      if (navMode) {
+        setSelectedId(p.id);
+        router.push(`/workspace?project=${p.id}`);
+        onSelect?.();
+      } else {
+        selectById(p.id);
+      }
+    },
+    [navMode, router, onSelect, selectById],
+  );
+
+  // full 모드: URL ?project=<id> 가 바뀌면 해당 프로젝트를 자동 선택 (SideNav 에서 넘어온 선택 반영)
+  const projectParam = searchParams.get("project");
+  useEffect(() => {
+    if (navMode) return;
+    if (projectParam) selectById(projectParam);
+  }, [navMode, projectParam, selectById]);
 
   /** 폴더의 부모 키 (루트 폴더면 sentinel) */
   const parentKey = (space: SpaceTypeT, folder: FolderNode) => folder.parentId ?? ROOT_KEY[space];
@@ -482,36 +525,39 @@ export default function WorkspaceTree() {
         onChange={onFileChosen}
       />
 
-      {/* 좌측 트리 */}
-      <aside className="w-72 shrink-0 bg-white rounded-xl border border-iron-100 p-2 overflow-auto flex flex-col">
-        {actionError && (
-          <div className="mb-2 mx-1 px-2 py-1.5 rounded-md bg-red-50 text-red-600 text-xs">{actionError}</div>
-        )}
-        {busy && (
-          <div className="mb-2 mx-1 flex items-center gap-2 px-2 py-1.5 rounded-md bg-iron-100 text-iron-500 text-xs">
-            <Loader2 className="w-3.5 h-3.5 animate-spin" /> 처리 중…
-          </div>
-        )}
-        {rootsLoading ? (
-          <div className="flex items-center gap-2 p-4 text-sm text-iron-400">
-            <Loader2 className="w-4 h-4 animate-spin" /> 트리 로딩 중…
-          </div>
-        ) : error ? (
-          <div className="p-4 text-sm text-red-500">{error}</div>
-        ) : (
-          <>
-            <RootSection title="Share Space" icon={<Share2 className="w-3.5 h-3.5" />} space="SHARE" ctx={ctx} />
-            <RootSection
-              title="내 Work Space"
-              icon={<UserIcon className="w-3.5 h-3.5" />}
-              space="WORK"
-              ctx={ctx}
-            />
-          </>
-        )}
-      </aside>
+      {/* 좌측 트리 — 드로어(nav)에서만. Share·Work 모두 여기서만 노출(분석 페이지엔 트리 없음) */}
+      {navMode && (
+        <aside className="flex-1 bg-white rounded-xl border border-iron-100 p-2 overflow-auto flex flex-col">
+          {actionError && (
+            <div className="mb-2 mx-1 px-2 py-1.5 rounded-md bg-red-50 text-red-600 text-xs">{actionError}</div>
+          )}
+          {busy && (
+            <div className="mb-2 mx-1 flex items-center gap-2 px-2 py-1.5 rounded-md bg-iron-100 text-iron-500 text-xs">
+              <Loader2 className="w-3.5 h-3.5 animate-spin" /> 처리 중…
+            </div>
+          )}
+          {rootsLoading ? (
+            <div className="flex items-center gap-2 p-4 text-sm text-iron-400">
+              <Loader2 className="w-4 h-4 animate-spin" /> 트리 로딩 중…
+            </div>
+          ) : error ? (
+            <div className="p-4 text-sm text-red-500">{error}</div>
+          ) : (
+            <>
+              <RootSection title="Share Space" icon={<Share2 className="w-3.5 h-3.5" />} space="SHARE" ctx={ctx} />
+              <RootSection
+                title="내 Work Space"
+                icon={<UserIcon className="w-3.5 h-3.5" />}
+                space="WORK"
+                ctx={ctx}
+              />
+            </>
+          )}
+        </aside>
+      )}
 
-      {/* 우측 메타 패널 */}
+      {/* 우측 메타 패널 — nav 모드(선택 전용)에서는 렌더하지 않는다 */}
+      {!navMode && (
       <section className="flex-1 bg-white rounded-xl border border-iron-100 p-6 overflow-auto">
         {detailLoading ? (
           <div className="h-full flex items-center justify-center text-iron-400 gap-2">
@@ -520,7 +566,7 @@ export default function WorkspaceTree() {
         ) : !selected ? (
           <div className="h-full flex flex-col items-center justify-center text-iron-300">
             <FileAudio className="w-10 h-10 mb-3" />
-            <p className="text-sm">좌측에서 프로젝트를 선택하세요.</p>
+            <p className="text-sm">좌측 상단 메뉴(☰)에서 프로젝트를 선택하세요.</p>
           </div>
         ) : (
           <ProjectDetailPanel
@@ -553,6 +599,7 @@ export default function WorkspaceTree() {
           />
         )}
       </section>
+      )}
 
       {modal && <ActionModal modal={modal} busy={busy} onClose={() => setModal(null)} />}
     </div>
@@ -576,13 +623,6 @@ function ProjectDetailPanel({
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <div className="flex items-center gap-2 mb-1">
-            <span
-              className={`px-2 py-0.5 rounded-full text-xs font-medium ${
-                project.spaceType === "SHARE" ? "bg-sky-50 text-sky-700" : "bg-violet-50 text-violet-700"
-              }`}
-            >
-              {project.spaceType === "SHARE" ? "읽기 전용 · Share" : "내 작업 · Work"}
-            </span>
             {project.baseProjectId && (
               <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-iron-100 text-iron-500">Fork</span>
             )}
@@ -612,25 +652,25 @@ function ProjectDetailPanel({
         )}
       </div>
 
-      {/* 오디오 플레이어 (업로드 음원 보유 시) */}
+      {/* 음원 보유 시: 헤더(파일명/다운로드) + 임베드 분석 대시보드 */}
       {project.audio ? (
-        <div className="mt-5 p-4 rounded-xl border border-iron-100 bg-iron-50">
-          <div className="flex items-center gap-2 mb-3 text-sm text-iron-700">
-            <FileAudio className="w-4 h-4 text-brand-blue" />
+        <>
+          <div className="mt-5 flex flex-wrap items-center gap-2 text-sm text-iron-700">
+            <FileAudio className="w-4 h-4 text-brand-blue shrink-0" />
             <span className="truncate font-medium">{project.audio.filename}</span>
             <span className="text-xs text-iron-400 shrink-0">
               {(project.audio.sizeBytes / 1024 / 1024).toFixed(2)} MB · {project.audio.mimeType || "audio"}
             </span>
+            <a
+              href={`/api/projects/${project.id}/audio?download=1`}
+              className="ml-auto inline-flex items-center gap-1.5 text-xs text-brand-blue hover:underline"
+            >
+              <Download className="w-3.5 h-3.5" /> 다운로드
+            </a>
           </div>
-          {/* eslint-disable-next-line jsx-a11y/media-has-caption */}
-          <audio controls preload="metadata" src={`/api/projects/${project.id}/audio`} className="w-full" />
-          <a
-            href={`/api/projects/${project.id}/audio?download=1`}
-            className="mt-3 inline-flex items-center gap-1.5 text-xs text-brand-blue hover:underline"
-          >
-            <Download className="w-3.5 h-3.5" /> 다운로드
-          </a>
-        </div>
+          {/* 음원별 분석 대시보드 (실시간 추적 / 배치 분석 / 측정) */}
+          <ProjectAnalysisPanel key={project.id} project={project} />
+        </>
       ) : isWork ? (
         <div className="mt-5 p-4 rounded-xl border border-dashed border-iron-200 text-sm text-iron-400 flex items-center gap-2">
           <FilePlus2 className="w-4 h-4" /> 업로드된 음원이 없습니다.

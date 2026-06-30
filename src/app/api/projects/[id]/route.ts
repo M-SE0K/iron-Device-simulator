@@ -5,11 +5,8 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/shared/db/prisma";
 import { requireApprovedUser } from "@/features/auth/lib/auth-server";
-import {
-  deleteProject,
-  renameProject,
-  WorkspaceError,
-} from "@/features/workspace/lib/workspace-server";
+import { deleteProject, renameProject } from "@/features/workspace/lib/workspace-server";
+import { can, HttpError, principalFrom } from "@/features/auth/lib/authz";
 
 export const runtime = "nodejs";
 
@@ -44,9 +41,9 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
     return NextResponse.json({ error: "프로젝트를 찾을 수 없습니다." }, { status: 404 });
   }
 
-  // WORK 는 소유자만. (존재 사실 노출 최소화를 위해 SHARE 외 타인 WORK 는 404 와 동급 의미)
-  if (project.spaceType === "WORK" && project.ownerId !== auth.sub) {
-    return NextResponse.json({ error: "접근 권한이 없습니다." }, { status: 403 });
+  // 읽기 인가: SHARE=승인자 전원, WORK=소유자 (authz.can 으로 일원화)
+  if (!can(principalFrom(auth), "read", project)) {
+    return NextResponse.json({ error: "프로젝트를 찾을 수 없습니다." }, { status: 404 });
   }
 
   return NextResponse.json({
@@ -80,10 +77,10 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
   }
 
   try {
-    const project = await renameProject({ projectId: id, name: body.name ?? "", userId: auth.sub });
+    const project = await renameProject({ projectId: id, name: body.name ?? "", principal: principalFrom(auth) });
     return NextResponse.json({ project: { id: project.id, name: project.name } });
   } catch (e) {
-    if (e instanceof WorkspaceError) {
+    if (e instanceof HttpError) {
       return NextResponse.json({ error: e.message }, { status: e.status });
     }
     throw e;
@@ -96,10 +93,10 @@ export async function DELETE(_req: Request, ctx: { params: Promise<{ id: string 
 
   const { id } = await ctx.params;
   try {
-    await deleteProject({ projectId: id, userId: auth.sub });
+    await deleteProject({ projectId: id, principal: principalFrom(auth) });
     return NextResponse.json({ ok: true });
   } catch (e) {
-    if (e instanceof WorkspaceError) {
+    if (e instanceof HttpError) {
       return NextResponse.json({ error: e.message }, { status: e.status });
     }
     throw e;

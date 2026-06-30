@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useCallback, useRef, useEffect } from "react";
+import { useState, useCallback, useRef, useEffect, useMemo } from "react";
+import { FileAudio } from "lucide-react";
 import Header from "@/shared/components/Header";
 import AudioUploader from "@/features/audio/components/AudioUploader";
 import WaveformPlayer, { WaveformPlayerHandle } from "@/features/audio/components/WaveformPlayer";
@@ -8,12 +9,27 @@ import MicrophonePlayer from "@/features/audio/components/MicrophonePlayer";
 import TemperatureChart from "@/features/audio/components/TemperatureChart";
 import ExcursionChart from "@/features/audio/components/ExcursionChart";
 import { AppStatus, AnalysisFrame, StreamDebugInfo, DebugLogEntry, MeasurementExport } from "@/features/audio/types";
-import InputParameters, { InputParameterValues } from "@/features/audio/components/InputParameters";
+import type { InputParameterValues } from "@/features/audio/components/InputParameters";
+import { useCalibration } from "@/features/audio/lib/calibration-context";
 import { cn } from "@/shared/lib/utils";
 import { saveFrameCache, loadFrameCache, clearFrameCache } from "@/features/audio/lib/frame-cache";
 import { putAudio, getCachedAudio, clearAudio } from "@/features/audio/lib/audio-blob-cache";
 
-export default function DashboardPage({ useQueue }: { useQueue: boolean }) {
+interface DashboardPageProps {
+  useQueue: boolean;
+  /**
+   * 임베드 모드 (워크스페이스 우측 패널 등). true면:
+   *  - 자체 <Header /> 미렌더 (호스트 페이지가 헤더를 가진다)
+   *  - 파일/마이크 입력 탭 숨김 (음원은 externalFile 로 고정)
+   *  - sessionStorage/IndexedDB 캐시 미사용 (메인 대시보드와 충돌 방지)
+   *  - 컨테이너 높이에 맞춘 자연 높이 레이아웃
+   */
+  embedded?: boolean;
+  /** 임베드 모드에서 분석할 음원 (워크스페이스 프로젝트에서 주입). 바뀌면 버퍼 초기화 */
+  externalFile?: File | null;
+}
+
+export default function DashboardPage({ useQueue, embedded = false, externalFile = null }: DashboardPageProps) {
   // 모드별 독립 재생 상태 — realtime/batch 플레이어가 서로 간섭하지 않도록 분리
   const [realtimeStatus, setRealtimeStatus]   = useState<AppStatus>("idle");
   const [batchStatus, setBatchStatus]         = useState<AppStatus>("idle");
@@ -26,10 +42,12 @@ export default function DashboardPage({ useQueue }: { useQueue: boolean }) {
   // batch(분석) 버퍼 — 전체 곡선. 모드별로 버퍼를 분리해 탭 전환 시 서로 덮어쓰지 않는다.
   const [batchFrames, setBatchFrames]         = useState<AnalysisFrame[]>([]);
 
-  const [inputParams, setInputParams] = useState<InputParameterValues>({
-    ampOutputPower: "",
-    speakerModel: "",
-  });
+  // 분석 파라미터는 캘리브레이션 단일 소스(Context)에서 가져온다 — 대시보드 내 InputParameters 카드 제거.
+  const { values: calibration } = useCalibration();
+  const inputParams = useMemo<InputParameterValues>(
+    () => ({ ampOutputPower: calibration.ampOutputPower, speakerModel: calibration.speakerModel }),
+    [calibration.ampOutputPower, calibration.speakerModel],
+  );
   const [inputMode, setInputMode] = useState<"file" | "mic">("file");
 
   // ── 분석 모드: realtime(실시간 추적) / batch(분석 후 렌더) ──────────────────
@@ -231,6 +249,7 @@ export default function DashboardPage({ useQueue }: { useQueue: boolean }) {
 
   // ── sessionStorage 저장 헬퍼 ──────────────────────────────────────────────
   const persistCache = useCallback(() => {
+    if (embedded) return; // 임베드 모드는 캐시를 쓰지 않는다 (메인 대시보드와 충돌 방지)
     saveFrameCache({
       fileName:       audioFile?.name ?? fileNameRef.current,
       audioDuration:  audioDurationRef.current,
@@ -238,10 +257,11 @@ export default function DashboardPage({ useQueue }: { useQueue: boolean }) {
       realtimeFrames: streamingFramesRef.current,
       batchFrames:    batchFramesRef.current,
     });
-  }, [audioFile]);
+  }, [audioFile, embedded]);
 
   // ── 마운트 시 캐시 복원 (탭 전환 후 재마운트 / 새로고침 대응) ──────────────
   useEffect(() => {
+    if (embedded) return; // 임베드 모드: 외부에서 음원을 주입하므로 캐시 복원 안 함
     const snap = loadFrameCache();
     if (snap) {
       if (snap.realtimeFrames.length) { setStreamingFrames(snap.realtimeFrames); streamingFramesRef.current = snap.realtimeFrames; }
@@ -283,15 +303,12 @@ export default function DashboardPage({ useQueue }: { useQueue: boolean }) {
   }, [persistCache]);
 
   // ── 파일 선택 / 초기화 ────────────────────────────────────────────────────
-  const handleFileSelected = useCallback((file: File) => {
-    setAudioFile(file);
+  // 모든 분석 버퍼/상태를 새 음원 기준으로 비우는 공통 루틴 (캐시 I/O 제외)
+  const resetAnalysisState = useCallback(() => {
     setAudioDuration(null);
     setStreamingFrames([]);
     setBatchFrames([]);
     batchFramesRef.current = [];
-    fileNameRef.current = file.name;
-    clearFrameCache();
-    void putAudio(file); // 새로고침 후 파형 복원용으로 오디오 원본을 IndexedDB에 저장
     setCurrentTime(0);
     setRealtimeStatus("idle");
     setBatchStatus("idle");
@@ -305,27 +322,31 @@ export default function DashboardPage({ useQueue }: { useQueue: boolean }) {
     setIsAnalyzing(false);
   }, []);
 
+  const handleFileSelected = useCallback((file: File) => {
+    setAudioFile(file);
+    fileNameRef.current = file.name;
+    resetAnalysisState();
+    clearFrameCache();
+    void putAudio(file); // 새로고침 후 파형 복원용으로 오디오 원본을 IndexedDB에 저장
+  }, [resetAnalysisState]);
+
   const handleReset = useCallback(() => {
     setAudioFile(null);
-    setAudioDuration(null);
-    setStreamingFrames([]);
-    setBatchFrames([]);
-    batchFramesRef.current = [];
     fileNameRef.current = null;
+    resetAnalysisState();
     clearFrameCache();
     void clearAudio(); // 캐시된 오디오 원본도 제거
-    setCurrentTime(0);
-    setRealtimeStatus("idle");
-    setBatchStatus("idle");
-    setErrorMsg(null);
-    isMeasuringRef.current = false;
-    setIsMeasuring(false);
-    measureLogsRef.current = [];
-    setMeasureFrameCount(0);
-    referenceFramesRef.current = [];
-    setBatchProgress({ done: 0, total: 0 });
-    setIsAnalyzing(false);
-  }, []);
+  }, [resetAnalysisState]);
+
+  // ── 임베드 모드: 외부에서 주입된 음원 동기화 (캐시 I/O 없이 버퍼만 초기화) ──
+  useEffect(() => {
+    if (!embedded) return;
+    setAudioFile(externalFile);
+    fileNameRef.current = externalFile?.name ?? null;
+    resetAnalysisState();
+    setAnalysisMode("realtime");
+    analysisModeRef.current = "realtime";
+  }, [embedded, externalFile, resetAnalysisState]);
 
   const handleInputModeChange = useCallback((mode: "file" | "mic") => {
     setInputMode(mode);
@@ -785,21 +806,26 @@ export default function DashboardPage({ useQueue }: { useQueue: boolean }) {
     || chartFrames.length > 0;
 
   return (
-    <div id="dashboard-root" className="flex flex-col min-h-screen lg:h-screen lg:overflow-hidden">
-      <Header />
+    <div
+      id="dashboard-root"
+      className={cn(
+        "flex flex-col",
+        embedded ? "min-h-0" : "min-h-screen lg:h-screen lg:overflow-hidden",
+      )}
+    >
+      {!embedded && <Header />}
 
       {/* lg 미만: 세로 스크롤 허용 / lg 이상: 단일 뷰포트(내용이 넘치면 내부 스크롤) */}
-      <main id="dashboard-main" className="flex-1 min-h-0 overflow-y-auto p-3">
+      <main id="dashboard-main" className={cn("flex-1 min-h-0", embedded ? "" : "overflow-y-auto p-3")}>
         <div id="dashboard-content" className="lg:h-full w-full flex flex-col gap-3">
 
           {/* 좌/우 2열 메인 그리드 — lg 미만에서는 1열로 쌓이며 자연 높이 + 최소 높이 보장 */}
           <div id="dashboard-grid" className="grid grid-cols-1 lg:grid-cols-2 gap-3 lg:flex-1 lg:min-h-[600px]">
 
-            {/* 좌측: upload-section / InputParameters / Waveform — 스택
+            {/* 좌측: upload-section / Waveform — 스택 (파라미터는 헤더 Calibration View 로 분리)
                 ┌─ 비율 조정 가이드 ──────────────────────────────────────────┐
                 │ upload-section : flex-[2]   ← 작게 하려면 숫자 ↓ (예: 1)    │
                 │ WaveformPlayer : flex-[3]   ← 크게 하려면 숫자 ↑ (예: 5)    │
-                │ InputParameters: shrink-0   ← 자연 높이 (변경 불필요)        │
                 └────────────────────────────────────────────────────────────┘ */}
             <div id="left-column" className="flex flex-col gap-3 min-h-0">
               {/* upload-section: 비율 조정 → flex-[숫자] 변경.
@@ -807,20 +833,22 @@ export default function DashboardPage({ useQueue }: { useQueue: boolean }) {
               <div id="upload-section" className="h-[220px] lg:h-auto lg:min-h-0 lg:flex-[2] flex flex-col gap-2">
                 {/* 입력 모드 탭 + DEBUG/REC 액션 */}
                 <div className="flex items-center gap-1 text-xs font-mono shrink-0">
-                  {(["file", "mic"] as const).map((m) => (
-                    <button
-                      key={m}
-                      onClick={() => handleInputModeChange(m)}
-                      className={cn(
-                        "px-2.5 py-1 rounded border transition-all",
-                        inputMode === m
-                          ? "bg-brand-blue text-white border-brand-blue"
-                          : "text-iron-400 border-iron-200 hover:border-iron-400"
-                      )}
-                    >
-                      {m === "file" ? "파일" : "마이크"}
-                    </button>
-                  ))}
+                  {/* 임베드 모드는 음원이 고정(프로젝트)이라 파일/마이크 탭을 숨긴다 */}
+                  {!embedded &&
+                    (["file", "mic"] as const).map((m) => (
+                      <button
+                        key={m}
+                        onClick={() => handleInputModeChange(m)}
+                        className={cn(
+                          "px-2.5 py-1 rounded border transition-all",
+                          inputMode === m
+                            ? "bg-brand-blue text-white border-brand-blue"
+                            : "text-iron-400 border-iron-200 hover:border-iron-400"
+                        )}
+                      >
+                        {m === "file" ? "파일" : "마이크"}
+                      </button>
+                    ))}
                   <div className="ml-auto flex gap-1.5">
                     <button
                       onClick={handleMeasureToggle}
@@ -909,7 +937,24 @@ export default function DashboardPage({ useQueue }: { useQueue: boolean }) {
                 )}
 
                 <div className="flex-1 min-h-0 min-w-0">
-                  {inputMode === "file" ? (
+                  {embedded ? (
+                    // 임베드 모드: 업로드 대신 고정 음원 정보만 표시 (읽기 전용)
+                    <div className="card h-full p-4 flex items-center gap-3">
+                      <div className="w-9 h-9 rounded-lg bg-brand-blue/10 flex items-center justify-center shrink-0">
+                        <FileAudio size={18} className="text-brand-blue" />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium text-iron-800 truncate">
+                          {audioFile?.name ?? "음원 없음"}
+                        </p>
+                        {audioFile && (
+                          <p className="text-xs text-iron-400 mt-0.5">
+                            {(audioFile.size / 1024 / 1024).toFixed(2)} MB
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                  ) : inputMode === "file" ? (
                     <AudioUploader
                       status={activeStatus}
                       selectedFile={audioFile}
@@ -933,10 +978,7 @@ export default function DashboardPage({ useQueue }: { useQueue: boolean }) {
                 )}
               </div>
 
-              {/* Input Parameters card — 자연 높이 */}
-              <div className="shrink-0">
-                <InputParameters values={inputParams} onChange={setInputParams} />
-              </div>
+              {/* Input Parameters 카드 제거 — 파라미터는 헤더의 Calibration View 드로어로 단일화 */}
 
               {/* Waveform player — 비율 조정 → flex-[숫자] 변경.
                   lg 미만: 고정 높이(h-[260px])로 카드 % 높이 사슬을 확정시켜 겹침 방지 */}
