@@ -2,7 +2,7 @@
 
 A web-based dashboard for demonstrating Iron Device Corporation's speaker protection algorithm library (`libirontune.so`), developed as part of a Jeonbuk National University SW industry-academic collaboration project.
 
-Visualizes **speaker temperature** and **excursion displacement** in real-time via audio file upload or live microphone input.
+Visualizes **speaker temperature** and **excursion displacement** in real-time via audio file upload or live microphone input. A **multi-user authentication layer** (Postgres / Prisma) gates the dashboard, with admin-approved signups and a workspace/project data model.
 
 <img width="1920" height="958" alt="image" src="https://github.com/user-attachments/assets/99f08e17-383e-4aec-869f-2337b5e02ed8" />
 
@@ -24,9 +24,9 @@ Visualizes **speaker temperature** and **excursion displacement** in real-time v
 ### Common
 - Node.js 20+
 - npm 9+
+- Docker (Postgres container for auth/DB; colima or Docker Desktop)
 
 ### Native Mode Only
-- Docker (colima / Docker Desktop)
 - `libirontune.so` binary
 
 ---
@@ -37,7 +37,17 @@ Visualizes **speaker temperature** and **excursion displacement** in real-time v
 git clone https://github.com/JBNU-CILAB/Iron-Device-Simulator.git
 cd iron-Device-simulator
 npm install
+
+# Environment variables (DATABASE_URL, JWT_SECRET)
+cp .env.example .env
+
+# Postgres + Prisma (auth / workspace data layer)
+npm run db:up        # start postgres:16 on localhost:5432
+npm run db:migrate   # apply Prisma migrations
+npm run db:seed      # seed admin account + workspace tree
 ```
+
+> The seed creates a bootstrap admin (`admin@irontune.local` / `admin1234` by default — override with `SEED_ADMIN_EMAIL` / `SEED_ADMIN_PASSWORD`, and change it before any deployment).
 
 ---
 
@@ -109,12 +119,27 @@ npm run dev
 
 ---
 
+## Authentication & Workspace
+
+The dashboard is gated by a stateless JWT-in-cookie auth layer (`irontune_token`). `middleware.ts` protects `/`, `/workspace`, and `/admin/*`, redirecting unauthenticated or unapproved users to `/login`.
+
+- **Sign up / Log in** — `/login`. New accounts start as `PENDING`.
+- **Admin approval** — an `ADMIN` approves signups at `/admin/users` (`PENDING → APPROVED`).
+- **Workspace** — `/workspace` provides a folder / project tree (`docs/02-workspace-model.md`), backed by the `Folder` / `Project` / `AudioAsset` / `Measurement` Prisma models.
+
+> See `docs/` (`01-authentication` … `05-data-model`) and `SPECIFICATION.md` for the broader design; `docs/README.md` notes which parts are implemented vs. aspirational.
+
+---
+
 ## Environment Variables
 
 | Variable | Default | Description |
 |---|---|---|
+| `DATABASE_URL` | — | Postgres connection string (see `.env.example`) |
+| `JWT_SECRET` | — | JWT signing key — use a strong random value in production |
 | `USE_MOCK` | `true` | Set to `false` to use the Native engine |
 | `SO_PATH` | `/app/native/libirontune.so` | Absolute path to the `.so` file |
+| `USE_QUEUE` | `true` | Set to `false` to use the plain FIFO render path instead of the output-queue scheduler |
 | `PORT` | `3000` | Shared HTTP / WebSocket port |
 | `LOG_FRAME_INTERVAL` | `10` | Print frame log every N frames |
 | `LOG_LEVEL` | — | Set to `silent` to suppress frame logs |
@@ -124,10 +149,31 @@ npm run dev
 ## Dev Commands
 
 ```bash
-npm run dev      # Dev server (Mock mode, HMR enabled)
-npm run build    # Production build
-npm start        # Production server
-npm run lint     # ESLint
+npm run dev          # Dev server (Mock mode, HMR enabled) — runs server.ts via tsx
+npm run build        # Next.js production build
+npm run build:server # Compile server.ts → server.js (required before npm start)
+npm start            # Production server (node server.js)
+npm run start:dev    # Prod-mode run without build (NODE_ENV=production tsx server.ts)
+npm run lint         # ESLint
+```
+
+### Database (Postgres + Prisma)
+
+```bash
+npm run db:up        # docker compose up -d (postgres:16, localhost:5432)
+npm run db:down      # docker compose down
+npm run db:migrate   # prisma migrate dev
+npm run db:seed      # tsx prisma/seed.ts (admin + workspace tree)
+npm run db:studio    # prisma studio
+npm run db:reset     # prisma migrate reset
+```
+
+### Measurement Harness (server must already be running)
+
+```bash
+npm run measure              # Puppeteer auto-measurement → measurements/*.json
+npm run measure:baseline     # label=baseline, 60s/track
+npm run compare              # Summarize / diff measurements/*.json
 ```
 
 ---
@@ -137,8 +183,11 @@ npm run lint     # ESLint
 - **File Mode** — Upload WAV / MP3 and get real-time analysis synced to playback
 - **Microphone Mode** — Real-time analysis from browser microphone input
 - **Temperature / Excursion Charts** — L / R / Both channel toggle, ECharts-based live rendering
+- **Realtime / Batch modes** — Stream synced to playback, or analyze the whole file up front
 - **Debug Panel** — RTT, server processing time, React/ECharts render pipeline metrics
 - **Measurement Mode** — Record a session and export as JSON
+- **Auth & Admin** — Multi-user login, admin approval of signups
+- **Workspace** — Folder / project tree for organizing audio assets and measurements
 
 ---
 
@@ -149,6 +198,9 @@ npm run lint     # ESLint
 | Framework | Next.js 15 (App Router) |
 | UI | React 19 · Tailwind CSS |
 | Charts | Apache ECharts (echarts-for-react) |
+| Waveform | wavesurfer.js |
+| Auth | jose (JWT) · bcryptjs |
+| Database | Postgres 16 · Prisma |
 | Native FFI | koffi |
 | Container | Docker (node:20-slim, linux/amd64) |
 

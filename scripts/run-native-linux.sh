@@ -2,13 +2,23 @@
 # ─────────────────────────────────────────────────────────────
 # iron-Device-simulater — Linux 서버 설치 & 실행 스크립트
 #
+# Linux x86-64 호스트에서 libirontune.so(Native 모드)로 서버를 띄운다.
+# DB(인증/프로젝트)는 docker compose 의 Postgres 컨테이너에 연결한다
+# (run-native-docker.sh 와 동일한 DB 구성 — DATABASE_URL/JWT_SECRET 주입,
+#  prisma generate → migrate deploy → seed 까지 수행).
+#
+# 요구: Node 20+, Docker(Compose), ffmpeg
+#
 # 사용법:
-#   chmod +x setup-linux.sh
-#   ./setup-linux.sh [libirontune.so 경로]
+#   chmod +x scripts/run-native-linux.sh
+#   ./scripts/run-native-linux.sh [libirontune.so 경로]
 #
 # 예시:
-#   ./setup-linux.sh /home/user/libirontune.so
-#   ./setup-linux.sh   ← .so 경로 생략 시 스크립트와 같은 디렉토리에서 탐색
+#   ./scripts/run-native-linux.sh /home/user/libirontune.so
+#   ./scripts/run-native-linux.sh   ← .so 경로 생략 시 상위 디렉토리에서 자동 탐색
+#
+# 환경변수로 override 가능:
+#   DATABASE_URL, JWT_SECRET, USE_QUEUE
 # ─────────────────────────────────────────────────────────────
 
 set -e
@@ -139,16 +149,46 @@ else
   fi
 fi
 
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+cd "$PROJECT_ROOT"
+
+# ── DB 환경변수 (docker compose Postgres 기준) ────────────────
+# run-native-docker.sh 와 동일 기본값. 호스트에서 직접 띄우므로 localhost:5432.
+export DATABASE_URL="${DATABASE_URL:-postgresql://irontune:irontune_pw@localhost:5432/irontune_db?schema=public}"
+export JWT_SECRET="${JWT_SECRET:-dev-only-secret-change-in-production-0a1b2c3d4e5f}"
+export USE_QUEUE="${USE_QUEUE:-true}"
+
+# ── Postgres 컨테이너 확인/기동 (docker compose) ──────────────
+info "Postgres 컨테이너 확인/기동 중 (docker compose)..."
+if ! command -v docker &>/dev/null; then
+  error "docker 가 필요합니다. (DB: docker compose Postgres). 설치 후 다시 실행하세요."
+fi
+docker compose -f "$PROJECT_ROOT/docker-compose.yml" up -d postgres
+success "Postgres 기동 완료 (localhost:5432)"
+
 # ── npm 의존성 설치 ───────────────────────────────────────────
 info "npm 의존성 설치 중..."
-cd "$SCRIPT_DIR/.."
 npm ci
 success "의존성 설치 완료"
+
+# ── Prisma Client 생성 ────────────────────────────────────────
+# package.json 에 postinstall 이 없어 npm ci 만으로는 생성되지 않음.
+info "Prisma Client 생성 중..."
+npx prisma generate
+success "Prisma Client 생성 완료"
 
 # ── Next.js 빌드 ──────────────────────────────────────────────
 info "Next.js 빌드 중..."
 npm run build
 success "빌드 완료"
+
+# ── DB 마이그레이션 적용 + 시드 (멱등) ────────────────────────
+info "DB 마이그레이션 적용 (migrate deploy)..."
+npx prisma migrate deploy
+success "마이그레이션 완료"
+
+info "초기 시드 (admin + Share 트리, 멱등)..."
+npx tsx prisma/seed.ts || warn "시드 건너뜀 — 이미 존재하거나 일시 오류"
 
 # ── 실행 ──────────────────────────────────────────────────────
 echo ""
@@ -157,14 +197,14 @@ echo "━━━━━━━━━━━━━━━━━━━━━━━━�
 if [ "$USE_MOCK" = true ]; then
   warn "Mock 모드로 실행합니다 (libirontune.so 없음)"
   echo ""
-  info "서버 시작: http://localhost:3000"
+  info "서버 시작: http://localhost:3000  (USE_QUEUE=$USE_QUEUE)"
   echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-  USE_MOCK=true npx tsx server.ts
+  NODE_ENV=production USE_MOCK=true npx tsx server.ts
 else
   success "Native 모드로 실행합니다"
   echo "  SO_PATH: $SO_PATH"
   echo ""
-  info "서버 시작: http://localhost:3000"
+  info "서버 시작: http://localhost:3000  (USE_QUEUE=$USE_QUEUE)"
   echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-  USE_MOCK=false SO_PATH="$SO_PATH" npx tsx server.ts
+  NODE_ENV=production USE_MOCK=false SO_PATH="$SO_PATH" npx tsx server.ts
 fi
