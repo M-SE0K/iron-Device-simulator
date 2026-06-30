@@ -31,6 +31,6 @@ export async function middleware(req: NextRequest) {
 }
 
 export const config = {
-  // 대시보드(/) 와 /admin 보호. 정적 자산·API·로그인 페이지는 제외.
-  matcher: ["/", "/admin/:path*"],
+  // 대시보드(/) · /workspace · /admin 보호. 정적 자산·API·로그인 페이지는 제외.
+  matcher: ["/", "/workspace", "/admin/:path*"],
 };

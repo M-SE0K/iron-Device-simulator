@@ -4,6 +4,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/shared/db/prisma";
 import { verifyPassword } from "@/features/auth/lib/auth-server";
 import { signToken, TOKEN_COOKIE } from "@/features/auth/lib/auth";
+import { ensureWorkRoot } from "@/features/workspace/lib/workspace-server";
 
 export const runtime = "nodejs";
 
@@ -34,6 +35,13 @@ export async function POST(req: Request) {
         ? "아직 관리자 승인 대기 중입니다."
         : "가입이 거부된 계정입니다.";
     return NextResponse.json({ error: msg, status: user.status }, { status: 403 });
+  }
+
+  // 최초 로그인 시 개인 Work Space 루트를 보장(멱등). 실패해도 로그인은 막지 않는다 (docs/02 §7).
+  try {
+    await ensureWorkRoot(user.id, user.email);
+  } catch (e) {
+    console.error("Work 루트 생성 실패:", e);
   }
 
   const token = await signToken({

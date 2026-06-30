@@ -86,10 +86,24 @@ model Project {
   createdAt     DateTime  @default(now())
 
   measurements Measurement[]
+  audio        AudioAsset? // Work 업로드 음원 (1:1, 선택)
 
   @@index([spaceType, folderId])
   @@index([ownerId])
   @@index([baseProjectId])
+}
+
+// ── 5. 업로드 음원 자산 (Work CRUD; docs/02 §7) ──
+// 바이트를 DB(Bytes)에 직접 저장 — Fly 재배포에도 보존. 곡당 수 MB 수준의 짧은 클립 전제.
+model AudioAsset {
+  id        String   @id @default(cuid())
+  projectId String   @unique
+  project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  filename  String
+  mimeType  String
+  sizeBytes Int
+  data      Bytes
+  createdAt DateTime @default(now())
 }
 
 // ── 4. 분석 결과 (현 measurements/*.json 승격) ──
