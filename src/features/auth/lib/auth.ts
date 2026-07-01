@@ -8,10 +8,13 @@
 import { SignJWT, jwtVerify } from "jose";
 
 export const TOKEN_COOKIE = "irontune_token";
+export const REFRESH_COOKIE = "irontune_refresh";
 
-// Phase 1: refresh 토큰이 아직 없으므로 access TTL 을 실사용 가능하게 길게 둔다.
-// Phase 2(refresh 도입) 시 15분으로 단축할 것. (docs/01 §5.2)
-const ACCESS_TTL = "1d";
+// Phase 2: refresh 토큰 도입 — access 는 짧게, refresh(7일)가 세션을 이어감. (docs/01 §5.2)
+const ACCESS_TTL_MINUTES = 15;
+const ACCESS_TTL = `${ACCESS_TTL_MINUTES}m`;
+export const ACCESS_TTL_SECONDS = ACCESS_TTL_MINUTES * 60;
+export const REFRESH_TTL_SECONDS = 60 * 60 * 24 * 7; // 7일
 
 export type Role = "ADMIN" | "USER";
 export type UserStatus = "PENDING" | "APPROVED" | "REJECTED";

@@ -3,6 +3,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/shared/db/prisma";
 import { hashPassword } from "@/features/auth/lib/auth-server";
+import { badBody, badRequest, conflict } from "@/app/api/_lib/route";
 
 export const runtime = "nodejs"; // bcrypt/prisma 사용 → node 런타임 강제
 
@@ -11,22 +12,22 @@ export async function POST(req: Request) {
   try {
     body = await req.json();
   } catch {
-    return NextResponse.json({ error: "잘못된 요청 본문" }, { status: 400 });
+    return badBody();
   }
 
   const email = body.email?.trim().toLowerCase();
   const password = body.password;
 
   if (!email || !password) {
-    return NextResponse.json({ error: "이메일과 비밀번호가 필요합니다." }, { status: 400 });
+    return badRequest("이메일과 비밀번호가 필요합니다.");
   }
-  if (password.length < 8) {
-    return NextResponse.json({ error: "비밀번호는 8자 이상이어야 합니다." }, { status: 400 });
+  if (!/^(?=.*[A-Za-z])(?=.*\d).{10,}$/.test(password)) {
+    return badRequest("비밀번호는 10자 이상, 영문과 숫자를 포함해야 합니다.");
   }
 
   const existing = await prisma.user.findUnique({ where: { email } });
   if (existing) {
-    return NextResponse.json({ error: "이미 가입된 이메일입니다." }, { status: 409 });
+    return conflict("이미 가입된 이메일입니다.");
   }
 
   const passwordHash = await hashPassword(password);
