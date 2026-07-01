@@ -8,7 +8,7 @@ import { createContext, useContext, useMemo, useState, type Dispatch, type React
 import { SPEAKER_PROFILES } from "@/features/audio/lib/engine-core";
 
 export const SPEAKER_MODELS = Object.keys(SPEAKER_PROFILES); // ["Z3 SPK", ...]
-export const DEFAULT_AMBIENT = 25;
+const DEFAULT_AMBIENT = 25;
 
 export interface CalibrationValues {
   speakerModel: string; // "" = 미선택
