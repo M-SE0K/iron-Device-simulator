@@ -4,6 +4,7 @@ import { useRef, useState } from "react";
 import { Upload, FileAudio, X } from "lucide-react";
 import { cn } from "@/shared/lib/utils";
 import { AppStatus } from "@/features/audio/types";
+import CalibrationSummary from "@/features/audio/components/CalibrationSummary";
 
 interface Props {
   status: AppStatus;
@@ -41,6 +42,7 @@ export default function AudioUploader({ status, onFileSelected, onReset, selecte
           <p className="selected-file-size text-xs text-iron-400 mt-0.5">
             {(selectedFile.size / 1024 / 1024).toFixed(2)} MB
           </p>
+          <CalibrationSummary />
         </div>
         {!isLocked && (
           <button

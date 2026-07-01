@@ -6,6 +6,7 @@ import Header from "@/shared/components/Header";
 import AudioUploader from "@/features/audio/components/AudioUploader";
 import WaveformPlayer, { WaveformPlayerHandle } from "@/features/audio/components/WaveformPlayer";
 import MicrophonePlayer from "@/features/audio/components/MicrophonePlayer";
+import CalibrationSummary from "@/features/audio/components/CalibrationSummary";
 import TemperatureChart from "@/features/audio/components/TemperatureChart";
 import ExcursionChart from "@/features/audio/components/ExcursionChart";
 import { AppStatus, AnalysisFrame, StreamDebugInfo, DebugLogEntry, MeasurementExport } from "@/features/audio/types";
@@ -952,6 +953,7 @@ export default function DashboardPage({ useQueue, embedded = false, externalFile
                             {(audioFile.size / 1024 / 1024).toFixed(2)} MB
                           </p>
                         )}
+                        {audioFile && <CalibrationSummary />}
                       </div>
                     </div>
                   ) : inputMode === "file" ? (
