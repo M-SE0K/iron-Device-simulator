@@ -66,6 +66,7 @@ model Folder {
   children  Folder[]  @relation("FolderTree")
   ownerId   String? // null(SHARE) | userId(WORK)
   owner     User?     @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  position  Float     @default(0) // 수동(직접) 정렬 순서 — 같은 부모 형제 간 상대 위치(midpoint 재배치)
   createdAt DateTime  @default(now())
   deletedAt DateTime? // soft delete (휴지통)
 
@@ -87,6 +88,7 @@ model Project {
   baseProjectId String? // Fork 출처 (Work만; 명세 §4)
   baseProject   Project?  @relation("Fork", fields: [baseProjectId], references: [id])
   forks         Project[] @relation("Fork")
+  position      Float     @default(0) // 수동(직접) 정렬 순서 — 같은 폴더 형제 간 상대 위치(midpoint 재배치)
   createdAt     DateTime  @default(now())
   deletedAt     DateTime? // soft delete (휴지통)
 
