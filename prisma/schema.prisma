@@ -44,11 +44,14 @@ model User {
 }
 
 model Session {
-  id        String   @id @default(cuid())
-  userId    String
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  expiresAt DateTime
-  createdAt DateTime @default(now())
+  id           String    @id @default(cuid())
+  userId       String
+  user         User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash    String    @unique // sha256(raw refresh 토큰) — raw 값은 DB에 저장하지 않음
+  expiresAt    DateTime
+  createdAt    DateTime  @default(now())
+  revokedAt    DateTime? // 로그아웃/rotation/재사용탐지 시 세팅
+  replacedById String?   @unique // rotation 체인: 이 세션을 교체한 다음 세대 세션 id
 
   @@index([userId])
 }
@@ -64,10 +67,11 @@ model Folder {
   ownerId   String? // null(SHARE) | userId(WORK)
   owner     User?     @relation(fields: [ownerId], references: [id], onDelete: Cascade)
   createdAt DateTime  @default(now())
+  deletedAt DateTime? // soft delete (휴지통)
 
   projects Project[]
 
-  @@index([spaceType, parentId])
+  @@index([spaceType, parentId, deletedAt])
   @@index([ownerId])
 }
 
@@ -84,11 +88,12 @@ model Project {
   baseProject   Project?  @relation("Fork", fields: [baseProjectId], references: [id])
   forks         Project[] @relation("Fork")
   createdAt     DateTime  @default(now())
+  deletedAt     DateTime? // soft delete (휴지통)
 
   measurements Measurement[]
   audio        AudioAsset? // Work 업로드 음원 (1:1, 선택)
 
-  @@index([spaceType, folderId])
+  @@index([spaceType, folderId, deletedAt])
   @@index([ownerId])
   @@index([baseProjectId])
 }
