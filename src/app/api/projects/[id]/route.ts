@@ -6,15 +6,14 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/shared/db/prisma";
 import { requireApprovedUser } from "@/features/auth/lib/auth-server";
 import { deleteProject, renameProject } from "@/features/workspace/lib/workspace-server";
-import { can, HttpError, principalFrom } from "@/features/auth/lib/authz";
+import { can, principalFrom } from "@/features/auth/lib/authz";
+import { unauthorized, badBody, readJson, httpError } from "@/app/api/_lib/route";
 
 export const runtime = "nodejs";
 
 export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> }) {
   const auth = await requireApprovedUser();
-  if (!auth) {
-    return NextResponse.json({ error: "로그인이 필요합니다." }, { status: 401 });
-  }
+  if (!auth) return unauthorized();
 
   const { id } = await ctx.params;
 
@@ -66,39 +65,29 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
 
 export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }> }) {
   const auth = await requireApprovedUser();
-  if (!auth) return NextResponse.json({ error: "로그인이 필요합니다." }, { status: 401 });
+  if (!auth) return unauthorized();
 
   const { id } = await ctx.params;
-  let body: { name?: string };
-  try {
-    body = await req.json();
-  } catch {
-    return NextResponse.json({ error: "잘못된 요청 본문" }, { status: 400 });
-  }
+  const body = await readJson<{ name?: string }>(req);
+  if (!body) return badBody();
 
   try {
     const project = await renameProject({ projectId: id, name: body.name ?? "", principal: principalFrom(auth) });
     return NextResponse.json({ project: { id: project.id, name: project.name } });
   } catch (e) {
-    if (e instanceof HttpError) {
-      return NextResponse.json({ error: e.message }, { status: e.status });
-    }
-    throw e;
+    return httpError(e);
   }
 }
 
 export async function DELETE(_req: Request, ctx: { params: Promise<{ id: string }> }) {
   const auth = await requireApprovedUser();
-  if (!auth) return NextResponse.json({ error: "로그인이 필요합니다." }, { status: 401 });
+  if (!auth) return unauthorized();
 
   const { id } = await ctx.params;
   try {
     await deleteProject({ projectId: id, principal: principalFrom(auth) });
     return NextResponse.json({ ok: true });
   } catch (e) {
-    if (e instanceof HttpError) {
-      return NextResponse.json({ error: e.message }, { status: e.status });
-    }
-    throw e;
+    return httpError(e);
   }
 }

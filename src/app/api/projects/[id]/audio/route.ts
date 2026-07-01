@@ -5,12 +5,13 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/shared/db/prisma";
 import { requireApprovedUser } from "@/features/auth/lib/auth-server";
 import { can, principalFrom } from "@/features/auth/lib/authz";
+import { unauthorized } from "@/app/api/_lib/route";
 
 export const runtime = "nodejs";
 
 export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }) {
   const auth = await requireApprovedUser();
-  if (!auth) return NextResponse.json({ error: "로그인이 필요합니다." }, { status: 401 });
+  if (!auth) return unauthorized();
 
   const { id } = await ctx.params;
   const project = await prisma.project.findUnique({

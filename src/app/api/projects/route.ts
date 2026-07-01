@@ -3,7 +3,8 @@
 import { NextResponse } from "next/server";
 import { requireApprovedUser } from "@/features/auth/lib/auth-server";
 import { createProjectWithAudio } from "@/features/workspace/lib/workspace-server";
-import { HttpError, principalFrom } from "@/features/auth/lib/authz";
+import { principalFrom } from "@/features/auth/lib/authz";
+import { unauthorized, httpError } from "@/app/api/_lib/route";
 
 export const runtime = "nodejs";
 
@@ -15,7 +16,7 @@ function defaultName(filename: string): string {
 
 export async function POST(req: Request) {
   const auth = await requireApprovedUser();
-  if (!auth) return NextResponse.json({ error: "로그인이 필요합니다." }, { status: 401 });
+  if (!auth) return unauthorized();
 
   let form: FormData;
   try {
@@ -51,9 +52,6 @@ export async function POST(req: Request) {
       { status: 201 },
     );
   } catch (e) {
-    if (e instanceof HttpError) {
-      return NextResponse.json({ error: e.message }, { status: e.status });
-    }
-    throw e;
+    return httpError(e);
   }
 }

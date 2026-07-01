@@ -4,15 +4,14 @@
 import { NextResponse } from "next/server";
 import { requireApprovedUser } from "@/features/auth/lib/auth-server";
 import { createFolder, listFolderChildren } from "@/features/workspace/lib/workspace-server";
-import { HttpError, principalFrom } from "@/features/auth/lib/authz";
+import { principalFrom } from "@/features/auth/lib/authz";
+import { unauthorized, badBody, readJson, httpError } from "@/app/api/_lib/route";
 
 export const runtime = "nodejs";
 
 export async function GET(req: Request) {
   const auth = await requireApprovedUser();
-  if (!auth) {
-    return NextResponse.json({ error: "로그인이 필요합니다." }, { status: 401 });
-  }
+  if (!auth) return unauthorized();
 
   const { searchParams } = new URL(req.url);
   const spaceParam = searchParams.get("space");
@@ -32,14 +31,10 @@ export async function GET(req: Request) {
 
 export async function POST(req: Request) {
   const auth = await requireApprovedUser();
-  if (!auth) return NextResponse.json({ error: "로그인이 필요합니다." }, { status: 401 });
+  if (!auth) return unauthorized();
 
-  let body: { name?: string; parentId?: string };
-  try {
-    body = await req.json();
-  } catch {
-    return NextResponse.json({ error: "잘못된 요청 본문" }, { status: 400 });
-  }
+  const body = await readJson<{ name?: string; parentId?: string }>(req);
+  if (!body) return badBody();
   if (!body.parentId) {
     return NextResponse.json({ error: "parentId 가 필요합니다." }, { status: 400 });
   }
@@ -55,9 +50,6 @@ export async function POST(req: Request) {
       { status: 201 },
     );
   } catch (e) {
-    if (e instanceof HttpError) {
-      return NextResponse.json({ error: e.message }, { status: e.status });
-    }
-    throw e;
+    return httpError(e);
   }
 }
