@@ -5,7 +5,7 @@ import { NextResponse } from "next/server";
 import { requireApprovedUser } from "@/features/auth/lib/auth-server";
 import { createFolder, listFolderChildren } from "@/features/workspace/lib/workspace-server";
 import { principalFrom } from "@/features/auth/lib/authz";
-import { unauthorized, badBody, readJson, httpError } from "@/app/api/_lib/route";
+import { unauthorized, badBody, badRequest, readJson, httpError } from "@/app/api/_lib/route";
 
 export const runtime = "nodejs";
 
@@ -18,14 +18,17 @@ export async function GET(req: Request) {
   const space =
     spaceParam === "WORK" ? "WORK" : spaceParam === "SHARE" ? "SHARE" : null;
   if (!space) {
-    return NextResponse.json(
-      { error: "space 는 SHARE 또는 WORK 여야 합니다." },
-      { status: 400 },
-    );
+    return badRequest("space 는 SHARE 또는 WORK 여야 합니다.");
   }
 
   const parent = searchParams.get("parent"); // null → 루트
-  const data = await listFolderChildren({ space, parentId: parent, userId: auth.sub });
+  const sortParam = searchParams.get("sort");
+  const sort =
+    sortParam === "name" || sortParam === "createdAt" || sortParam === "manual" ? sortParam : undefined;
+  const dirParam = searchParams.get("dir");
+  const dir = dirParam === "asc" || dirParam === "desc" ? dirParam : undefined;
+
+  const data = await listFolderChildren({ space, parentId: parent, userId: auth.sub, sort, dir });
   return NextResponse.json(data);
 }
 
@@ -36,7 +39,7 @@ export async function POST(req: Request) {
   const body = await readJson<{ name?: string; parentId?: string }>(req);
   if (!body) return badBody();
   if (!body.parentId) {
-    return NextResponse.json({ error: "parentId 가 필요합니다." }, { status: 400 });
+    return badRequest("parentId 가 필요합니다.");
   }
 
   try {

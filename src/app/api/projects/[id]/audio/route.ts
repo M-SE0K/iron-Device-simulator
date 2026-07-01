@@ -5,7 +5,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/shared/db/prisma";
 import { requireApprovedUser } from "@/features/auth/lib/auth-server";
 import { can, principalFrom } from "@/features/auth/lib/authz";
-import { unauthorized } from "@/app/api/_lib/route";
+import { unauthorized, notFound } from "@/app/api/_lib/route";
 
 export const runtime = "nodejs";
 
@@ -16,15 +16,15 @@ export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }
   const { id } = await ctx.params;
   const project = await prisma.project.findUnique({
     where: { id },
-    select: { spaceType: true, ownerId: true, audio: true },
+    select: { spaceType: true, ownerId: true, audio: true, deletedAt: true },
   });
 
-  if (!project || !project.audio) {
-    return NextResponse.json({ error: "음원을 찾을 수 없습니다." }, { status: 404 });
+  if (!project || !project.audio || project.deletedAt !== null) {
+    return notFound("음원을 찾을 수 없습니다.");
   }
   // 읽기 인가: WORK=소유자, SHARE=승인자 전원 (authz.can 으로 일원화)
   if (!can(principalFrom(auth), "read", project)) {
-    return NextResponse.json({ error: "음원을 찾을 수 없습니다." }, { status: 404 });
+    return notFound("음원을 찾을 수 없습니다.");
   }
 
   const { data, mimeType, filename, sizeBytes } = project.audio;

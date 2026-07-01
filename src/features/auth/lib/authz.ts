@@ -7,7 +7,7 @@
 //       자원 로드는 호출부(node 라우트)에서 하고, 평가만 여기서 한다.
 import type { Role, UserStatus } from "@/features/auth/lib/auth";
 
-export type SpaceType = "SHARE" | "WORK";
+type SpaceType = "SHARE" | "WORK";
 export type Action = "read" | "create" | "update" | "delete";
 
 /** 인가 주체(인증된 신원) */
@@ -51,7 +51,7 @@ export class HttpError extends Error {
   }
 }
 
-export class AuthzError extends HttpError {
+class AuthzError extends HttpError {
   constructor(status: number, message: string) {
     super(status, message);
     this.name = "AuthzError";
