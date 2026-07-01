@@ -4,7 +4,7 @@ import { NextResponse } from "next/server";
 import { requireApprovedUser } from "@/features/auth/lib/auth-server";
 import { createProjectWithAudio } from "@/features/workspace/lib/workspace-server";
 import { principalFrom } from "@/features/auth/lib/authz";
-import { unauthorized, httpError } from "@/app/api/_lib/route";
+import { unauthorized, badRequest, httpError } from "@/app/api/_lib/route";
 
 export const runtime = "nodejs";
 
@@ -22,7 +22,7 @@ export async function POST(req: Request) {
   try {
     form = await req.formData();
   } catch {
-    return NextResponse.json({ error: "multipart/form-data 가 필요합니다." }, { status: 400 });
+    return badRequest("multipart/form-data 가 필요합니다.");
   }
 
   const file = form.get("file");
@@ -30,10 +30,10 @@ export async function POST(req: Request) {
   const nameField = form.get("name");
 
   if (!(file instanceof File)) {
-    return NextResponse.json({ error: "file 필드(오디오)가 필요합니다." }, { status: 400 });
+    return badRequest("file 필드(오디오)가 필요합니다.");
   }
   if (typeof folderId !== "string" || !folderId) {
-    return NextResponse.json({ error: "folderId 가 필요합니다." }, { status: 400 });
+    return badRequest("folderId 가 필요합니다.");
   }
 
   const data = new Uint8Array(await file.arrayBuffer());

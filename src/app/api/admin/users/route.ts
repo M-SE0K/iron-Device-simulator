@@ -3,13 +3,14 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/shared/db/prisma";
 import { requireAdmin } from "@/features/auth/lib/auth-server";
+import { forbidden } from "@/app/api/_lib/route";
 
 export const runtime = "nodejs";
 
 export async function GET(req: Request) {
   const admin = await requireAdmin();
   if (!admin) {
-    return NextResponse.json({ error: "관리자 권한이 필요합니다." }, { status: 403 });
+    return forbidden("관리자 권한이 필요합니다.");
   }
 
   const { searchParams } = new URL(req.url);
