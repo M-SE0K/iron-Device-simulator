@@ -24,6 +24,13 @@ export default function AdminUsersPage() {
   const [filter, setFilter] = useState<"ALL" | AdminUser["status"]>("PENDING");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
+
+  useEffect(() => {
+    fetch("/api/auth/me")
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => setCurrentUserId(data?.user?.id ?? null));
+  }, []);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -49,6 +56,19 @@ export default function AdminUsersPage() {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ status }),
+    });
+    if (res.ok) load();
+    else {
+      const data = await res.json();
+      alert(data.error ?? "변경 실패");
+    }
+  }
+
+  async function setRole(id: string, role: AdminUser["role"]) {
+    const res = await fetch(`/api/admin/users/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ role }),
     });
     if (res.ok) load();
     else {
@@ -113,7 +133,17 @@ export default function AdminUsersPage() {
                 {users.map((u) => (
                   <tr key={u.id} className="border-b border-iron-50 last:border-0">
                     <td className="px-4 py-3 text-iron-900">{u.email}</td>
-                    <td className="px-4 py-3 text-iron-500">{u.role}</td>
+                    <td className="px-4 py-3">
+                      <select
+                        value={u.role}
+                        disabled={u.id === currentUserId}
+                        onChange={(e) => setRole(u.id, e.target.value as AdminUser["role"])}
+                        className="px-2 py-1 rounded-md border border-iron-200 text-xs text-iron-700 bg-white disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        <option value="USER">USER</option>
+                        <option value="ADMIN">ADMIN</option>
+                      </select>
+                    </td>
                     <td className="px-4 py-3">
                       <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${STATUS_STYLE[u.status]}`}>
                         {u.status}
