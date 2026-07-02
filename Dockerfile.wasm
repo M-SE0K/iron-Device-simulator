@@ -1,0 +1,65 @@
+# ─────────────────────────────────────────────────────────────
+# Iron Device Audio Analysis — WASM 엔진 Dockerfile
+#
+# native/ff_prot.c(더미 스피커 보호 알고리즘, libirontune.so 스텁)를 WASM으로
+# 빌드해 컨테이너 안에 내장한다. libirontune.so(ELF x86-64) 로딩이 필요 없으므로
+# --platform 고정이나 QEMU 에뮬레이션 없이 호스트 아키텍처 그대로 빌드/실행된다.
+#
+# [빌드 & 실행]
+#   docker build -f Dockerfile.wasm -t iron-device-sim-wasm .
+#   docker run -p 3000:3000 iron-device-sim-wasm
+#
+# 권장: ./scripts/run-wasm-docker.sh
+# ─────────────────────────────────────────────────────────────
+
+# Stage 1 — native/ff_prot.c 를 WASM(Node 타깃)으로 빌드
+FROM emscripten/emsdk:3.1.64 AS wasm-builder
+WORKDIR /wasm
+COPY native/ff_prot.c native/ff_prot.h native/build-wasm.sh ./
+RUN chmod +x build-wasm.sh && ./build-wasm.sh
+
+# Stage 2 — 전체 의존성 설치
+FROM node:20-slim AS deps
+WORKDIR /app
+COPY package*.json ./
+RUN npm ci
+
+# Stage 3 — Next.js 빌드
+FROM node:20-slim AS builder
+WORKDIR /app
+ENV DOCKER_BUILD=1
+ENV NEXT_TELEMETRY_DISABLED=1
+COPY --from=deps /app/node_modules ./node_modules
+COPY . .
+RUN mkdir -p /app/public
+RUN npm run build
+
+# Stage 4 — 런타임
+FROM node:20-slim AS runner
+WORKDIR /app
+
+ENV NODE_ENV=production
+ENV ENGINE=wasm
+ENV WASM_PATH=/app/native/wasm/ff_prot.js
+ENV USE_QUEUE=true
+
+# Next.js 빌드 결과물
+COPY --from=builder /app/.next ./.next
+COPY --from=builder /app/public ./public
+
+# 커스텀 서버 + 소스 (tsx 런타임)
+COPY --from=builder /app/server.ts ./
+COPY --from=builder /app/src ./src/
+
+# 설정 파일
+COPY --from=builder /app/next.config.ts ./
+COPY --from=builder /app/tsconfig.json ./
+COPY --from=builder /app/package.json ./
+
+COPY --from=builder /app/node_modules ./node_modules
+
+# WASM 빌드 산출물 (native/ff_prot.c → ff_prot.js, wasm 바이너리 내장)
+COPY --from=wasm-builder /wasm/wasm/ff_prot.js /app/native/wasm/ff_prot.js
+
+EXPOSE 3000
+CMD ["npx", "tsx", "server.ts"]
