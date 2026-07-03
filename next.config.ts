@@ -6,12 +6,18 @@ import type { NextConfig } from "next";
 // (로컬/일반 빌드는 그대로 엄격하게 검사한다.)
 const DOCKER_BUILD = process.env.DOCKER_BUILD === "1";
 
+// 모바일(Capacitor iOS/Android) 빌드: 커스텀 server.ts/WS 없이 순수 정적 산출물을
+// out/ 에 만든다. 분석 엔진은 서버가 아니라 브라우저(WebView) 안의 WASM으로
+// 대체된다(NEXT_PUBLIC_LOCAL_ENGINE=true, src/features/audio/lib/local-wasm-socket.ts).
+const MOBILE_BUILD = process.env.MOBILE_BUILD === "1";
+
 const nextConfig: NextConfig = {
   // standalone 제거 — 커스텀 server.ts와 충돌 방지
   // koffi는 .node 네이티브 바이너리 → webpack 번들링 제외, 런타임에 require()
   serverExternalPackages: ["koffi", "ws"],
   typescript: { ignoreBuildErrors: DOCKER_BUILD },
   eslint: { ignoreDuringBuilds: DOCKER_BUILD },
+  ...(MOBILE_BUILD ? { output: "export" as const, images: { unoptimized: true } } : {}),
 };
 
 export default nextConfig;

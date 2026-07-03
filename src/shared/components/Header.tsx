@@ -4,7 +4,11 @@ import CalibrationDrawer from "@/features/audio/components/CalibrationDrawer";
 
 export default function Header() {
   return (
-    <header id="app-header" className="bg-white border-b border-iron-100 px-4 sm:px-6 py-0 flex items-center gap-3 h-14 shrink-0">
+    <header
+      id="app-header"
+      className="bg-white border-b border-iron-100 px-4 sm:px-6 py-0 flex items-center gap-3 h-14 shrink-0"
+      style={{ paddingTop: "env(safe-area-inset-top)", height: "calc(3.5rem + env(safe-area-inset-top))" }}
+    >
       {/* Logo area */}
       <div id="header-logo" className="flex items-center gap-3 min-w-0">
         <div className="header-brand truncate">

@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import { Mic, Square } from "lucide-react";
 import { AppStatus, AnalysisFrame, StreamDebugInfo, DebugLogEntry } from "@/features/audio/types";
+import { createAnalysisSocket, type SocketLike } from "@/features/audio/lib/local-wasm-socket";
 import type { InputParameterValues } from "./InputParameters";
 
 // ─── 처리 상수 ────────────────────────────────────────────────────────────────
@@ -48,7 +49,7 @@ export default function MicrophonePlayer({
   const [micError,    setMicError]    = useState<string | null>(null);
   const [sampleRate,  setSampleRate]  = useState<number | null>(null);
 
-  const wsRef          = useRef<WebSocket | null>(null);
+  const wsRef          = useRef<SocketLike | null>(null);
   const audioCtxRef    = useRef<AudioContext | null>(null);
   const streamRef      = useRef<MediaStream | null>(null);
   const workletRef     = useRef<AudioWorkletNode | null>(null);
@@ -127,10 +128,9 @@ export default function MicrophonePlayer({
       worklet.connect(silentGain);
       silentGain.connect(ctx.destination);
 
-      // 5) WebSocket 연결
-      const ws      = new WebSocket(getWsUrl());
+      // 5) 분석 소켓 연결 (일반 빌드: 서버 WebSocket / 모바일 빌드: LocalWasmSocket)
+      const ws      = createAnalysisSocket(getWsUrl());
       wsRef.current = ws;
-      ws.binaryType = "arraybuffer";
 
       ws.onopen = () => {
         onDebugUpdate({ wsConnected: true, framesSent: 0, framesReceived: 0 });

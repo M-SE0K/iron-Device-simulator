@@ -13,9 +13,12 @@ Visualizes **speaker temperature** and **excursion displacement** in real-time v
 | Mode | Engine | Platform |
 |---|---|---|
 | **Mock** | Formula-based simulation | macOS / Linux / Windows |
-| **Native** | Direct `libirontune.so` call | Linux x86-64 (Docker required) |
+| **Native** | Direct `libirontune.so` call (koffi FFI) | Linux x86-64 (Docker + QEMU on other platforms) |
+| **WASM** | `native/ff_prot.c` compiled to WebAssembly | Any platform (Docker, no QEMU needed) |
 
-> `libirontune.so` is an ELF 64-bit x86-64 binary (Ubuntu / GCC 5.4.0) and cannot be loaded directly on macOS or Windows.
+> `libirontune.so` is an ELF 64-bit x86-64 binary (Ubuntu / GCC 5.4.0) and cannot be loaded directly on macOS or Windows — hence Native mode requires Docker (emulated via QEMU on non-x86-64 hosts).
+>
+> `native/ff_prot.c` is a reference/stub implementation matching the same `ff_prot_*` FFI signature as `libirontune.so` (the real vendor source hasn't been provided yet). **WASM mode** compiles this stub with Emscripten and runs it directly inside Node's `WebAssembly` runtime — no FFI, no ELF loading, no QEMU. It's a drop-in replacement for Native mode until the real `.so` is available. See `native/README.md`.
 
 ---
 
@@ -27,6 +30,10 @@ Visualizes **speaker temperature** and **excursion displacement** in real-time v
 
 ### Native Mode Only
 - `libirontune.so` binary
+
+### WASM Mode Only
+- Docker (to build/run via `scripts/run-wasm-docker.sh`), **or**
+- [Emscripten](https://emscripten.org/docs/getting_started/downloads.html) (`emcc`) to build `native/wasm/ff_prot.js` locally
 
 ---
 
@@ -73,6 +80,25 @@ colima start --arch x86_64 --memory 4
 
 ---
 
+### Any OS — WASM Mode (Docker)
+
+Compiles `native/ff_prot.c` to WebAssembly and runs the real dashboard against it — no `.so` file, no `--platform` pin, no QEMU. Builds and runs natively on your host architecture (including Apple Silicon).
+
+```bash
+./scripts/run-wasm-docker.sh
+```
+
+Open http://localhost:3002 in your browser. Under the hood: `Dockerfile.wasm` compiles `native/ff_prot.c` with Emscripten (Node target) in a build stage, then bakes the resulting `native/wasm/ff_prot.js` into the runtime image and starts the server with `ENGINE=wasm`.
+
+**Run directly (without Docker), given a local Emscripten install:**
+
+```bash
+cd native && ./build-wasm.sh && cd ..
+ENGINE=wasm WASM_PATH=$(pwd)/native/wasm/ff_prot.js npx tsx server.ts
+```
+
+---
+
 ### Linux x86-64 — Mock Mode
 
 ```bash
@@ -112,8 +138,10 @@ npm run dev
 
 | Variable | Default | Description |
 |---|---|---|
-| `USE_MOCK` | `true` | Set to `false` to use the Native engine |
-| `SO_PATH` | `/app/native/libirontune.so` | Absolute path to the `.so` file |
+| `ENGINE` | `mock` | `mock` \| `native` \| `wasm` — selects the analysis engine. Takes priority over `USE_MOCK` |
+| `USE_MOCK` | `true` | Legacy toggle, kept for backward compatibility: `false` → `native` when `ENGINE` is unset |
+| `SO_PATH` | `/app/native/libirontune.so` | Absolute path to the `.so` file (Native mode) |
+| `WASM_PATH` | `/app/native/wasm/ff_prot.js` | Absolute path to the compiled WASM module (WASM mode, built by `native/build-wasm.sh`) |
 | `USE_QUEUE` | `true` | Set to `false` to use the plain FIFO render path instead of the output-queue scheduler |
 | `PORT` | `3000` | Shared HTTP / WebSocket port |
 | `LOG_FRAME_INTERVAL` | `10` | Print frame log every N frames |
@@ -140,6 +168,15 @@ npm run measure:baseline     # label=baseline, 60s/track
 npm run compare              # Summarize / diff measurements/*.json
 ```
 
+### WASM Build (`native/`)
+
+```bash
+cd native
+make                  # → libirontune.so (reference stub, Linux x86-64)
+make selftest         # pure-C self-test (temperature rise + L/R excursion diff)
+./build-wasm.sh       # → wasm/ff_prot.js (Emscripten, Node target, requires emcc)
+```
+
 ---
 
 ## Features
@@ -162,7 +199,9 @@ npm run compare              # Summarize / diff measurements/*.json
 | Charts | Apache ECharts (echarts-for-react) |
 | Waveform | wavesurfer.js |
 | Native FFI | koffi |
-| Container | Docker (node:20-slim, linux/amd64) |
+| WASM | Emscripten (`emcc`) — `native/ff_prot.c` → WebAssembly, Node target |
+| Container (Native) | Docker (node:20-slim, `linux/amd64`, QEMU on other hosts) — `Dockerfile` |
+| Container (WASM) | Docker (node:20-slim, host-native arch, no QEMU) — `Dockerfile.wasm` |
 
 ---
 

@@ -4,6 +4,7 @@ import { useEffect, useRef, useState, useCallback, forwardRef, useImperativeHand
 import { Play, Pause, Square } from "lucide-react";
 import { cn, formatTime } from "@/shared/lib/utils";
 import { AppStatus, AnalysisFrame, StreamDebugInfo, DebugLogEntry } from "@/features/audio/types";
+import { createAnalysisSocket, type SocketLike } from "@/features/audio/lib/local-wasm-socket";
 import type { InputParameterValues } from "./InputParameters";
 
 // ─── PCM 처리 상수 ────────────────────────────────────────────────────────────
@@ -106,8 +107,8 @@ const WaveformPlayer = forwardRef<WaveformPlayerHandle, Props>(function Waveform
   const pcmFramesRef      = useRef<ArrayBuffer[]>([]);
   const pcmReadyRef       = useRef(false);
 
-  // ── WebSocket 상태 ────────────────────────────────────────────────────────
-  const wsRef             = useRef<WebSocket | null>(null);
+  // ── 분석 소켓 상태 (일반 빌드: 서버 WebSocket / 모바일 빌드: LocalWasmSocket) ─
+  const wsRef             = useRef<SocketLike | null>(null);
   const wsReadyRef        = useRef(false);
 
   // ── rAF 루프 ─────────────────────────────────────────────────────────────
@@ -356,8 +357,7 @@ const WaveformPlayer = forwardRef<WaveformPlayerHandle, Props>(function Waveform
     const wsUrl = getWsUrl();
     if (!wsUrl) return;
 
-    const ws = new WebSocket(wsUrl);
-    ws.binaryType = "arraybuffer";
+    const ws = createAnalysisSocket(wsUrl);
     wsRef.current = ws;
 
     ws.onopen = () => {
@@ -510,8 +510,7 @@ const WaveformPlayer = forwardRef<WaveformPlayerHandle, Props>(function Waveform
         const wsUrl = getWsUrl();
         if (!wsUrl) { reject(new Error("WebSocket URL을 생성할 수 없습니다.")); return; }
 
-        const batchWs = new WebSocket(wsUrl);
-        batchWs.binaryType = "arraybuffer";
+        const batchWs = createAnalysisSocket(wsUrl);
         let settled = false;
 
         const finish = (fn: () => void) => {
