@@ -14,8 +14,8 @@
 import type { EngineParams } from "../types";
 import {
   SAMPLES_PER_CH, CHANNELS, BYTES_PER_SAMPLE, FRAME_BYTES,
-  SPEAKER_PROFILES, DEFAULT_PROFILE, powerTempMult,
 } from "./engine-core";
+import { deinterleave, applyPostCorrection } from "./analysis-utils";
 
 const AMB_TEMP = 25; // 주변 온도(°C) — ff_prot_start_exec 인자
 
@@ -70,19 +70,6 @@ function loadFactory(): Promise<FfProtFactory> {
   return factoryPromise;
 }
 
-// ─── PCM 변환: 인터리브(L R L R) → 플래너(LL...RR...) ───────────────────────
-function deinterleave(src: Uint8Array): Int16Array {
-  const view = new DataView(src.buffer, src.byteOffset, src.byteLength);
-  const dst  = new Int16Array(SAMPLES_PER_CH * CHANNELS);
-
-  for (let ch = 0; ch < CHANNELS; ch++) {
-    for (let i = 0; i < SAMPLES_PER_CH; i++) {
-      const srcOff = (i * CHANNELS + ch) * BYTES_PER_SAMPLE;
-      dst[ch * SAMPLES_PER_CH + i] = view.getInt16(srcOff, true);
-    }
-  }
-  return dst;
-}
 
 /** 클라이언트 WASM 세션을 열고 ff_prot_init / set_param까지 수행한 뒤 반환한다. */
 export async function openClientWasmSession(): Promise<ClientWasmSession> {
@@ -109,23 +96,20 @@ export async function openClientWasmSession(): Promise<ClientWasmSession> {
 
     // ff_prot_set_param은 NOP이므로 파라미터를 출력에 후처리 스케일로 적용
     // (native-engine.ts / wasm-engine.ts와 동일 규약) -> 추후 정품 라이브러리 제공하면 수정 필요함.
-    const profile  = SPEAKER_PROFILES[params.speakerModel] ?? DEFAULT_PROFILE;
-    const pwrScale = powerTempMult(params.ampOutputPower);
-
     const rawTemp0 = mod.HEAP32[tempPtr >> 2];
     const rawTemp1 = mod.HEAP32[(tempPtr >> 2) + 1];
     const rawExc0  = mod.HEAP32[excPtr >> 2];
     const rawExc1  = mod.HEAP32[(excPtr >> 2) + 1];
 
+    const { temperature, excursion } = applyPostCorrection(
+      rawTemp0, rawTemp1, rawExc0, rawExc1,
+      params,
+      false, // no need for raw values in client
+    );
+
     return {
-      temperature: [
-        Math.round(rawTemp0 * profile.tempMult * pwrScale),
-        Math.round(rawTemp1 * profile.tempMult * pwrScale),
-      ],
-      excursion: [
-        Math.round(rawExc0 * profile.excMult),
-        Math.round(rawExc1 * profile.excMult),
-      ],
+      temperature,
+      excursion,
       processingMs: parseFloat((performance.now() - t0).toFixed(3)),
     };
   };

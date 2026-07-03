@@ -14,26 +14,13 @@
 import type { EngineParams } from "../types";
 import {
   SAMPLES_PER_CH, CHANNELS, BYTES_PER_SAMPLE, FRAME_BYTES,
-  SPEAKER_PROFILES, DEFAULT_PROFILE, powerTempMult,
 } from "./engine-core";
 import { logProtCall, logProtStop, logError } from "./logger";
 import type { FrameResult, NativeSession } from "./native-engine";
+import { deinterleave, applyPostCorrection } from "./analysis-utils";
 
 const AMB_TEMP = 25; // 주변 온도(°C) — ff_prot_start_exec 인자
 
-// ─── PCM 변환: 인터리브(L R L R) → 플래너(LL...RR...) ───────────────────────
-function deinterleave(src: Buffer): Int16Array {
-  const dst = new Int16Array(src.length / BYTES_PER_SAMPLE);
-  const channelOffsetSamples = SAMPLES_PER_CH;
-
-  for (let ch = 0; ch < CHANNELS; ch++) {
-    for (let i = 0; i < SAMPLES_PER_CH; i++) {
-      const srcOff = (i * CHANNELS + ch) * BYTES_PER_SAMPLE;
-      dst[ch * channelOffsetSamples + i] = src.readInt16LE(srcOff);
-    }
-  }
-  return dst;
-}
 
 // Emscripten MODULARIZE(ENVIRONMENT=node, SINGLE_FILE=1) 산출물: require()가 팩토리
 // 함수를 반환하고, 팩토리를 호출할 때마다 독립된(선형 메모리가 분리된) 인스턴스가 생성된다.
@@ -88,28 +75,22 @@ export async function openWasmSession(wasmPath: string): Promise<NativeSession> 
 
     // ff_prot_set_param은 NOP이므로 파라미터를 출력에 후처리 스케일로 적용
     // (native-engine.ts와 동일 규약) -> 추후 정품 라이브러리 제공하면 수정 필요함.
-    const profile  = SPEAKER_PROFILES[params.speakerModel] ?? DEFAULT_PROFILE;
-    const pwrScale = powerTempMult(params.ampOutputPower);
-
     const rawTemp0 = mod.HEAP32[tempPtr >> 2];
     const rawTemp1 = mod.HEAP32[(tempPtr >> 2) + 1];
     const rawExc0  = mod.HEAP32[excPtr >> 2];
     const rawExc1  = mod.HEAP32[(excPtr >> 2) + 1];
 
-    const temperature: [number, number] = [
-      Math.round(rawTemp0 * profile.tempMult * pwrScale),
-      Math.round(rawTemp1 * profile.tempMult * pwrScale),
-    ];
-    const excursion: [number, number] = [
-      Math.round(rawExc0 * profile.excMult),
-      Math.round(rawExc1 * profile.excMult),
-    ];
+    const { temperature, excursion, raw } = applyPostCorrection(
+      rawTemp0, rawTemp1, rawExc0, rawExc1,
+      params,
+      true, // include raw values for native debugging
+    );
 
     return {
       temperature,
       excursion,
       processingMs: parseFloat((performance.now() - t0f).toFixed(3)),
-      raw: [rawTemp0, rawTemp1, rawExc0, rawExc1],
+      raw,
     };
   };
 

@@ -12,9 +12,9 @@
 import type { EngineParams } from "../types";
 import {
   SAMPLES_PER_CH, CHANNELS, BYTES_PER_SAMPLE, FRAME_BYTES,
-  SPEAKER_PROFILES, DEFAULT_PROFILE, powerTempMult,
 } from "./engine-core";
 import { logProtCall, logProtStop, logError } from "./logger";
+import { deinterleave, applyPostCorrection } from "./analysis-utils";
 
 const AMB_TEMP = 25; // 주변 온도(°C) — ff_prot_start_exec 인자
 
@@ -42,21 +42,6 @@ export function isNativeLocked(): boolean {
   return nativeLock;
 }
 
-// ─── PCM 변환: 인터리브(L R L R) → 플래너(LL...RR...) ───────────────────────
-function deinterleave(src: Buffer): Buffer {
-  const dst           = Buffer.alloc(src.length);
-  const channelOffset = SAMPLES_PER_CH * BYTES_PER_SAMPLE; // 960
-  const sampleStride  = CHANNELS * BYTES_PER_SAMPLE;        // 4
-
-  for (let ch = 0; ch < CHANNELS; ch++) {
-    for (let i = 0; i < SAMPLES_PER_CH; i++) {
-      const srcOff = i * sampleStride + ch * BYTES_PER_SAMPLE;
-      const dstOff = ch * channelOffset + i * BYTES_PER_SAMPLE;
-      src.copy(dst, dstOff, srcOff, srcOff + BYTES_PER_SAMPLE);
-    }
-  }
-  return dst;
-}
 
 /**
  * libirontune.so를 로드하고 ff_prot_init / set_param까지 수행한 뒤 세션을 반환한다.
@@ -112,7 +97,7 @@ export function openNativeSession(soPath: string): NativeSession {
     const t0 = performance.now();
 
     // 1) de-interleave: LR LR LR → LL...RR...
-    const planar     = deinterleave(pcm.subarray(0, FRAME_BYTES));
+    const planar     = deinterleave(pcm.subarray(0, FRAME_BYTES)) as unknown as Buffer;
     const spkTempBuf = Buffer.alloc(8); // int32_t[2]
     const spkExcBuf  = Buffer.alloc(8); // int32_t[2]
 
@@ -121,28 +106,22 @@ export function openNativeSession(soPath: string): NativeSession {
 
     // ff_prot_set_param은 NOP이므로 파라미터를 출력에 후처리 스케일로 적용 -> 추후 라이브러리 제공하면 수정 필요함.
     // so_report.md §10 참고: K, Mms_x_K 등 전역변수 직접 주입 없이 스케일 근사 -> 추후 라이브러리 제공하면 수정 필요함.
-    const profile  = SPEAKER_PROFILES[params.speakerModel] ?? DEFAULT_PROFILE;
-    const pwrScale = powerTempMult(params.ampOutputPower);
-
     const rawTemp0 = spkTempBuf.readInt32LE(0);
     const rawTemp1 = spkTempBuf.readInt32LE(4);
     const rawExc0  = spkExcBuf.readInt32LE(0);
     const rawExc1  = spkExcBuf.readInt32LE(4);
 
-    const temperature: [number, number] = [
-      Math.round(rawTemp0 * profile.tempMult * pwrScale),
-      Math.round(rawTemp1 * profile.tempMult * pwrScale),
-    ];
-    const excursion: [number, number] = [
-      Math.round(rawExc0 * profile.excMult),
-      Math.round(rawExc1 * profile.excMult),
-    ];
+    const { temperature, excursion, raw } = applyPostCorrection(
+      rawTemp0, rawTemp1, rawExc0, rawExc1,
+      params,
+      true, // include raw values for native debugging
+    );
 
     return {
       temperature,
       excursion,
       processingMs: parseFloat((performance.now() - t0).toFixed(3)),
-      raw: [rawTemp0, rawTemp1, rawExc0, rawExc1],
+      raw,
     };
   };
 
