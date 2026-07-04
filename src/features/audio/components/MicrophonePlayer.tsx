@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import { Mic, Square } from "lucide-react";
 import { AppStatus, AnalysisFrame, StreamDebugInfo, DebugLogEntry } from "@/features/audio/types";
-import { createAnalysisSocket, type SocketLike } from "@/features/audio/lib/local-wasm-socket";
+import { createAnalysisSocket, type SocketLike } from "@/features/audio/lib/engine/protocol/local-socket";
 import type { InputParameterValues } from "./InputParameters";
 
 // ─── 처리 상수 ────────────────────────────────────────────────────────────────

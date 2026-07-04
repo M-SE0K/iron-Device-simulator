@@ -12,7 +12,7 @@
   },
   "include": [
     "server.ts",
-    "src/features/audio/lib/ws-engine.ts",
+    "src/features/audio/lib/engine/protocol/ws.ts",
     "src/features/audio/types.ts"
   ],
   "exclude": [

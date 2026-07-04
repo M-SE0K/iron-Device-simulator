@@ -9,10 +9,10 @@ import TemperatureChart from "@/features/audio/components/TemperatureChart";
 import ExcursionChart from "@/features/audio/components/ExcursionChart";
 import { AppStatus, AnalysisFrame, StreamDebugInfo, DebugLogEntry, MeasurementExport } from "@/features/audio/types";
 import type { InputParameterValues } from "@/features/audio/components/InputParameters";
-import { useCalibration } from "@/features/audio/lib/calibration-context";
+import { useCalibration } from "./calibration-context";
 import { cn } from "@/shared/lib/utils";
-import { saveFrameCache, loadFrameCache, clearFrameCache } from "@/features/audio/lib/frame-cache";
-import { putAudio, getCachedAudio, clearAudio } from "@/features/audio/lib/audio-blob-cache";
+import { saveFrameCache, loadFrameCache, clearFrameCache } from "@/features/audio/lib/cache/frame";
+import { putAudio, getCachedAudio, clearAudio } from "@/features/audio/lib/cache/audio-blob";
 
 interface DashboardPageProps {
   useQueue: boolean;

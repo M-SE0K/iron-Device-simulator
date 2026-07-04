@@ -1,12 +1,12 @@
 /**
- * ws-engine.ts — WebSocket 연결 핸들러 (mock/native 디스패치)
+ * engine/protocol/ws.ts — WebSocket 연결 핸들러 (native/wasm 엔진)
  *
  * 메시지 프로토콜:
  *   Client→Server:  JSON { type: "init" | "pause" | "stop" | "metrics" }
  *                   Binary ArrayBuffer 1920 bytes (인터리브 PCM 프레임)
  *   Server→Client:  JSON { type: "ready" | "frame" | "error" }
  *
- * 분석 자체는 mock-engine(mockFrame) / native-engine(NativeSession)에 위임하고,
+ * 분석 자체는 adapters/native(NativeSession) / adapters/wasm(WasmSession)에 위임하고,
  * 이 파일은 연결 생명주기·프로토콜·로깅만 담당한다.
  *
  * 터미널 로그 제어 환경변수:
@@ -15,30 +15,32 @@
  */
 
 import type WebSocket from "ws";
-import type { WsServerMessage, EngineParams } from "../types";
+import type { WsServerMessage, EngineParams } from "../../../types";
 import {
   logInitReceived, logReady,
   logFrame, logCtrl,
   logWsClose, logError, shouldLogFrame,
   logPipelineMetrics,
-} from "./logger";
-import { SAMPLE_RATE, SAMPLES_PER_CH, FRAME_BYTES } from "./engine-core";
-import { mockFrame } from "./mock-engine";
+} from "../logger";
+import { SAMPLE_RATE, SAMPLES_PER_CH, FRAME_BYTES, type FrameResult, type AnalysisSession } from "../core";
 import {
   openNativeSession, isNativeLocked,
-  type NativeSession, type FrameResult,
-} from "./native-engine";
-import { openWasmSession } from "./wasm-engine";
+} from "../adapters/native";
+import { openWasmSession } from "../adapters/wasm";
+import {
+  parseEngineParams, parseSampleRate,
+  createFrameMessage, createReadyMessage, createErrorMessage,
+  calculateFrameTime,
+} from "./analysis";
 
-// ENGINE=mock|native|wasm 이 우선이며, 미지정 시 기존 USE_MOCK 규약(하위 호환)을 따른다.
-//   mock   — 물리 근사 시뮬레이션 (기본값)
+// ENGINE=native|wasm (native/wasm 엔진 선택)
 //   native — libirontune.so(koffi FFI, ELF x86-64 전용, QEMU Docker 필요)
 //   wasm   — native/ff_prot.c → WASM(Node 타깃) 빌드, 아키텍처 무관
-type Engine = "mock" | "native" | "wasm";
+type Engine = "native" | "wasm";
 const ENGINE: Engine = (() => {
   const raw = process.env.ENGINE;
-  if (raw === "mock" || raw === "native" || raw === "wasm") return raw;
-  return process.env.USE_MOCK === "false" ? "native" : "mock";
+  if (raw === "native" || raw === "wasm") return raw;
+  return "wasm";
 })();
 const SO_PATH   = process.env.SO_PATH ?? "/app/native/libirontune.so";
 const WASM_PATH = process.env.WASM_PATH ?? "/app/native/wasm/ff_prot.js";
@@ -53,8 +55,8 @@ export function handleWsConnection(ws: WebSocket): void {
   // 실제 샘플레이트 (마이크 모드에서 48000 이외 값 가능)
   let connSampleRate: number = SAMPLE_RATE;
 
-  // native/wasm 세션 (mock 모드에서는 항상 null)
-  let session: NativeSession | null = null;
+  // native/wasm 세션
+  let session: AnalysisSession | null = null;
 
   const send = (msg: WsServerMessage): void => {
     if (ws.readyState === ws.OPEN) ws.send(JSON.stringify(msg));
@@ -81,46 +83,32 @@ export function handleWsConnection(ws: WebSocket): void {
       if (pcm.length < FRAME_BYTES) return;
 
       const currentFrame = frameCount;
-      const time = parseFloat(((currentFrame * SAMPLES_PER_CH) / connSampleRate).toFixed(4));
       frameCount++;
 
-      // 분석: native/wasm 세션이 있으면 그쪽, 없으면 mock
+      // 분석: native/wasm 세션
       let result: FrameResult;
       try {
-        if (session) {
-          result = session.analyze(pcm, engineParams);
-        } else {
-          const t0 = performance.now();
-          const { temperature, excursion } = mockFrame(time, engineParams);
-          result = { temperature, excursion, processingMs: parseFloat((performance.now() - t0).toFixed(3)) };
+        if (!session) {
+          throw new Error("세션 미초기화");
         }
+        result = session.analyze(pcm, engineParams);
       } catch (err) {
         logError("ff_prot_start_exec", err);
-        send({ type: "error", message: `ff_prot_start_exec 오류: ${err}` });
+        send(createErrorMessage(`ff_prot_start_exec 오류: ${err}`));
         return;
       }
 
-      const { temperature, excursion, processingMs } = result;
-      send({ type: "frame", time, temperature, excursion, processingMs });
+      send(createFrameMessage(currentFrame, connSampleRate, result));
 
       if (shouldLogFrame(currentFrame)) {
-        if (!session) {
-          logFrame(currentFrame, processingMs, temperature[0], excursion[0], "mock");
-          console.debug(
-            `[ws-engine][mock] #${currentFrame}` +
-            `  T=[${temperature[0].toFixed(1)}, ${temperature[1].toFixed(1)}]°C` +
-            `  Exc=[${excursion[0].toFixed(2)}, ${excursion[1].toFixed(2)}]`
-          );
-        } else {
-          const [rT0, rT1, rE0, rE1] = result.raw ?? [0, 0, 0, 0];
-          logFrame(currentFrame, processingMs, temperature[0], excursion[0], ENGINE === "wasm" ? "wasm" : "native");
-          console.debug(
-            `[ws-engine][${ENGINE}] #${currentFrame}` +
-            `  T=[${temperature[0]}, ${temperature[1]}]` +
-            `  Exc=[${excursion[0]}, ${excursion[1]}]` +
-            `  raw=[T0=${rT0} T1=${rT1} E0=${rE0} E1=${rE1}]`
-          );
-        }
+        const [rT0, rT1, rE0, rE1] = result.raw ?? [0, 0, 0, 0];
+        logFrame(currentFrame, result.processingMs, result.temperature[0], result.excursion[0], ENGINE);
+        console.debug(
+          `[ws-engine][${ENGINE}] #${currentFrame}` +
+          `  T=[${result.temperature[0]}, ${result.temperature[1]}]` +
+          `  Exc=[${result.excursion[0]}, ${result.excursion[1]}]` +
+          `  raw=[T0=${rT0} T1=${rT1} E0=${rE0} E1=${rE1}]`
+        );
       }
       return;
     }
@@ -137,25 +125,18 @@ export function handleWsConnection(ws: WebSocket): void {
     // ── init ──────────────────────────────────────────────────────────────────
     if (msg.type === "init") {
       if (initialized) {
-        send({ type: "ready" });
+        send(createReadyMessage());
         return;
       }
 
-      // 엔진 파라미터 파싱 (미설정 시 기본값 유지)
-      const rawPower = parseFloat(msg.ampOutputPower);
-      engineParams = {
-        ampOutputPower: isFinite(rawPower) && rawPower > 0 ? rawPower : null,
-        speakerModel:   typeof msg.speakerModel === "string" ? msg.speakerModel : "",
-      };
-      // 샘플레이트 (마이크 모드: 실제 값 전달, 파일 모드: 생략 → 기본값 48000)
-      const rawRate = typeof msg.sampleRate === "number" ? msg.sampleRate : 0;
-      connSampleRate = rawRate > 0 ? rawRate : SAMPLE_RATE;
+      engineParams = parseEngineParams(msg);
+      connSampleRate = parseSampleRate(msg);
 
       logInitReceived(ENGINE);
 
       if (ENGINE === "native") {
         if (isNativeLocked()) {
-          send({ type: "error", message: "다른 세션이 라이브러리를 사용 중입니다. 잠시 후 다시 시도해주세요." });
+          send(createErrorMessage("다른 세션이 라이브러리를 사용 중입니다. 잠시 후 다시 시도해주세요."));
           ws.close();
           return;
         }
@@ -163,7 +144,7 @@ export function handleWsConnection(ws: WebSocket): void {
           session = openNativeSession(SO_PATH);
         } catch (err) {
           logError("init", err);
-          send({ type: "error", message: String(err) });
+          send(createErrorMessage(String(err)));
           return;
         }
       } else if (ENGINE === "wasm") {
@@ -171,7 +152,7 @@ export function handleWsConnection(ws: WebSocket): void {
           session = await openWasmSession(WASM_PATH);
         } catch (err) {
           logError("init", err);
-          send({ type: "error", message: String(err) });
+          send(createErrorMessage(String(err)));
           return;
         }
       }
@@ -179,7 +160,7 @@ export function handleWsConnection(ws: WebSocket): void {
       initialized = true;
       frameCount  = 0;
       logReady();
-      send({ type: "ready" });
+      send(createReadyMessage());
 
     // ── metrics: 브라우저 렌더 파이프라인 역전송 ─────────────────────────────
     } else if (msg.type === "metrics") {

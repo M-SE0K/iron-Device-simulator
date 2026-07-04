@@ -58,7 +58,7 @@ export function logWsClose(): void {
   console.log(`${ts()} ${TAG.WS} ${GRAY}연결 종료${R}`);
 }
 
-export function logInitReceived(mode: "mock" | "native" | "wasm"): void {
+export function logInitReceived(mode: "native" | "wasm"): void {
   console.log(`${ts()} ${TAG.INIT} init 수신 → mode=${B}${mode.toUpperCase()}${R}`);
 }
 
@@ -81,7 +81,7 @@ export function logFrame(
   procMs:      number,
   temperature: number,
   excursion:   number,
-  mode:        "mock" | "native" | "wasm",
+  mode:        "native" | "wasm",
 ): void {
   // 온도 색상
   const tColor = temperature >= 75 ? RED : temperature >= 65 ? YELLOW : CYAN;

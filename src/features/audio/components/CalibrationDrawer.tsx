@@ -13,7 +13,7 @@ import {
   useCalibration,
   withProfile,
   type CalibrationValues,
-} from "@/features/audio/lib/calibration-context";
+} from "./calibration-context";
 
 /** 숫자 입력 필드 (소수 허용) */
 function NumberField({

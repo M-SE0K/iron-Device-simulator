@@ -1,5 +1,5 @@
 /**
- * native-engine.ts — libirontune.so 전용 엔진 (koffi FFI)
+ * engine/adapters/native.ts — libirontune.so 전용 엔진 (koffi FFI)
  *
  * ff_prot_* 함수 바인딩, 연결 생명주기(init / set_param / start_exec / stop_exec),
  * 전역 상태 보호용 nativeLock, de-interleave, 그리고 ff_prot_set_param이 NOP인
@@ -9,29 +9,70 @@
  * 라이브러리가 전역 상태를 쓰므로 동시 native 세션은 1개로 제한한다(nativeLock).
  */
 
-import type { EngineParams } from "../types";
+import type { EngineParams } from "../../../types";
 import {
   SAMPLES_PER_CH, CHANNELS, BYTES_PER_SAMPLE, FRAME_BYTES,
-} from "./engine-core";
-import { logProtCall, logProtStop, logError } from "./logger";
-import { deinterleave, applyPostCorrection } from "./analysis-utils";
+  type FrameResult, type AnalysisSession, type MemoryLayout,
+} from "../core";
+import { logProtCall, logProtStop, logError } from "../logger";
+import { createAnalysisFrame } from "../utils";
 
 const AMB_TEMP = 25; // 주변 온도(°C) — ff_prot_start_exec 인자
 
-export interface FrameResult {
-  temperature:  [number, number];
-  excursion:    [number, number];
-  processingMs: number;
-  /** native 디버그용 raw 값 [T0, T1, E0, E1] */
-  raw?: [number, number, number, number];
-}
+/** 하위 호환성을 위한 alias (이전 코드가 NativeSession 타입을 사용한 경우) */
+export type NativeSession = AnalysisSession;
 
-/** 단일 native 세션 (1 WS 연결 = 1 세션) */
-export interface NativeSession {
-  /** PCM 프레임 1개 분석 (deinterleave + ff_prot_start_exec + 후처리 보정) */
-  analyze(pcm: Buffer, params: EngineParams): FrameResult;
-  /** ff_prot_stop_exec + 락 해제 */
-  close(): void;
+/** native 엔진의 메모리 레이아웃 구현 */
+class NativeMemoryLayout implements MemoryLayout {
+  private planarStorage: Int16Array | null = null;
+
+  constructor(private fnStartExec: (...args: unknown[]) => number) {}
+
+  allocTemp() {
+    return {
+      tempPtr: Buffer.alloc(8) as unknown as number,
+      excPtr: Buffer.alloc(8) as unknown as number,
+    };
+  }
+
+  allocBuf() {
+    // native는 PCM 버퍼 할당 필요 없음 (planar를 직접 전달)
+    return 0;
+  }
+
+  writePlanar(_bufPtr: number, planar: Int16Array) {
+    // native는 planar를 저장했다가 execAnalysis에서 사용
+    this.planarStorage = planar;
+  }
+
+  execAnalysis(_bufPtr: number, tempPtr: number, excPtr: number) {
+    if (!this.planarStorage) throw new Error("Planar data not set");
+    this.fnStartExec(
+      this.planarStorage,
+      SAMPLES_PER_CH,
+      BYTES_PER_SAMPLE,
+      CHANNELS,
+      AMB_TEMP,
+      tempPtr,
+      excPtr,
+    );
+  }
+
+  readResults(tempPtr: number, excPtr: number) {
+    const tempBuf = tempPtr as unknown as Buffer;
+    const excBuf = excPtr as unknown as Buffer;
+    return [
+      tempBuf.readInt32LE(0),
+      tempBuf.readInt32LE(4),
+      excBuf.readInt32LE(0),
+      excBuf.readInt32LE(4),
+    ] as [number, number, number, number];
+  }
+
+  free() {
+    // Buffer는 자동 GC
+    this.planarStorage = null;
+  }
 }
 
 // libirontune.so는 전역 상태 사용 가능 → 동시 연결 1개로 제한
@@ -93,36 +134,9 @@ export function openNativeSession(soPath: string): NativeSession {
   }
 
   // ── 단일 프레임 분석 ──────────────────────────────────────────────────────
+  const layout = new NativeMemoryLayout(fnStartExec);
   const analyze = (pcm: Buffer, params: EngineParams): FrameResult => {
-    const t0 = performance.now();
-
-    // 1) de-interleave: LR LR LR → LL...RR...
-    const planar     = deinterleave(pcm.subarray(0, FRAME_BYTES)) as unknown as Buffer;
-    const spkTempBuf = Buffer.alloc(8); // int32_t[2]
-    const spkExcBuf  = Buffer.alloc(8); // int32_t[2]
-
-    // 2) ff_prot_start_exec 호출 (예외는 호출자에서 처리)
-    fnStartExec(planar, SAMPLES_PER_CH, BYTES_PER_SAMPLE, CHANNELS, AMB_TEMP, spkTempBuf, spkExcBuf);
-
-    // ff_prot_set_param은 NOP이므로 파라미터를 출력에 후처리 스케일로 적용 -> 추후 라이브러리 제공하면 수정 필요함.
-    // so_report.md §10 참고: K, Mms_x_K 등 전역변수 직접 주입 없이 스케일 근사 -> 추후 라이브러리 제공하면 수정 필요함.
-    const rawTemp0 = spkTempBuf.readInt32LE(0);
-    const rawTemp1 = spkTempBuf.readInt32LE(4);
-    const rawExc0  = spkExcBuf.readInt32LE(0);
-    const rawExc1  = spkExcBuf.readInt32LE(4);
-
-    const { temperature, excursion, raw } = applyPostCorrection(
-      rawTemp0, rawTemp1, rawExc0, rawExc1,
-      params,
-      true, // include raw values for native debugging
-    );
-
-    return {
-      temperature,
-      excursion,
-      processingMs: parseFloat((performance.now() - t0).toFixed(3)),
-      raw,
-    };
+    return createAnalysisFrame(pcm, params, layout, true);
   };
 
   // ── 세션 종료: ff_prot_stop_exec + 락 해제 ────────────────────────────────

@@ -1,6 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import "./globals.css";
-import { CalibrationProvider } from "@/features/audio/lib/calibration-context";
+import { CalibrationProvider } from "@/features/audio/components/calibration-context";
 
 export const metadata: Metadata = {
   title: "Iron Device — Audio Analysis Dashboard",

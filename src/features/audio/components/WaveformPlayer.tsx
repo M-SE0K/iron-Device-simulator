@@ -4,7 +4,7 @@ import { useEffect, useRef, useState, useCallback, forwardRef, useImperativeHand
 import { Play, Pause, Square } from "lucide-react";
 import { cn, formatTime } from "@/shared/lib/utils";
 import { AppStatus, AnalysisFrame, StreamDebugInfo, DebugLogEntry } from "@/features/audio/types";
-import { createAnalysisSocket, type SocketLike } from "@/features/audio/lib/local-wasm-socket";
+import { createAnalysisSocket, type SocketLike } from "@/features/audio/lib/engine/protocol/local-socket";
 import type { InputParameterValues } from "./InputParameters";
 
 // ─── PCM 처리 상수 ────────────────────────────────────────────────────────────

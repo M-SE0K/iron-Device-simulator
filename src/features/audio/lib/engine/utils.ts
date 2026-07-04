@@ -1,15 +1,16 @@
 /**
- * analysis-utils.ts — 공유 분석 유틸 (deinterleave, 후처리 보정)
+ * engine/utils.ts — 공유 분석 유틸 (deinterleave, 후처리 보정)
  *
  * native-engine / wasm-engine / wasm-client-engine에서 중복되던
  * PCM 변환과 SPEAKER_PROFILES 후처리 보정을 통합한다.
  */
 
-import type { EngineParams } from "../types";
+import type { EngineParams } from "../../types";
 import {
-  SAMPLES_PER_CH, CHANNELS, BYTES_PER_SAMPLE,
+  SAMPLES_PER_CH, CHANNELS, BYTES_PER_SAMPLE, FRAME_BYTES,
   SPEAKER_PROFILES, DEFAULT_PROFILE, powerTempMult,
-} from "./engine-core";
+  type MemoryLayout, type FrameResult,
+} from "./core";
 
 // ─── PCM 변환: 인터리브(L R L R) → 플래너(LL...RR...) ────────────────────────
 /**
@@ -81,4 +82,44 @@ export function applyPostCorrection(
     excursion,
     ...(includeRaw && { raw: [rawTemp0, rawTemp1, rawExc0, rawExc1] }),
   };
+}
+
+// ─── 엔진 독립적 분석 헬퍼 ──────────────────────────────────────────────────────
+/**
+ * MemoryLayout을 사용한 엔진 독립적 프레임 분석.
+ * deinterleave부터 applyPostCorrection까지 전체 파이프라인을 담당한다.
+ * native-engine / wasm-engine / wasm-client-engine의 analyze() 중복을 제거한다.
+ */
+export function createAnalysisFrame(
+  pcm: Buffer | Uint8Array,
+  params: EngineParams,
+  layout: MemoryLayout,
+  includeRaw: boolean = false,
+): FrameResult {
+  const t0 = performance.now();
+
+  const planar = deinterleave(pcm.subarray(0, FRAME_BYTES));
+  const { tempPtr, excPtr } = layout.allocTemp();
+  const bufPtr = layout.allocBuf();
+
+  try {
+    layout.writePlanar(bufPtr, planar);
+    layout.execAnalysis(bufPtr, tempPtr, excPtr);
+    const [rawTemp0, rawTemp1, rawExc0, rawExc1] = layout.readResults(tempPtr, excPtr);
+
+    const { temperature, excursion, raw } = applyPostCorrection(
+      rawTemp0, rawTemp1, rawExc0, rawExc1,
+      params,
+      includeRaw,
+    );
+
+    return {
+      temperature,
+      excursion,
+      processingMs: parseFloat((performance.now() - t0).toFixed(3)),
+      ...(raw && { raw }),
+    };
+  } finally {
+    layout.free([bufPtr, tempPtr, excPtr]);
+  }
 }
