@@ -2,6 +2,7 @@
   "name": "iron-device-simulator",
   "version": "0.1.0",
   "private": true,
+  "main": "electron/main.js",
   "scripts": {
     "dev": "next dev",
     "build": "next build",
@@ -14,6 +15,8 @@
     "wasm:build": "cd native && ./build-wasm.sh",
     "build:mobile": "./scripts/build-mobile.sh",
     "build:desktop": "./scripts/build-desktop.sh",
+    "build:electron": "./scripts/build-electron.sh",
+    "electron:preview": "electron .",
     "cap:sync": "npx cap sync"
   },
   "dependencies": {
@@ -31,11 +34,14 @@
     "wavesurfer.js": "^7.9.5"
   },
   "devDependencies": {
+    "@capacitor/assets": "^3.0.5",
     "@capacitor/cli": "^8.4.1",
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "autoprefixer": "^10.0.1",
+    "electron": "^43.0.0",
+    "electron-builder": "^26.15.3",
     "eslint": "^8",
     "eslint-config-next": "15.2.4",
     "postcss": "^8",

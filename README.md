@@ -12,7 +12,7 @@ Visualizes **speaker temperature** and **excursion displacement** in real-time v
 
 There is no backend for the analysis pipeline — everything runs client-side. `native/ff_prot.c` (a reference/stub implementation matching the real vendor `libirontune.so`'s `ff_prot_*` signature; the real vendor source hasn't been provided yet, see `native/README.md`) is compiled with Emscripten to browser-target WebAssembly (`public/wasm/ff_prot.{js,wasm}`) and executed directly in the browser's `WebAssembly` runtime via `src/features/audio/lib/engine/adapters/wasm-client.ts`. `engine/protocol/local-socket.ts` wraps this in a `WebSocket`-shaped interface so the player components (`WaveformPlayer.tsx` / `MicrophonePlayer.tsx`) don't need to know the analysis is in-process.
 
-This means the app is a plain static site — the same build works as a normal web deployment, a desktop standalone bundle, or a Capacitor mobile app; see [Building](#building) below.
+This means the app is a plain static site — the same build works as a normal web deployment, a desktop standalone bundle, an Electron desktop app, or a Capacitor mobile app; see [Building](#building) below.
 
 ---
 
@@ -22,6 +22,7 @@ This means the app is a plain static site — the same build works as a normal w
 - npm 9+
 - [Emscripten](https://emscripten.org/docs/getting_started/downloads.html) (`emcc`) — to build the WASM engine (`npm run wasm:build`)
 - Mobile packaging only: Xcode (iOS) and/or Android Studio (Android) installed and configured for Capacitor. `@capacitor/cli` is already a devDependency, so no separate install is needed for the `npx cap ...` commands themselves.
+- Electron packaging only: `electron` / `electron-builder` are already devDependencies — no separate install needed. Cross-compiling a Windows NSIS installer from macOS/Linux would require Wine, which is why the Windows target here is a signing/Wine-free portable `.zip` instead (see [Desktop App Packaging (Electron)](#desktop-app-packaging-electron)).
 
 ---
 
@@ -57,6 +58,34 @@ Open the URL `serve` prints (defaults to http://localhost:3000). `out/` is a pla
 
 > Opening `out/index.html` directly via `file://` will **not** work — asset paths are absolute (`/_next/...`), so it must be served from a web root.
 
+### Desktop App Packaging (Electron)
+
+```bash
+npm run build:electron   # → out/ (WASM + static export) + dist-electron/ (packaged apps)
+```
+
+This runs the same static core build as `build:desktop`, then wraps it with [electron-builder](https://www.electron.build/) into installable desktop apps for **macOS, Windows, and Linux** (both `x64` and `arm64`), producing 6 artifacts under `dist-electron/`:
+
+| Platform | Artifacts |
+|---|---|
+| macOS | `.dmg`, `.zip` (x64 + arm64) |
+| Windows | `.zip` portable (x64 + arm64) |
+| Linux | `.AppImage` (x64 + arm64) |
+
+`electron/main.js` starts a small local HTTP server bound to `127.0.0.1` and serves `out/` to a `BrowserWindow` — a plain `file://` load doesn't work for the same absolute-asset-path reason as the web build above. No backend, no `ws://` connection; the WASM engine still runs entirely in-process inside the Electron renderer, same as the web/mobile builds.
+
+**These builds are unsigned** (intended for internal team distribution, not app-store/public release — see `electron-builder.yml`). First launch requires one manual step:
+
+- **macOS**: right-click the app → Open (Gatekeeper blocks unsigned apps opened by double-click)
+- **Windows**: click "More info" → "Run anyway" on the SmartScreen warning
+- **Linux**: `chmod +x *.AppImage` then run directly — no warning
+
+To preview without a full package build (after `out/` already exists from any static build):
+
+```bash
+npm run electron:preview   # electron . — launches electron/main.js against the current out/
+```
+
 ### Mobile Packaging (Capacitor iOS/Android)
 
 ```bash
@@ -87,6 +116,8 @@ npm run lint         # ESLint
 
 npm run wasm:build    # Compile native/ff_prot.c to browser-target WASM, requires emcc
 npm run build:desktop # Static web build → out/ (see Building above)
+npm run build:electron # Static build + Electron packaging → out/ + dist-electron/ (see Building above)
+npm run electron:preview # electron . — launch electron/main.js against the current out/, no packaging
 npm run build:mobile  # Static, Capacitor-ready mobile build → out/ (see Building above)
 npm run cap:sync      # npx cap sync — sync out/ into the Capacitor ios/android native projects
 ```
@@ -129,6 +160,7 @@ make selftest         # pure-C self-test of the reference model (temperature ris
 | Charts | Apache ECharts (echarts-for-react) |
 | Waveform | wavesurfer.js |
 | Analysis Engine | Emscripten (`emcc`) — `native/ff_prot.c` → WebAssembly, browser target, run in-process (no server) |
+| Desktop Packaging | Electron + electron-builder (macOS / Windows / Linux) |
 | Mobile Packaging | Capacitor (iOS / Android) |
 
 ---
