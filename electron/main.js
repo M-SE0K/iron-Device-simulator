@@ -5,16 +5,49 @@
 // file://로 직접 열면 로딩이 깨지므로, 앱 내부에서만 쓰는 로컬 정적 서버를 띄워
 // http://127.0.0.1:<port>로 로드한다 — 외부에 노출되지 않고 이 프로세스 안에서만 존재하는
 // 서버라 "서버리스(분석은 브라우저 WASM이 수행)" 원칙과 어긋나지 않는다.
-const { app, BrowserWindow } = require("electron");
+const { app, BrowserWindow, ipcMain } = require("electron");
 const path = require("path");
 const http = require("http");
 const fs = require("fs");
+const { execFile } = require("child_process");
 
 const PORT = 17872;
 
 const OUT_DIR = app.isPackaged
   ? path.join(process.resourcesPath, "out")
   : path.join(__dirname, "..", "out");
+
+// audio-device-helper: OS 기본 입력 장치(MCHStreamer 등)의 CoreAudio HAL
+// SampleRate/BufferFrameSize를 조회·설정하는 컴파일된 바이너리 — macOS 전용.
+// Windows/Linux 확장 시 이 자리에 각 플랫폼 헬퍼를 추가하고 아래 분기만 넓히면 된다.
+const AUDIO_HELPER_PATH = app.isPackaged
+  ? path.join(process.resourcesPath, "audio-device-helper")
+  : path.join(__dirname, "native", "audio-device-helper", "dist", "audio-device-helper");
+
+function runAudioHelper(args) {
+  return new Promise((resolve) => {
+    if (process.platform !== "darwin") {
+      resolve({ success: false, error: "unsupported-platform" });
+      return;
+    }
+    execFile(AUDIO_HELPER_PATH, args, (err, stdout) => {
+      if (err) {
+        resolve({ success: false, error: err.message });
+        return;
+      }
+      try {
+        resolve(JSON.parse(stdout));
+      } catch {
+        resolve({ success: false, error: "invalid-helper-output" });
+      }
+    });
+  });
+}
+
+ipcMain.handle("audio-device:get-config", () => runAudioHelper(["get"]));
+ipcMain.handle("audio-device:set-config", (_event, { sampleRate, bufferSize }) =>
+  runAudioHelper(["set", String(sampleRate), String(bufferSize)])
+);
 
 const MIME_TYPES = {
   ".html": "text/html",
@@ -73,6 +106,7 @@ async function createWindow() {
     webPreferences: {
       contextIsolation: true,
       sandbox: true,
+      preload: path.join(__dirname, "preload.js"),
     },
   });
   win.loadURL(`http://127.0.0.1:${PORT}/`);

@@ -7,7 +7,9 @@
 # Windows/CI에서 빌드해야 한다.
 appId: com.irondevice.audiosim.desktop
 productName: Iron Device Audio Simulator
-# electron/main.js는 Node 내장 모듈(http/path/fs)만 쓰고 네이티브 addon이 없다.
+# electron/main.js는 Node 내장 모듈(http/path/fs)만 쓰고 네이티브 Node addon이 없다
+# (mac.extraResources의 audio-device-helper는 child_process로 spawn하는 별도 컴파일
+# 바이너리일 뿐 Node addon이 아니라 electron-rebuild 대상이 아니다).
 # 기본값(true)이면 electron-builder가 node_modules 전체(예: @capacitor/assets가
 # 끌어오는 sharp)를 타깃 arch별로 재빌드하려다, 크로스 컴파일이 안 되는 조합(예:
 # macOS 호스트에서 win32/arm64용 sharp)에서 빌드가 실패한다 — 애초에 필요 없는
@@ -38,6 +40,11 @@ mac:
   category: public.app-category.utilities
   extendInfo:
     NSMicrophoneUsageDescription: 실시간 오디오 분석을 위해 마이크 입력을 사용합니다.
+  # CoreAudio HAL 헬퍼(native/audio-device-helper/build-mac.sh 산출물, arm64+x64
+  # universal binary) — mac 타깃에만 번들링. win/linux는 아직 해당 헬퍼가 없다.
+  extraResources:
+    - from: electron/native/audio-device-helper/dist/audio-device-helper
+      to: audio-device-helper
 
 win:
   target:

@@ -10,6 +10,12 @@ cd "$(dirname "$0")/.."
 
 ./scripts/build-static-local.sh
 
+# CoreAudio HAL 헬퍼(mac 전용, swiftc 필요)를 mac 타깃 패키징 전에 컴파일해둔다.
+# electron-builder.yml의 mac.extraResources가 이 산출물을 참조한다.
+if [[ "$(uname)" == "Darwin" ]]; then
+  ./electron/native/audio-device-helper/build-mac.sh
+fi
+
 echo "▶ Electron 패키징 (mac/win/linux)..."
 npx electron-builder --mac --win --linux
 
