@@ -4,7 +4,7 @@ import { useRef, useState } from "react";
 import { Upload, FileAudio, X } from "lucide-react";
 import { cn } from "@/shared/lib/utils";
 import { AppStatus } from "@/features/audio/types";
-import CalibrationSummary from "@/features/audio/components/CalibrationSummary";
+import CalibrationSummary from "@/features/audio/components/calibration/CalibrationSummary";
 
 interface Props {
   status: AppStatus;

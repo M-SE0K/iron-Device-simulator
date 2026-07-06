@@ -10,10 +10,17 @@ import { SPEAKER_PROFILES } from "@/features/audio/lib/engine/core";
 export const SPEAKER_MODELS = Object.keys(SPEAKER_PROFILES); // ["Z3 SPK", ...]
 const DEFAULT_AMBIENT = 25;
 
+// 데모 값 — 실제 엔진은 아직 48000Hz/480 samples-per-ch 고정(engine/core.ts SAMPLE_RATE, SAMPLES_PER_CH).
+// 값 목록/기본값은 추후 확정될 예정.
+export const SAMPLE_RATE_OPTIONS = ["44100", "48000", "96000"];
+export const BUFFER_SIZE_OPTIONS = ["256", "480", "512", "1024", "2048"];
+
 export interface CalibrationValues {
   speakerModel: string; // "" = 미선택
   ampOutputPower: string; // W
   ambientTemp: string; // °C
+  sampleRate: string; // Hz (데모)
+  bufferSize: string; // samples (데모)
   tempBase: string; // °C (프로파일)
   excAmp: string; // mm (프로파일)
   tempMult: string; // 승수
@@ -24,6 +31,8 @@ export const CALIBRATION_EMPTY: CalibrationValues = {
   speakerModel: "",
   ampOutputPower: "20",
   ambientTemp: String(DEFAULT_AMBIENT),
+  sampleRate: "48000",
+  bufferSize: "480",
   tempBase: "",
   excAmp: "",
   tempMult: "",
