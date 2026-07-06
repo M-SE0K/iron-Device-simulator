@@ -1,9 +1,8 @@
 /**
  * engine/protocol/analysis.ts — 분석 프로토콜 공통 헬퍼
  *
- * protocol/ws.ts(서버 WebSocket)과 protocol/local-socket.ts(로컬 WASM)에서
- * 공유되는 프로토콜 파싱·메시지 생성 로직을 통합한다.
- * (init, frame, pause, stop 메시지 처리)
+ * protocol/local-socket.ts(로컬 WASM)가 사용하는 프로토콜 파싱·메시지 생성
+ * 로직을 모아둔다. (init, frame, pause, stop 메시지 처리)
  */
 
 import type { EngineParams, WsServerMessage } from "../../../types";
@@ -41,7 +40,7 @@ export function parseSampleRate(msg: Record<string, unknown>): number {
  *   샘플레이트: connSampleRate (기본 48000)
  *   시간 = (프레임 인덱스 × SAMPLES_PER_CH) / 샘플레이트
  */
-export function calculateFrameTime(frameIndex: number, sampleRate: number): number {
+function calculateFrameTime(frameIndex: number, sampleRate: number): number {
   return parseFloat(((frameIndex * SAMPLES_PER_CH) / sampleRate).toFixed(4));
 }
 

@@ -1,8 +1,7 @@
 /**
  * engine/utils.ts — 공유 분석 유틸 (deinterleave, 후처리 보정)
  *
- * native-engine / wasm-engine / wasm-client-engine에서 중복되던
- * PCM 변환과 SPEAKER_PROFILES 후처리 보정을 통합한다.
+ * wasm-client-engine이 사용하는 PCM 변환과 SPEAKER_PROFILES 후처리 보정을 모아둔다.
  */
 
 import type { EngineParams } from "../../types";
@@ -17,7 +16,7 @@ import {
  * 인터리브 PCM을 플래너 형식으로 변환한다.
  * Buffer, Int16Array 등 다양한 입력 타입 지원.
  */
-export function deinterleave(src: Buffer | Uint8Array): Int16Array {
+function deinterleave(src: Buffer | Uint8Array): Int16Array {
   const dst = new Int16Array(SAMPLES_PER_CH * CHANNELS);
   const channelOffsetSamples = SAMPLES_PER_CH;
 
@@ -51,13 +50,13 @@ export function deinterleave(src: Buffer | Uint8Array): Int16Array {
  * ff_prot_set_param이 NOP인 동안의 임시 규약이며, 정품 라이브러리에서
  * 직접 지원하면 폐기된다.
  */
-export interface PostCorrectionResult {
+interface PostCorrectionResult {
   temperature: [number, number];
   excursion: [number, number];
   raw?: [number, number, number, number]; // [rawTemp0, rawTemp1, rawExc0, rawExc1]
 }
 
-export function applyPostCorrection(
+function applyPostCorrection(
   rawTemp0: number,
   rawTemp1: number,
   rawExc0: number,
@@ -88,7 +87,6 @@ export function applyPostCorrection(
 /**
  * MemoryLayout을 사용한 엔진 독립적 프레임 분석.
  * deinterleave부터 applyPostCorrection까지 전체 파이프라인을 담당한다.
- * native-engine / wasm-engine / wasm-client-engine의 analyze() 중복을 제거한다.
  */
 export function createAnalysisFrame(
   pcm: Buffer | Uint8Array,

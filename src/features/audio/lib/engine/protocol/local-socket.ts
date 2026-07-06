@@ -33,7 +33,7 @@ export interface SocketLike {
   onclose:   ((ev: any) => void) | null;
 }
 
-export class LocalWasmSocket implements SocketLike {
+class LocalWasmSocket implements SocketLike {
   // WebSocket.readyState 상수와 동일한 값
   static readonly CONNECTING = 0;
   static readonly OPEN       = 1;
@@ -89,7 +89,7 @@ export class LocalWasmSocket implements SocketLike {
     });
   }
 
-  // ── JSON 제어 메시지 (protocol/ws.ts와 동일 프로토콜) ─────────────────────────
+  // ── JSON 제어 메시지 (init/stop) ──────────────────────────────────────────
   private async handleControl(msg: { type: string } & Record<string, unknown>): Promise<void> {
     if (msg.type === "init") {
       if (this.initialized) {
@@ -119,7 +119,7 @@ export class LocalWasmSocket implements SocketLike {
     // pause: 서버와 동일하게 별도 처리 없음(스트림은 클라이언트가 멈춤)
   }
 
-  // ── Binary: PCM 프레임 1920 bytes (protocol/ws.ts 바이너리 분기와 동일 로직) ───
+  // ── Binary: PCM 프레임 1920 bytes ────────────────────────────────────────
   private handleFrame(data: ArrayBuffer): void {
     if (!this.initialized || !this.session) return;
     if (data.byteLength < FRAME_BYTES) return;
