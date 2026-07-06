@@ -2,9 +2,8 @@
 
 import { useEffect, useRef, useState, useCallback } from "react";
 import { Mic, Square } from "lucide-react";
-import { AppStatus, AnalysisFrame, StreamDebugInfo, DebugLogEntry } from "@/features/audio/types";
+import { AppStatus, AnalysisFrame, StreamDebugInfo, DebugLogEntry, InputParameterValues } from "@/features/audio/types";
 import { createAnalysisSocket, type SocketLike } from "@/features/audio/lib/engine/protocol/local-socket";
-import type { InputParameterValues } from "./InputParameters";
 
 // ─── 처리 상수 ────────────────────────────────────────────────────────────────
 const SAMPLES_PER_CH = 480;

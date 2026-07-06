@@ -3,13 +3,13 @@
 import { useState, useCallback, useRef, useEffect, useMemo } from "react";
 import Header from "@/shared/components/Header";
 import AudioUploader from "@/features/audio/components/AudioUploader";
-import WaveformPlayer, { WaveformPlayerHandle } from "@/features/audio/components/WaveformPlayer";
-import MicrophonePlayer from "@/features/audio/components/MicrophonePlayer";
-import TemperatureChart from "@/features/audio/components/TemperatureChart";
-import ExcursionChart from "@/features/audio/components/ExcursionChart";
-import { AppStatus, AnalysisFrame, StreamDebugInfo, DebugLogEntry, MeasurementExport } from "@/features/audio/types";
-import type { InputParameterValues } from "@/features/audio/components/InputParameters";
-import { useCalibration } from "./calibration-context";
+import WaveformPlayer, { WaveformPlayerHandle } from "@/features/audio/components/player/WaveformPlayer";
+import MicrophonePlayer from "@/features/audio/components/player/MicrophonePlayer";
+import TemperatureChart from "@/features/audio/components/chart/TemperatureChart";
+import ExcursionChart from "@/features/audio/components/chart/ExcursionChart";
+import { AppStatus, AnalysisFrame, StreamDebugInfo, DebugLogEntry, MeasurementExport, InputParameterValues } from "@/features/audio/types";
+import { useCalibration } from "./calibration/Calibration-context";
+import { useWorkspace } from "./workspace/Workspace-context";
 import { cn } from "@/shared/lib/utils";
 import { saveFrameCache, loadFrameCache, clearFrameCache } from "@/features/audio/lib/cache/frame";
 import { putAudio, getCachedAudio, clearAudio } from "@/features/audio/lib/cache/audio-blob";
@@ -33,6 +33,8 @@ export default function DashboardPage({ useQueue }: DashboardPageProps) {
 
   // 분석 파라미터는 캘리브레이션 단일 소스(Context)에서 가져온다 — 대시보드 내 InputParameters 카드 제거.
   const { values: calibration } = useCalibration();
+  // 좌측 작업 영역 드로어와 공유하는 저장 세션 목록/액션 (workspace-context)
+  const { saveCurrent } = useWorkspace();
   const inputParams = useMemo<InputParameterValues>(
     () => ({ ampOutputPower: calibration.ampOutputPower, speakerModel: calibration.speakerModel }),
     [calibration.ampOutputPower, calibration.speakerModel],
@@ -246,6 +248,24 @@ export default function DashboardPage({ useQueue }: DashboardPageProps) {
       batchFrames:    batchFramesRef.current,
     });
   }, [audioFile]);
+
+  // ── 작업 영역(Workspace) 저장 — 현재 음원 + 활성 모드의 분석 그래프를 영구 보존 ──────
+  const handleSaveToWorkspace = useCallback(async () => {
+    if (!audioFile) return;
+    const mode   = analysisModeRef.current;
+    const frames = mode === "batch" ? batchFramesRef.current : streamingFramesRef.current;
+    if (frames.length === 0) return;
+    const name = audioFile.name.replace(/\.[^./]+$/, "") || "Untitled";
+    await saveCurrent({
+      name,
+      audioFileName: audioFile.name,
+      audioDuration: audioDurationRef.current,
+      analysisMode:  mode,
+      frames,
+      audioBlob: audioFile,
+      audioType: audioFile.type,
+    });
+  }, [audioFile, saveCurrent]);
 
   // ── 마운트 시 캐시 복원 (탭 전환 후 재마운트 / 새로고침 대응) ──────────────
   useEffect(() => {
@@ -822,6 +842,19 @@ export default function DashboardPage({ useQueue }: DashboardPageProps) {
                     </button>
                   ))}
                   <div className="ml-auto flex gap-1.5">
+                    <button
+                      onClick={handleSaveToWorkspace}
+                      disabled={!audioFile || chartFrames.length === 0}
+                      className={cn(
+                        "px-2 py-1 rounded border transition-all",
+                        !audioFile || chartFrames.length === 0
+                          ? "text-iron-300 border-iron-200 cursor-not-allowed"
+                          : "bg-iron-50 text-iron-500 border-iron-200 hover:border-iron-400",
+                      )}
+                      title="현재 음원과 분석 그래프를 작업 영역에 저장"
+                    >
+                      저장
+                    </button>
                     <button
                       onClick={handleMeasureToggle}
                       className={`px-2 py-1 rounded border transition-all ${

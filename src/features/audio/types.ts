@@ -6,6 +6,12 @@ export interface EngineParams {
   speakerModel: string;
 }
 
+/** EngineParams의 폼 draft 표현 (숫자 입력 필드가 파싱 전 문자열을 들고 있는 동안 사용) */
+export interface InputParameterValues {
+  ampOutputPower: string;
+  speakerModel: string;
+}
+
 /** 오디오 분석 결과 한 프레임 */
 export interface AnalysisFrame {
   /** 오디오 재생 시간(초) */
