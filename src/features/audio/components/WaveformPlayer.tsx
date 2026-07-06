@@ -40,13 +40,6 @@ interface Props {
   enableStreaming?: boolean;
 }
 
-// ─── WebSocket URL 생성 (SSR 안전) ───────────────────────────────────────────
-function getWsUrl(): string {
-  if (typeof window === "undefined") return "";
-  const proto = window.location.protocol === "https:" ? "wss:" : "ws:";
-  return `${proto}//${window.location.host}/ws/audio`;
-}
-
 // ─── Float32 → Int16 PCM 인터리브 변환 ───────────────────────────────────────
 function encodeToInt16(ch0: Float32Array, ch1: Float32Array): Int16Array {
   const out = new Int16Array(ch0.length * 2);
@@ -59,19 +52,15 @@ function encodeToInt16(ch0: Float32Array, ch1: Float32Array): Int16Array {
 
 /** page.tsx에서 ref로 접근할 수 있는 WaveformPlayer 핸들 */
 export interface WaveformPlayerHandle {
-  /** WebSocket이 열려 있을 때 JSON 메시지를 서버로 전송 */
+  /** 분석 소켓이 열려 있을 때 JSON 메시지를 전송 */
   sendMessage: (msg: object) => void;
   /**
-   * 배치 분석: 디코딩된 전체 PCM frame을 한 번에 서버로 보내 분석하고
+   * 배치 분석: 디코딩된 전체 PCM frame을 한 번에 분석해
    * 전체 output frame 시퀀스를 반환한다 (재생 동기화 없음).
    * @param onProgress (done, total) 진행률 콜백
    */
   runBatchAnalysis: (onProgress?: (done: number, total: number) => void) => Promise<AnalysisFrame[]>;
-  /**
-   * 진행 중인 실시간 스트리밍 WebSocket을 닫는다.
-   * 네이티브 엔진은 동시 1세션만 허용(nativeLock)하므로, 모드 전환 시 이전 WS를
-   * 닫아 락을 해제해야 다른 모드(배치/실시간)를 초기화 없이 실행할 수 있다.
-   */
+  /** 진행 중인 실시간 스트리밍 분석 소켓을 닫는다 (모드 전환 시 이전 세션 정리). */
   stopStreaming: () => void;
   /**
    * 재생을 일시정지한다 (WebSocket은 닫지 않음 → 재개 시 스트림/차트 보존).
@@ -107,7 +96,7 @@ const WaveformPlayer = forwardRef<WaveformPlayerHandle, Props>(function Waveform
   const pcmFramesRef      = useRef<ArrayBuffer[]>([]);
   const pcmReadyRef       = useRef(false);
 
-  // ── 분석 소켓 상태 (일반 빌드: 서버 WebSocket / 모바일 빌드: LocalWasmSocket) ─
+  // ── 분석 소켓 상태 (브라우저 WASM 엔진, LocalWasmSocket) ─────────────────
   const wsRef             = useRef<SocketLike | null>(null);
   const wsReadyRef        = useRef(false);
 
@@ -354,10 +343,7 @@ const WaveformPlayer = forwardRef<WaveformPlayerHandle, Props>(function Waveform
     wsReadyRef.current = false;
     onStreamStart(); // 누적 프레임 초기화 신호
 
-    const wsUrl = getWsUrl();
-    if (!wsUrl) return;
-
-    const ws = createAnalysisSocket(wsUrl);
+    const ws = createAnalysisSocket();
     wsRef.current = ws;
 
     ws.onopen = () => {
@@ -410,7 +396,7 @@ const WaveformPlayer = forwardRef<WaveformPlayerHandle, Props>(function Waveform
             `  Exc=[${excursion[0]}, ${excursion[1]}]`
           );
           if (!isArray) {
-            console.warn("[WaveformPlayer] temperature/excursion이 배열이 아닙니다. 서버 버전을 확인하세요.");
+            console.warn("[WaveformPlayer] temperature/excursion이 배열이 아닙니다. WASM 엔진 버전을 확인하세요.");
           }
         }
 
@@ -440,7 +426,7 @@ const WaveformPlayer = forwardRef<WaveformPlayerHandle, Props>(function Waveform
 
         flushDebug(true);
       } else if (msg.type === "error") {
-        console.error("[WaveformPlayer] WS 서버 오류:", msg.message);
+        console.error("[WaveformPlayer] 분석 엔진 오류:", msg.message);
         onStatusChange("error");
       }
     };
@@ -504,13 +490,10 @@ const WaveformPlayer = forwardRef<WaveformPlayerHandle, Props>(function Waveform
 
         const frames     = pcmFramesRef.current;
         const totalFrames = frames.length;
-        // frameIdx → AnalysisFrame (서버는 수신 순서로 time을 매기므로 idx로 정렬)
+        // frameIdx → AnalysisFrame (수신 순서로 time을 매기므로 idx로 정렬)
         const collected   = new Map<number, AnalysisFrame>();
 
-        const wsUrl = getWsUrl();
-        if (!wsUrl) { reject(new Error("WebSocket URL을 생성할 수 없습니다.")); return; }
-
-        const batchWs = createAnalysisSocket(wsUrl);
+        const batchWs = createAnalysisSocket();
         let settled = false;
 
         const finish = (fn: () => void) => {
@@ -568,7 +551,7 @@ const WaveformPlayer = forwardRef<WaveformPlayerHandle, Props>(function Waveform
               finish(() => resolve(ordered));
             }
           } else if (msg.type === "error") {
-            finish(() => reject(new Error(msg.message ?? "서버 분석 오류")));
+            finish(() => reject(new Error(msg.message ?? "WASM 분석 오류")));
           }
         };
 

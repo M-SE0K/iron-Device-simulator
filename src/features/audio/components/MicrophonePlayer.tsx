@@ -20,13 +20,6 @@ interface Props {
   inputParams: InputParameterValues;
 }
 
-// ─── WebSocket URL (WaveformPlayer와 동일 엔드포인트) ────────────────────────
-function getWsUrl(): string {
-  if (typeof window === "undefined") return "";
-  const proto = window.location.protocol === "https:" ? "wss:" : "ws:";
-  return `${proto}//${window.location.host}/ws/audio`;
-}
-
 // ─── Float32 → Int16 인터리브 변환 ───────────────────────────────────────────
 function encodeToInt16(L: Float32Array, R: Float32Array): ArrayBuffer {
   const pcm = new Int16Array(SAMPLES_PER_CH * 2);
@@ -128,8 +121,8 @@ export default function MicrophonePlayer({
       worklet.connect(silentGain);
       silentGain.connect(ctx.destination);
 
-      // 5) 분석 소켓 연결 (일반 빌드: 서버 WebSocket / 모바일 빌드: LocalWasmSocket)
-      const ws      = createAnalysisSocket(getWsUrl());
+      // 5) 분석 소켓 연결 (브라우저 WASM 엔진, LocalWasmSocket)
+      const ws      = createAnalysisSocket();
       wsRef.current = ws;
 
       ws.onopen = () => {
@@ -193,7 +186,7 @@ export default function MicrophonePlayer({
       };
 
       ws.onerror = () => {
-        setMicError("WebSocket 연결 오류. 서버가 실행 중인지 확인해주세요.");
+        setMicError("분석 엔진 연결 오류가 발생했습니다.");
         cleanup();
         onStatusChange("error");
       };

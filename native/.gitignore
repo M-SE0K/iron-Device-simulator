@@ -1,7 +1,6 @@
 libirontune.so
 selftest
 *.o
-wasm/
 
 # ff_prot 참조 구현 C 소스 — 저장소엔 올리지 않는다(로컬에만 보관)
 ff_prot.c

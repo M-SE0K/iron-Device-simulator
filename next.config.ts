@@ -1,22 +1,13 @@
 import type { NextConfig } from "next";
 
-// QEMU(amd64) 에뮬레이션 컨테이너 빌드는 메모리(≈3.8GB)가 빠듯해 next build 의
-// 타입체크/린트 단계에서 OOM(→ write EPIPE)으로 죽는다. 로컬에서 tsc·next build 로
-// 이미 검증하므로, 컨테이너 빌드(DOCKER_BUILD=1)에서는 이 단계를 건너뛴다.
-// (로컬/일반 빌드는 그대로 엄격하게 검사한다.)
-const DOCKER_BUILD = process.env.DOCKER_BUILD === "1";
-
-// 모바일(Capacitor iOS/Android) 빌드: 커스텀 server.ts/WS 없이 순수 정적 산출물을
-// out/ 에 만든다. 분석 엔진은 서버가 아니라 브라우저(WebView) 안의 WASM으로
-// 대체된다(NEXT_PUBLIC_LOCAL_ENGINE=true, src/features/audio/lib/local-wasm-socket.ts).
+// 정적 빌드(scripts/build-static-local.sh 공용 코어): 순수 정적 산출물을 out/ 에 만든다.
+// 분석 엔진은 서버가 아니라 브라우저(WebView) 안의 WASM으로 동작한다
+// (engine/protocol/local-socket.ts). Capacitor 모바일(build-mobile.sh)과 데스크톱
+// 독립 웹앱(build-desktop.sh)이 이 플래그를 공유한다 — 변수명은 하위 호환을 위해
+// MOBILE_BUILD로 유지.
 const MOBILE_BUILD = process.env.MOBILE_BUILD === "1";
 
 const nextConfig: NextConfig = {
-  // standalone 제거 — 커스텀 server.ts와 충돌 방지
-  // koffi는 .node 네이티브 바이너리 → webpack 번들링 제외, 런타임에 require()
-  serverExternalPackages: ["koffi", "ws"],
-  typescript: { ignoreBuildErrors: DOCKER_BUILD },
-  eslint: { ignoreDuringBuilds: DOCKER_BUILD },
   ...(MOBILE_BUILD ? { output: "export" as const, images: { unoptimized: true } } : {}),
 };
 

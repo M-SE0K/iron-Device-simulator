@@ -54,10 +54,3 @@ test-audio.wav
 #CLAUDE
 CLAUDE.md
 libirontune.so
-
-
-# script
-scripts/test-channel-isolation-docker.sh
-scripts/test-channel-isolation.ts
-scripts/docker-entrypoint.sh
-script/

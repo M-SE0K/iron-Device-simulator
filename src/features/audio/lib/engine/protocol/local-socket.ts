@@ -1,12 +1,11 @@
 /**
- * engine/protocol/local-socket.ts — 서버 WebSocket을 흉내 내는 로컬 WASM 소켓 (모바일 앱 전용)
+ * engine/protocol/local-socket.ts — 브라우저 WebSocket API를 흉내 내는 로컬 WASM 소켓
  *
- * WaveformPlayer.tsx / MicrophonePlayer.tsx는 원래 서버(protocol/ws.ts)와 통신하는
- * WebSocket을 직접 다룬다(init → binary PCM 프레임 → frame 메시지). 이 모듈은 그
- * 좁은 인터페이스(SocketLike)만 흉내 내는 in-process 구현으로, 실제로는 서버 대신
- * adapters/wasm-client.ts(브라우저 WASM)를 호출한다 — Capacitor 모바일 빌드처럼
- * 백엔드가 번들에 없는 환경에서 기존 컴포넌트 코드를 거의 바꾸지 않고도 서버 없이
- * 동작하게 해준다. createAnalysisSocket()으로 일반 웹(WS)/로컬(WASM)을 스위칭한다.
+ * WaveformPlayer.tsx / MicrophonePlayer.tsx는 서버가 있던 시절 WebSocket을 직접 다뤘다
+ * (init → binary PCM 프레임 → frame 메시지). 이 모듈은 그 좁은 인터페이스(SocketLike)만
+ * 흉내 내는 in-process 구현으로, 실제로는 adapters/wasm-client.ts(브라우저 WASM)를
+ * 직접 호출한다 — 서버(백엔드)가 전혀 없는 환경(정적 배포/Capacitor 모바일 포함)에서
+ * 기존 컴포넌트 코드를 거의 바꾸지 않고도 동작하게 해준다.
  */
 
 import type { EngineParams } from "../../../types";
@@ -32,11 +31,6 @@ export interface SocketLike {
   onmessage: ((ev: any) => void) | null;
   onerror:   ((ev: any) => void) | null;
   onclose:   ((ev: any) => void) | null;
-}
-
-/** 빌드 시 NEXT_PUBLIC_LOCAL_ENGINE=true 로 굽는 모바일(Capacitor) 빌드에서만 true. */
-export function isLocalEngineMode(): boolean {
-  return process.env.NEXT_PUBLIC_LOCAL_ENGINE === "true";
 }
 
 export class LocalWasmSocket implements SocketLike {
@@ -142,10 +136,7 @@ export class LocalWasmSocket implements SocketLike {
   }
 }
 
-/** 일반 웹 빌드는 서버 WebSocket을, 모바일(로컬 엔진) 빌드는 LocalWasmSocket을 반환한다. */
-export function createAnalysisSocket(wsUrl: string): SocketLike {
-  if (isLocalEngineMode()) return new LocalWasmSocket();
-  const ws = new WebSocket(wsUrl);
-  ws.binaryType = "arraybuffer";
-  return ws;
+/** 분석 소켓을 생성한다 — 항상 브라우저 WASM 엔진(LocalWasmSocket)을 사용한다. */
+export function createAnalysisSocket(): SocketLike {
+  return new LocalWasmSocket();
 }

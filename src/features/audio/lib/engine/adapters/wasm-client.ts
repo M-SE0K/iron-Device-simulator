@@ -1,14 +1,13 @@
 /**
- * wasm-client.ts — ff_prot WASM 엔진 (브라우저 / Capacitor WebView 전용)
+ * wasm-client.ts — ff_prot WASM 엔진 (브라우저 전용, 이 앱의 유일한 분석 엔진)
  *
  * public/wasm/ff_prot.{js,wasm}(native/build-wasm.sh 가 생성하는 브라우저 타깃 산출물)를
- * 브라우저에서 직접 로드해 실행한다. 서버(WebSocket)에 의존하지 않으므로 백엔드가
- * 번들에 포함되지 않는 모바일 앱(Capacitor iOS/Android) 패키징에 쓰인다.
+ * 브라우저에서 직접 로드해 실행한다. 서버에 의존하지 않으므로 정적 배포와
+ * 모바일 앱(Capacitor iOS/Android) 패키징 모두에 쓰인다.
  *
- * engine/adapters/wasm.ts(서버, Node 타깃)와 동일한 후처리 규약
- * (SPEAKER_PROFILES / powerTempMult)을 공유해 결과가 서버 WASM 모드와 일치한다.
+ * engine/utils.ts 의 공통 후처리 규약(SPEAKER_PROFILES / powerTempMult)을 사용한다.
  * openClientWasmSession() 호출마다 새 WASM 인스턴스를 만들므로(전역 상태 격리)
- * native.ts의 nativeLock 같은 동시 세션 제한이 필요 없다.
+ * 동시 세션 제한이 필요 없다.
  */
 
 import type { EngineParams } from "../../../types";
@@ -66,10 +65,6 @@ class ClientWasmMemoryLayout implements MemoryLayout {
     // free는 close에서 수행됨
   }
 }
-
-/** 하위 호환성을 위한 alias (이전 코드가 ClientFrameResult/ClientWasmSession 타입을 사용한 경우) */
-export type ClientFrameResult = FrameResult;
-export type ClientWasmSession = AnalysisSession;
 
 // Emscripten MODULARIZE(ENVIRONMENT=web) 산출물: <script> 로드 시 전역
 // window.FfProtModule 에 팩토리 함수가 얹힌다. 팩토리를 호출할 때마다
