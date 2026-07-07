@@ -16,6 +16,7 @@
     "build:mobile": "./scripts/build-mobile.sh",
     "build:desktop": "./scripts/build-desktop.sh",
     "build:electron": "./scripts/build-electron.sh",
+    "build:electron:mac": "./scripts/build-electron-mac.sh",
     "electron:preview": "electron .",
     "cap:sync": "npx cap sync"
   },
