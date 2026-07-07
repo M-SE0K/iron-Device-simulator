@@ -2,7 +2,7 @@
 
 import dynamic from "next/dynamic";
 import { useMemo, useLayoutEffect, useRef, useCallback, useState, useEffect } from "react";
-import { Thermometer } from "lucide-react";
+import { Maximize2, Thermometer } from "lucide-react";
 import { AnalysisFrame } from "@/features/audio/types";
 import { findFrameIndex } from "@/shared/lib/utils";
 import { cn } from "@/shared/lib/utils";
@@ -27,6 +27,8 @@ interface Props {
   onReactRender?: (ts: number) => void;
   /** ECharts 캔버스 드로우 완료 시각 콜백 */
   onEchartsRender?: (ts: number) => void;
+  /** 설정 시 헤더에 "자세히 보기" 확대 버튼을 렌더 → 클릭 시 상세 뷰 전환 */
+  onExpand?: () => void;
 }
 
 const WARN_THRESHOLD   = 65;
@@ -40,7 +42,7 @@ const CH_COLOR: Record<ChannelMode, { ch0: string; ch1: string }> = {
   Both: { ch0: "#0057B8", ch1: "#7C3AED" },
 };
 
-export default function TemperatureChart({ frames, currentTime, isActive, streaming = false, audioDuration, followWindow = false, lttb = true, onReactRender, onEchartsRender }: Props) {
+export default function TemperatureChart({ frames, currentTime, isActive, streaming = false, audioDuration, followWindow = false, lttb = true, onReactRender, onEchartsRender, onExpand }: Props) {
   const [channelMode, setChannelMode] = useState<ChannelMode>("Both");
 
   // ── 줌 상태 보존 — ref로 관리해서 렌더 유발 없이 option에 반영 ────────────
@@ -262,6 +264,17 @@ export default function TemperatureChart({ frames, currentTime, isActive, stream
         <div className="chart-title-group flex items-center gap-2">
           <Thermometer size={14} className="text-iron-400" />
           <span className="card-title">Temperature</span>
+          {onExpand && (
+            <button
+              type="button"
+              onClick={onExpand}
+              aria-label="온도 차트 자세히 보기"
+              title="자세히 보기"
+              className="ml-0.5 p-1 rounded text-iron-300 hover:text-brand-blue hover:bg-brand-blue/5 transition-colors"
+            >
+              <Maximize2 size={13} />
+            </button>
+          )}
         </div>
 
         <div className="flex items-center gap-2">

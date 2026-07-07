@@ -2,7 +2,7 @@
 
 import dynamic from "next/dynamic";
 import { useMemo, useState, useRef, useCallback, useEffect } from "react";
-import { Activity } from "lucide-react";
+import { Activity, Maximize2 } from "lucide-react";
 import { AnalysisFrame } from "@/features/audio/types";
 import { findFrameIndex } from "@/shared/lib/utils";
 import { cn } from "@/shared/lib/utils";
@@ -23,6 +23,8 @@ interface Props {
   followWindow?: boolean;
   /** LTTB 다운샘플링 on/off (측정 A/B용, 기본 on) */
   lttb?: boolean;
+  /** 설정 시 헤더에 "자세히 보기" 확대 버튼을 렌더 → 클릭 시 상세 뷰 전환 */
+  onExpand?: () => void;
 }
 
 const WINDOW_SIZE   = 1000;
@@ -38,7 +40,7 @@ const CH_COLOR: Record<ChannelMode, { ch0: string; ch1: string }> = {
   Both: { ch0: "#10B981", ch1: "#F97316" },
 };
 
-export default function ExcursionChart({ frames, currentTime, isActive, streaming = false, audioDuration, followWindow = false, lttb = true }: Props) {
+export default function ExcursionChart({ frames, currentTime, isActive, streaming = false, audioDuration, followWindow = false, lttb = true, onExpand }: Props) {
   const [channelMode, setChannelMode] = useState<ChannelMode>("Both");
 
   // ── 줌 상태 보존 ─────────────────────────────────────────────────────────
@@ -248,6 +250,17 @@ export default function ExcursionChart({ frames, currentTime, isActive, streamin
         <div className="chart-title-group flex items-center gap-2">
           <Activity size={14} className="text-iron-400" />
           <span className="card-title">Excursion</span>
+          {onExpand && (
+            <button
+              type="button"
+              onClick={onExpand}
+              aria-label="익스커션 차트 자세히 보기"
+              title="자세히 보기"
+              className="ml-0.5 p-1 rounded text-iron-300 hover:text-emerald-600 hover:bg-emerald-50 transition-colors"
+            >
+              <Maximize2 size={13} />
+            </button>
+          )}
         </div>
 
         <div className="flex items-center gap-2">

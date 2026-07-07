@@ -2,11 +2,13 @@
 
 import { useState, useCallback, useRef, useEffect, useMemo } from "react";
 import Header from "@/shared/components/Header";
+import { AnalysisModeProvider } from "@/features/audio/components/AnalysisModeContext";
 import AudioUploader from "@/features/audio/components/AudioUploader";
 import WaveformPlayer, { WaveformPlayerHandle } from "@/features/audio/components/player/WaveformPlayer";
 import MicrophonePlayer from "@/features/audio/components/player/MicrophonePlayer";
 import TemperatureChart from "@/features/audio/components/chart/TemperatureChart";
 import ExcursionChart from "@/features/audio/components/chart/ExcursionChart";
+import ChartDetailOverlay, { type DetailMetric } from "@/features/audio/components/chart/ChartDetailOverlay";
 import { AppStatus, AnalysisFrame, StreamDebugInfo, DebugLogEntry, MeasurementExport, InputParameterValues } from "@/features/audio/types";
 import { useCalibration } from "./calibration/Calibration-context";
 import { useWorkspace } from "./workspace/Workspace-context";
@@ -34,12 +36,15 @@ export default function DashboardPage({ useQueue }: DashboardPageProps) {
   // 분석 파라미터는 캘리브레이션 단일 소스(Context)에서 가져온다 — 대시보드 내 InputParameters 카드 제거.
   const { values: calibration } = useCalibration();
   // 좌측 작업 영역 드로어와 공유하는 저장 세션 목록/액션 (workspace-context)
-  const { saveCurrent } = useWorkspace();
+  const { saveCurrent, pendingLocalFile, clearPendingLocalFile } = useWorkspace();
   const inputParams = useMemo<InputParameterValues>(
     () => ({ ampOutputPower: calibration.ampOutputPower, speakerModel: calibration.speakerModel }),
     [calibration.ampOutputPower, calibration.speakerModel],
   );
   const [inputMode, setInputMode] = useState<"file" | "mic">("file");
+
+  // ── 차트 상세(자세히 보기) 뷰 — 어느 차트를 전체화면으로 열었는지 (null = 대시보드) ──
+  const [detailChart, setDetailChart] = useState<DetailMetric | null>(null);
 
   // ── 분석 모드: realtime(실시간 추적) / batch(분석 후 렌더) ──────────────────
   const [analysisMode, setAnalysisMode]   = useState<"realtime" | "batch">("realtime");
@@ -336,6 +341,14 @@ export default function DashboardPage({ useQueue }: DashboardPageProps) {
     clearFrameCache();
     void putAudio(file); // 새로고침 후 파형 복원용으로 오디오 원본을 IndexedDB에 저장
   }, [resetAnalysisState]);
+
+  // 워크스페이스 드로어의 "로컬 폴더"에서 파일을 고르면 Workspace-context가
+  // pendingLocalFile로 밀어준다 — 기존 업로드 파이프라인(handleFileSelected)에 그대로 흘려보낸다.
+  useEffect(() => {
+    if (!pendingLocalFile) return;
+    handleFileSelected(pendingLocalFile);
+    clearPendingLocalFile();
+  }, [pendingLocalFile, handleFileSelected, clearPendingLocalFile]);
 
   const handleReset = useCallback(() => {
     setAudioFile(null);
@@ -803,6 +816,15 @@ export default function DashboardPage({ useQueue }: DashboardPageProps) {
     || chartFrames.length > 0;
 
   return (
+    <AnalysisModeProvider
+      value={{
+        inputMode,
+        analysisMode,
+        setInputMode: handleInputModeChange,
+        setAnalysisMode: handleAnalysisModeChange,
+        isAnalyzing,
+      }}
+    >
     <div
       id="dashboard-root"
       className="flex flex-col min-h-screen lg:h-screen lg:overflow-hidden"
@@ -825,22 +847,8 @@ export default function DashboardPage({ useQueue }: DashboardPageProps) {
               {/* upload-section: 비율 조정 → flex-[숫자] 변경.
                   lg 미만: 고정 높이로 내부 h-full 카드가 확정 높이를 갖도록 함 */}
               <div id="upload-section" className="h-[220px] lg:h-auto lg:min-h-0 lg:flex-[2] flex flex-col gap-2">
-                {/* 입력 모드 탭 + DEBUG/REC 액션 */}
+                {/* 입력/분석 모드 토글은 Calibration 드로어로 이동 — 여기는 저장/REC 액션만 */}
                 <div className="flex items-center gap-1 text-xs font-mono shrink-0">
-                  {(["file", "mic"] as const).map((m) => (
-                    <button
-                      key={m}
-                      onClick={() => handleInputModeChange(m)}
-                      className={cn(
-                        "px-2.5 py-1 rounded border transition-all",
-                        inputMode === m
-                          ? "bg-brand-blue text-white border-brand-blue"
-                          : "text-iron-400 border-iron-200 hover:border-iron-400"
-                      )}
-                    >
-                      {m === "file" ? "파일" : "마이크"}
-                    </button>
-                  ))}
                   <div className="ml-auto flex gap-1.5">
                     <button
                       onClick={handleSaveToWorkspace}
@@ -869,31 +877,10 @@ export default function DashboardPage({ useQueue }: DashboardPageProps) {
                   </div>
                 </div>
 
-                {/* 분석 모드 토글 + 배치 컨트롤 (파일 모드 전용) */}
-                {inputMode === "file" && (
+                {/* 배치 컨트롤 (파일 + 분석 모드 전용) — 모드 토글 자체는 Calibration 드로어로 이동 */}
+                {inputMode === "file" && analysisMode === "batch" && (
                   <div className="flex items-center gap-1.5 text-xs font-mono shrink-0">
-                    {([
-                      { key: "realtime", label: "실시간 추적" },
-                      { key: "batch",    label: "분석" },
-                    ] as const).map((m) => (
-                      <button
-                        key={m.key}
-                        onClick={() => handleAnalysisModeChange(m.key)}
-                        disabled={isAnalyzing}
-                        className={cn(
-                          "px-2.5 py-1 rounded border transition-all",
-                          analysisMode === m.key
-                            ? "bg-iron-800 text-white border-iron-800"
-                            : "text-iron-400 border-iron-200 hover:border-iron-400",
-                          isAnalyzing && "opacity-50 cursor-not-allowed",
-                        )}
-                      >
-                        {m.label}
-                      </button>
-                    ))}
-
-                    {analysisMode === "batch" && (
-                      <div className="ml-auto flex items-center gap-1.5">
+                    <div className="ml-auto flex items-center gap-1.5">
                         {isAnalyzing && batchProgress.total > 0 && (
                           <div
                             className="flex items-center gap-1.5"
@@ -936,8 +923,7 @@ export default function DashboardPage({ useQueue }: DashboardPageProps) {
                         >
                           JSON DOWNLOAD
                         </button>
-                      </div>
-                    )}
+                    </div>
                   </div>
                 )}
 
@@ -1025,6 +1011,7 @@ export default function DashboardPage({ useQueue }: DashboardPageProps) {
                   lttb={LTTB_ENABLED}
                   onReactRender={handleReactRender}
                   onEchartsRender={handleEchartsRender}
+                  onExpand={() => setDetailChart("temperature")}
                 />
               </div>
               <div className="h-[300px] lg:h-auto lg:min-h-0 lg:flex-1">
@@ -1036,6 +1023,7 @@ export default function DashboardPage({ useQueue }: DashboardPageProps) {
                   audioDuration={audioDuration}
                   followWindow={analysisMode === "realtime"}
                   lttb={LTTB_ENABLED}
+                  onExpand={() => setDetailChart("excursion")}
                 />
               </div>
             </div>
@@ -1044,6 +1032,21 @@ export default function DashboardPage({ useQueue }: DashboardPageProps) {
 
         </div>
       </main>
+
+      {/* 차트 상세(자세히 보기) 오버레이 — 라이브 데이터를 그대로 재사용해 재생 중에도 갱신 */}
+      {detailChart && (
+        <ChartDetailOverlay
+          metric={detailChart}
+          frames={chartFrames}
+          currentTime={currentTime}
+          isActive={isActive}
+          audioDuration={audioDuration}
+          followWindow={analysisMode === "realtime"}
+          lttb={LTTB_ENABLED}
+          onClose={() => setDetailChart(null)}
+        />
+      )}
     </div>
+    </AnalysisModeProvider>
   );
 }
