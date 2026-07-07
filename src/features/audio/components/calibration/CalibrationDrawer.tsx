@@ -324,6 +324,10 @@ export default function CalibrationDrawer({ projectName, onApply }: Props) {
           : result.error ?? "설정 적용 실패"
       );
     }
+
+    // capture probe(IOProc)가 닫힌 뒤 "연결된 장치" 패널의 CoreAudio query()도 새로고침해
+    // 적용 결과를 바로 확인할 수 있게 한다("새로고침" 버튼과 동일 동작).
+    await refreshDeviceInfo();
   };
 
   return (
@@ -553,6 +557,20 @@ export default function CalibrationDrawer({ projectName, onApply }: Props) {
                 options={CHANNEL_OPTIONS}
                 onChange={(v) => set({ channels: v })}
               />
+            )}
+            {/* "적용" 시 capture probe(TN2321)로 확인한 실제 하드웨어 반영값 — CoreAudio가
+                돌려준 SampleRate/Buffer 를 요청값과 나란히 보여준다. */}
+            {hasAudioDeviceBridge && (
+              <div className="text-xs">
+                {deviceStatus === "applying" && <p className="text-iron-400">디바이스에 적용 중…</p>}
+                {deviceStatus === "applied" && (
+                  <p className="text-emerald-600">
+                    적용됨 — 요청 {draft.sampleRate}Hz/{draft.bufferSize} → 실제{" "}
+                    {deviceActual?.sampleRate ?? "?"}Hz/{deviceActual?.bufferSize ?? "?"}
+                  </p>
+                )}
+                {deviceStatus === "error" && <p className="text-red-500">디바이스 적용 실패: {deviceError}</p>}
+              </div>
             )}
           </section>
         </div>
