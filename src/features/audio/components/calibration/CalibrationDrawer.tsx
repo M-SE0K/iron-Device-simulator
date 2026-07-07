@@ -19,6 +19,11 @@ import {
   useCalibration,
   type CalibrationValues,
 } from "./Calibration-context";
+import {
+  loadDeviceActualCache,
+  saveDeviceActualCache,
+  type DeviceActualCache,
+} from "@/features/audio/lib/cache/calibration";
 
 // window.audioDevice.query()가 돌려주는 장치 능력 정보 (electron-bridge.d.ts의 AudioDeviceQueryResult)
 interface DeviceInfo {
@@ -182,6 +187,9 @@ export default function CalibrationDrawer({ projectName, onApply }: Props) {
   const [deviceError, setDeviceError] = useState<string | null>(null);
   const [deviceInfo, setDeviceInfo] = useState<DeviceInfo | null>(null);
   const [deviceInfoLoading, setDeviceInfoLoading] = useState(false);
+  // "적용" 시 capture probe로 확인한 실제 런타임 값 — sessionStorage에 저장되어 새로고침(F5)
+  // 후에도 "연결된 장치" 패널에 마지막 적용값이 그대로 렌더링된다.
+  const [appliedRuntime, setAppliedRuntime] = useState<DeviceActualCache | null>(null);
 
   // OS 오디오 입력 장치 목록 — navigator.mediaDevices.enumerateDevices()로 열거(브라우저·Electron 공용).
   // deviceId를 캘리브레이션에 저장해 마이크 캡처 대상(MicrophonePlayer)을 그 장치로 라우팅한다.
@@ -194,6 +202,8 @@ export default function CalibrationDrawer({ projectName, onApply }: Props) {
   useEffect(() => {
     setHasAudioDeviceBridge(typeof window !== "undefined" && !!window.audioDevice);
     setHasMediaDevices(typeof navigator !== "undefined" && !!navigator.mediaDevices?.enumerateDevices);
+    // 새로고침 후에도 마지막으로 적용된 런타임 값을 복원해 "연결된 장치" 패널에 표시
+    setAppliedRuntime(loadDeviceActualCache());
   }, []);
 
   // 입력 장치 목록 새로고침 (audioinput만).
@@ -276,21 +286,43 @@ export default function CalibrationDrawer({ projectName, onApply }: Props) {
     setValues(draft);
     onApply?.(draft);
 
-    if (!hasAudioDeviceBridge || !window.audioDevice) {
+    if (!hasAudioDeviceBridge || !window.audioCapture) {
       setOpen(false);
       return;
     }
 
-    // 실제 하드웨어(예: MCHStreamer)에 반영 — 결과를 보여줘야 하므로 드로어는 사용자가 직접 닫는다.
+    // BufferFrameSize는 per-client 프로퍼티(TN2321)라 set만으로는 실제 반영 여부를 확인할
+    // 수 없다 — capture(IOProc)를 아주 잠깐 열었다가 즉시 닫아 그 순간의 진짜 적용값만
+    // 읽어온다(SampleRate는 capture 내부에서도 동일하게 설정됨). 결과를 보여줘야 하므로
+    // 드로어는 사용자가 직접 닫는다. 이미 녹음 중이면 실패(capture-already-running)한다.
     setDeviceStatus("applying");
     setDeviceError(null);
-    const result = await window.audioDevice.setConfig(Number(draft.sampleRate), Number(draft.bufferSize));
+    const requested = { sampleRate: Number(draft.sampleRate), bufferSize: Number(draft.bufferSize) };
+    const captureChannels = Math.max(2, Number(draft.channels) || 2);
+    const result = await window.audioCapture.start({
+      sampleRate: requested.sampleRate,
+      bufferSize: requested.bufferSize,
+      channels:   captureChannels,
+    });
+
     if (result.success) {
+      await window.audioCapture.stop();
       setDeviceActual(result.actual ?? null);
       setDeviceStatus("applied");
+      // 실제 반영된 런타임 값을 저장 → 새로고침 후에도 "연결된 장치" 패널에 유지된다.
+      const runtime: DeviceActualCache = {
+        requested,
+        actual: result.actual ?? { sampleRate: null, bufferSize: null },
+      };
+      saveDeviceActualCache(runtime);
+      setAppliedRuntime(runtime);
     } else {
       setDeviceStatus("error");
-      setDeviceError(result.error ?? "설정 적용 실패");
+      setDeviceError(
+        result.error === "capture-already-running"
+          ? "마이크가 이미 사용 중입니다 — 녹음을 멈춘 뒤 다시 적용해주세요."
+          : result.error ?? "설정 적용 실패"
+      );
     }
   };
 
@@ -453,9 +485,16 @@ export default function CalibrationDrawer({ projectName, onApply }: Props) {
               {deviceInfo && (
                 <dl className="rounded-lg border border-iron-200 bg-iron-50/60 divide-y divide-iron-100 text-xs font-mono">
                   <DeviceRow label="Device" value={deviceInfo.device || "—"} />
+                  {/* "적용"으로 확인한 실제 런타임 값이 있으면 그 값을(새로고침 후에도 유지),
+                      없으면 query()의 장치 기본값을 보여준다. Buffer는 per-client(TN2321)라
+                      적용 후에는 런타임 값이 실제 반영값이다. */}
                   <DeviceRow
-                    label="현재"
-                    value={`${deviceInfo.current?.sampleRate ?? "?"}Hz / ${deviceInfo.current?.bufferSize ?? "?"} frames`}
+                    label={appliedRuntime ? "현재(적용값)" : "현재(기본값)"}
+                    value={
+                      appliedRuntime
+                        ? `${appliedRuntime.actual.sampleRate ?? "?"}Hz / ${appliedRuntime.actual.bufferSize ?? "?"} frames`
+                        : `${deviceInfo.current?.sampleRate ?? "?"}Hz / ${deviceInfo.current?.bufferSize ?? "?"} frames`
+                    }
                   />
                   <DeviceRow label="입력 채널" value={`${deviceInfo.inputChannels ?? "?"} ch`} />
                   <DeviceRow
@@ -477,16 +516,18 @@ export default function CalibrationDrawer({ projectName, onApply }: Props) {
                 </dl>
               )}
               <p className="text-[10px] text-iron-300 leading-relaxed">
-                ⚠️ Buffer Size는 per-client(TN2321)라 조회 시 장치 기본값이 보입니다. 요청값은 실제
-                캡처(마이크 녹음) 중에만 적용됩니다.
+                ⚠️ Buffer Size는 per-client(TN2321)라 이 조회만으로는 장치 기본값이 보입니다.
+                "적용"을 누르면 마이크를 아주 잠깐 열었다 닫아 실제 반영값을 확인합니다(마이크가
+                이미 녹음 중이면 적용에 실패합니다).
               </p>
             </section>
           )}
 
           {/* INPUT DEVICE — 네이티브(Swift/CoreAudio) 입력 장치에 적용할 캡처 설정.
-              query()로 받은 지원 SampleRate/Buffer 범위로 옵션을 구성하고, "적용" 시 setConfig 로
-              실제 장치에 반영한다(브라우저에서는 데모 목록). Buffer 는 per-client(TN2321)라 실제
-              캡처 중에만 적용되며, 실제 반영값은 아래 상태 문구로 확인한다. */}
+              query()로 받은 지원 SampleRate/Buffer 범위로 옵션을 구성하고, "적용" 시 capture
+              probe(짧게 열었다 닫기)로 실제 장치에 반영·확인한다(브라우저에서는 데모 목록).
+              Buffer는 per-client(TN2321)라 이 probe로만 실제 반영값을 확인할 수 있으며, 결과는
+              아래 상태 문구로 표시한다. */}
           <section className="space-y-3">
             <h4 className="text-xs font-semibold text-iron-500">DEVICE</h4>
             <div className="grid grid-cols-2 gap-3">
@@ -512,18 +553,6 @@ export default function CalibrationDrawer({ projectName, onApply }: Props) {
                 options={CHANNEL_OPTIONS}
                 onChange={(v) => set({ channels: v })}
               />
-            )}
-            {hasAudioDeviceBridge && (
-              <div className="text-xs">
-                {deviceStatus === "applying" && <p className="text-iron-400">디바이스에 적용 중…</p>}
-                {deviceStatus === "applied" && (
-                  <p className="text-emerald-600">
-                    적용됨 — 요청 {draft.sampleRate}Hz/{draft.bufferSize} → 실제{" "}
-                    {deviceActual?.sampleRate ?? "?"}Hz/{deviceActual?.bufferSize ?? "?"}
-                  </p>
-                )}
-                {deviceStatus === "error" && <p className="text-red-500">디바이스 적용 실패: {deviceError}</p>}
-              </div>
             )}
           </section>
         </div>

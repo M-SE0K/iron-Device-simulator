@@ -81,6 +81,7 @@ export default function AudioUploader({ status, onFileSelected, onReset, selecte
           오디오 파일을 드래그하거나 클릭하여 업로드
         </p>
         <p className="dropzone-formats text-xs text-iron-400 mt-1">WAV, MP3, FLAC, AAC 지원</p>
+        <CalibrationSummary className="mt-2 justify-center" />
       </div>
       <input
         id="audio-file-input"
