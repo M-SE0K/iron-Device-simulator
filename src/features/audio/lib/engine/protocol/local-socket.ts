@@ -10,9 +10,9 @@
 
 import type { EngineParams } from "../../../types";
 import { openClientWasmSession } from "../adapters/wasm-client";
-import { SAMPLE_RATE, SAMPLES_PER_CH, FRAME_BYTES, type AnalysisSession } from "../core";
+import { DEFAULT_ENGINE_CONFIG, frameBytes, type AnalysisSession, type EngineRuntimeConfig } from "../core";
 import {
-  parseEngineParams, parseSampleRate,
+  parseEngineParams, parseSampleRate, parseSamplesPerCh,
   createFrameMessage, createReadyMessage, createErrorMessage,
 } from "./analysis";
 
@@ -52,7 +52,7 @@ class LocalWasmSocket implements SocketLike {
 
   private session: AnalysisSession | null = null;
   private engineParams: EngineParams = { ampOutputPower: null, speakerModel: "" };
-  private connSampleRate = SAMPLE_RATE;
+  private connConfig: EngineRuntimeConfig = DEFAULT_ENGINE_CONFIG;
   private frameCount = 0;
   private initialized = false;
 
@@ -98,10 +98,13 @@ class LocalWasmSocket implements SocketLike {
       }
 
       this.engineParams = parseEngineParams(msg);
-      this.connSampleRate = parseSampleRate(msg);
+      this.connConfig = {
+        sampleRate: parseSampleRate(msg),
+        samplesPerCh: parseSamplesPerCh(msg),
+      };
 
       try {
-        this.session = await openClientWasmSession();
+        this.session = await openClientWasmSession(this.connConfig);
       } catch (err) {
         this.emit(createErrorMessage(String(err)));
         return;
@@ -122,14 +125,14 @@ class LocalWasmSocket implements SocketLike {
   // ── Binary: PCM 프레임 1920 bytes ────────────────────────────────────────
   private handleFrame(data: ArrayBuffer): void {
     if (!this.initialized || !this.session) return;
-    if (data.byteLength < FRAME_BYTES) return;
+    if (data.byteLength < frameBytes(this.connConfig)) return;
 
     const currentFrame = this.frameCount;
     this.frameCount++;
 
     try {
       const result = this.session.analyze(new Uint8Array(data), this.engineParams);
-      this.emit(createFrameMessage(currentFrame, this.connSampleRate, result));
+      this.emit(createFrameMessage(currentFrame, this.connConfig.sampleRate, this.connConfig.samplesPerCh, result));
     } catch (err) {
       this.emit(createErrorMessage(`ff_prot_start_exec 오류: ${err}`));
     }

@@ -6,9 +6,9 @@
 
 import type { EngineParams } from "../../types";
 import {
-  SAMPLES_PER_CH, CHANNELS, BYTES_PER_SAMPLE, FRAME_BYTES,
+  CHANNELS, BYTES_PER_SAMPLE, frameBytes,
   SPEAKER_PROFILES, DEFAULT_PROFILE, powerTempMult,
-  type MemoryLayout, type FrameResult,
+  type MemoryLayout, type FrameResult, type EngineRuntimeConfig,
 } from "./core";
 
 // ─── PCM 변환: 인터리브(L R L R) → 플래너(LL...RR...) ────────────────────────
@@ -16,15 +16,15 @@ import {
  * 인터리브 PCM을 플래너 형식으로 변환한다.
  * Buffer, Int16Array 등 다양한 입력 타입 지원.
  */
-function deinterleave(src: Buffer | Uint8Array): Int16Array {
-  const dst = new Int16Array(SAMPLES_PER_CH * CHANNELS);
-  const channelOffsetSamples = SAMPLES_PER_CH;
+function deinterleave(src: Buffer | Uint8Array, samplesPerCh: number): Int16Array {
+  const dst = new Int16Array(samplesPerCh * CHANNELS);
+  const channelOffsetSamples = samplesPerCh;
 
   // Buffer와 Uint8Array 모두 getInt16/readInt16LE 호환 처리
   const isBuffer = Buffer.isBuffer(src);
 
   for (let ch = 0; ch < CHANNELS; ch++) {
-    for (let i = 0; i < SAMPLES_PER_CH; i++) {
+    for (let i = 0; i < samplesPerCh; i++) {
       const srcOff = (i * CHANNELS + ch) * BYTES_PER_SAMPLE;
       let sample: number;
 
@@ -92,11 +92,12 @@ export function createAnalysisFrame(
   pcm: Buffer | Uint8Array,
   params: EngineParams,
   layout: MemoryLayout,
+  config: EngineRuntimeConfig,
   includeRaw: boolean = false,
 ): FrameResult {
   const t0 = performance.now();
 
-  const planar = deinterleave(pcm.subarray(0, FRAME_BYTES));
+  const planar = deinterleave(pcm.subarray(0, frameBytes(config)), config.samplesPerCh);
   const { tempPtr, excPtr } = layout.allocTemp();
   const bufPtr = layout.allocBuf();
 

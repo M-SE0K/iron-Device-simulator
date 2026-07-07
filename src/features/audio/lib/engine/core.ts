@@ -12,13 +12,33 @@
 
 import type { EngineParams } from "../../types";
 
-// ─── 고정 프레임 포맷 ────────────────────────────────────────────────────────
-// 480 samples/ch × 2 ch × 2 bytes(int16) = 1920 bytes/frame, 48 kHz 인터리브(L R L R)
+// ─── 프레임 포맷 ────────────────────────────────────────────────────────────
+// CHANNELS/BYTES_PER_SAMPLE은 ABI 레벨 고정값(항상 스테레오 int16). SAMPLE_RATE/SAMPLES_PER_CH는
+// 기본값일 뿐 고정이 아니다 — 세션마다 EngineRuntimeConfig로 재정의되어 ff_prot_start_exec의
+// dt 계산과 와이어 프레임 크기에 그대로 반영된다(Calibration UI → 다음 세션 시작 시 적용).
 export const SAMPLE_RATE      = 48000;
 export const CHANNELS         = 2;
 export const BYTES_PER_SAMPLE = 2;
 export const SAMPLES_PER_CH   = 480;
-export const FRAME_BYTES      = SAMPLES_PER_CH * CHANNELS * BYTES_PER_SAMPLE; // 1920
+export const FRAME_BYTES      = SAMPLES_PER_CH * CHANNELS * BYTES_PER_SAMPLE; // 1920 (기본값)
+
+/** 세션 단위 런타임 프레임 설정 — Calibration UI의 sampleRate/bufferSize로 채워진다 */
+export interface EngineRuntimeConfig {
+  /** 샘플레이트 [Hz] — ff_prot_start_exec의 dt/LPF 계수 계산에 사용 */
+  sampleRate: number;
+  /** 채널당 샘플 수(버퍼 사이즈) — 와이어 프레임 크기 결정 */
+  samplesPerCh: number;
+}
+
+export const DEFAULT_ENGINE_CONFIG: EngineRuntimeConfig = {
+  sampleRate: SAMPLE_RATE,
+  samplesPerCh: SAMPLES_PER_CH,
+};
+
+/** config 기준 프레임 바이트 크기 (samplesPerCh × CHANNELS × BYTES_PER_SAMPLE) */
+export function frameBytes(config: EngineRuntimeConfig): number {
+  return config.samplesPerCh * CHANNELS * BYTES_PER_SAMPLE;
+}
 
 // ─── 스피커 프로파일 (so_report.md 기반 물리 모델) ───────────────────────────
 export interface SpeakerProfile {

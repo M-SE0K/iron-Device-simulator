@@ -25,23 +25,30 @@ export function parseEngineParams(msg: Record<string, unknown>): EngineParams {
 
 /**
  * JSON 제어 메시지에서 샘플레이트 추출 (init 메시지)
- * 마이크 모드에서 실제 값 전달, 파일 모드에서는 생략 → 기본값 48000
+ * 파일/마이크 두 모드 모두 Calibration 값을 실어 보낸다 — 미설정/잘못된 값만 기본값 48000.
  */
 export function parseSampleRate(msg: Record<string, unknown>): number {
   const rawRate = typeof msg.sampleRate === "number" ? msg.sampleRate : 0;
   return rawRate > 0 ? rawRate : SAMPLE_RATE;
 }
 
+/**
+ * JSON 제어 메시지에서 버퍼 사이즈(채널당 샘플 수) 추출 (init 메시지)
+ * 미설정/잘못된 값은 기본값 480으로 대체한다.
+ */
+export function parseSamplesPerCh(msg: Record<string, unknown>): number {
+  const raw = typeof msg.bufferSize === "number" ? msg.bufferSize : 0;
+  return raw > 0 ? raw : SAMPLES_PER_CH;
+}
+
 // ─── 메시지 생성 ────────────────────────────────────────────────────────────
 
 /**
  * 프레임 인덱스를 오디오 시간(초)으로 변환한다.
- *   프레임당 샘플 수: SAMPLES_PER_CH (480)
- *   샘플레이트: connSampleRate (기본 48000)
- *   시간 = (프레임 인덱스 × SAMPLES_PER_CH) / 샘플레이트
+ *   시간 = (프레임 인덱스 × samplesPerCh) / sampleRate
  */
-function calculateFrameTime(frameIndex: number, sampleRate: number): number {
-  return parseFloat(((frameIndex * SAMPLES_PER_CH) / sampleRate).toFixed(4));
+function calculateFrameTime(frameIndex: number, sampleRate: number, samplesPerCh: number): number {
+  return parseFloat(((frameIndex * samplesPerCh) / sampleRate).toFixed(4));
 }
 
 /**
@@ -51,9 +58,10 @@ function calculateFrameTime(frameIndex: number, sampleRate: number): number {
 export function createFrameMessage(
   frameIndex: number,
   sampleRate: number,
+  samplesPerCh: number,
   frame: FrameResult,
 ): WsServerMessage {
-  const time = calculateFrameTime(frameIndex, sampleRate);
+  const time = calculateFrameTime(frameIndex, sampleRate, samplesPerCh);
   return {
     type: "frame",
     time,

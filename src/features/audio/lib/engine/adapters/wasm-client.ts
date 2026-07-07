@@ -12,8 +12,8 @@
 
 import type { EngineParams } from "../../../types";
 import {
-  SAMPLES_PER_CH, CHANNELS, BYTES_PER_SAMPLE, FRAME_BYTES,
-  type FrameResult, type AnalysisSession, type MemoryLayout,
+  CHANNELS, BYTES_PER_SAMPLE, frameBytes, DEFAULT_ENGINE_CONFIG,
+  type FrameResult, type AnalysisSession, type MemoryLayout, type EngineRuntimeConfig,
 } from "../core";
 import { createAnalysisFrame } from "../utils";
 
@@ -26,6 +26,7 @@ class ClientWasmMemoryLayout implements MemoryLayout {
     private bufPtr: number,
     private tempPtr: number,
     private excPtr: number,
+    private config: EngineRuntimeConfig,
   ) {}
 
   allocTemp() {
@@ -43,10 +44,11 @@ class ClientWasmMemoryLayout implements MemoryLayout {
   execAnalysis(bufPtr: number, tempPtr: number, excPtr: number) {
     this.mod._ff_prot_start_exec(
       bufPtr,
-      SAMPLES_PER_CH,
+      this.config.samplesPerCh,
       BYTES_PER_SAMPLE,
       CHANNELS,
       AMB_TEMP,
+      this.config.sampleRate,
       tempPtr,
       excPtr,
     );
@@ -108,11 +110,13 @@ function loadFactory(): Promise<FfProtFactory> {
 
 
 /** 클라이언트 WASM 세션을 열고 ff_prot_init / set_param까지 수행한 뒤 반환한다. */
-export async function openClientWasmSession(): Promise<AnalysisSession> {
+export async function openClientWasmSession(
+  config: EngineRuntimeConfig = DEFAULT_ENGINE_CONFIG,
+): Promise<AnalysisSession> {
   const factory = await loadFactory();
   const mod: FfProtInstance = await factory();
 
-  const bufPtr  = mod._malloc(FRAME_BYTES);
+  const bufPtr  = mod._malloc(frameBytes(config));
   const tempPtr = mod._malloc(CHANNELS * 4); // int32_t[2]
   const excPtr  = mod._malloc(CHANNELS * 4); // int32_t[2]
 
@@ -122,9 +126,9 @@ export async function openClientWasmSession(): Promise<AnalysisSession> {
   if (paramRet !== 0) throw new Error(`ff_prot_set_param 실패 (ret=${paramRet})`);
 
   // ── 단일 프레임 분석 ──────────────────────────────────────────────────────
-  const layout = new ClientWasmMemoryLayout(mod, bufPtr, tempPtr, excPtr);
+  const layout = new ClientWasmMemoryLayout(mod, bufPtr, tempPtr, excPtr, config);
   const analyze = (pcm: Uint8Array, params: EngineParams): FrameResult => {
-    return createAnalysisFrame(pcm, params, layout, false);
+    return createAnalysisFrame(pcm, params, layout, config, false);
   };
 
   // ── 세션 종료: ff_prot_stop_exec + 힙 해제 ────────────────────────────────

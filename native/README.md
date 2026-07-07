@@ -13,10 +13,10 @@
 |---|---|
 | `ff_prot_init` | `int (void)` |
 | `ff_prot_set_param` | `int (void)` — 현재 사실상 NOP |
-| `ff_prot_start_exec` | `int (void* buf, uint32 samples_per_ch, uint32 bytes_per_sample, uint32 channels, int32 amb_temp, void* spk_temp, void* spk_exc)` |
+| `ff_prot_start_exec` | `int (void* buf, uint32 samples_per_ch, uint32 bytes_per_sample, uint32 channels, int32 amb_temp, double sample_rate_hz, void* spk_temp, void* spk_exc)` |
 | `ff_prot_stop_exec` | `int (void)` |
 
-- **입력 버퍼**: `engine/utils.ts` 의 `deinterleave()` 결과인 **planar** int16 PCM (`[ch0 전체][ch1 전체]`), 480 samples/ch × 2ch, 48 kHz(10 ms/frame), `amb_temp=25`.
+- **입력 버퍼**: `engine/utils.ts` 의 `deinterleave()` 결과인 **planar** int16 PCM (`[ch0 전체][ch1 전체]`), 2ch, `amb_temp=25`. `samples_per_ch`/`sample_rate_hz`는 고정값이 아니라 Calibration UI(bufferSize/sampleRate)에서 세션마다 넘어오는 런타임 값이다(기본 480 samples/ch, 48 kHz = 10 ms/frame) — `dt = samples_per_ch / sample_rate_hz`로 열 적분 스텝에 직접 반영된다.
 - **출력**: `spk_temp[ch]` = 보이스코일 온도 `[°C]`, `spk_exc[ch]` = 콘 피크 변위 `[µm]`, int32, ch0=L / ch1=R.
 
 ## 모델 요약
