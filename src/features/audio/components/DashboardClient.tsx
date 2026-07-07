@@ -863,17 +863,6 @@ export default function DashboardPage({ useQueue }: DashboardPageProps) {
                     >
                       저장
                     </button>
-                    <button
-                      onClick={handleMeasureToggle}
-                      className={`px-2 py-1 rounded border transition-all ${
-                        isMeasuring
-                          ? "bg-red-950 text-red-400 border-red-700 hover:bg-red-900 animate-pulse"
-                          : "bg-iron-50 text-iron-400 border-iron-200 hover:border-iron-400"
-                      }`}
-                      title="측정 모드 — 시작/중지 및 JSON 다운로드"
-                    >
-                      {isMeasuring ? `■ ${measureFrameCount}fr` : "● REC"}
-                    </button>
                   </div>
                 </div>
 
@@ -897,19 +886,6 @@ export default function DashboardPage({ useQueue }: DashboardPageProps) {
                             </span>
                           </div>
                         )}
-                        <button
-                          onClick={handleRunBatch}
-                          disabled={!audioFile || isAnalyzing}
-                          className={cn(
-                            "px-2.5 py-1 rounded border transition-all",
-                            !audioFile || isAnalyzing
-                              ? "text-iron-300 border-iron-200 cursor-not-allowed"
-                              : "bg-brand-blue text-white border-brand-blue hover:bg-brand-blue-dark",
-                          )}
-                          title="전체 음원을 한 번에 분석하여 차트에 렌더링"
-                        >
-                          {isAnalyzing ? "분석 중…" : "분석 시작"}
-                        </button>
                         <button
                           onClick={handleExportReference}
                           disabled={referenceFramesRef.current.length === 0}
