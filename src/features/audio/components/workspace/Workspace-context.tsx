@@ -16,6 +16,7 @@ import {
   type WorkspaceItemMeta,
   type SaveWorkspaceInput,
 } from "@/features/audio/lib/cache/workspace";
+import { readLocalAudioFile, type LocalAudioFileEntry } from "@/features/audio/lib/local-folder";
 import { downloadBlob } from "@/shared/lib/utils";
 
 interface WorkspaceCtx {
@@ -28,6 +29,18 @@ interface WorkspaceCtx {
   exportJson: (meta: WorkspaceItemMeta) => Promise<void>;
   exportCsv: (meta: WorkspaceItemMeta) => Promise<void>;
   downloadAudio: (meta: WorkspaceItemMeta) => Promise<void>;
+  // 로컬 폴더 연결(Electron 데스크톱 전용) — 폴더 선택/감시는 electron/main.js가 담당하고
+  // 여기서는 그 결과 상태만 들고 있는다. pendingLocalFile은 DashboardClient가 소비해
+  // 기존 handleFileSelected(File) 파이프라인에 그대로 흘려보낸다.
+  localFolderPath: string | null;
+  localFolderFiles: LocalAudioFileEntry[];
+  localFolderError: string | null;
+  localFolderConnecting: boolean;
+  connectLocalFolder: () => Promise<void>;
+  disconnectLocalFolder: () => void;
+  loadLocalFile: (entry: LocalAudioFileEntry) => Promise<void>;
+  pendingLocalFile: File | null;
+  clearPendingLocalFile: () => void;
 }
 
 const Ctx = createContext<WorkspaceCtx | null>(null);
@@ -95,9 +108,64 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     downloadBlob(payload.audioBlob, meta.audioFileName ?? `${sanitizeFileName(meta.name)}.audio`);
   }, []);
 
+  // ── 로컬 폴더 연결(Electron 데스크톱 전용) ──────────────────────────────────
+  const [localFolderPath, setLocalFolderPath]           = useState<string | null>(null);
+  const [localFolderFiles, setLocalFolderFiles]         = useState<LocalAudioFileEntry[]>([]);
+  const [localFolderError, setLocalFolderError]         = useState<string | null>(null);
+  const [localFolderConnecting, setLocalFolderConnecting] = useState(false);
+  const [pendingLocalFile, setPendingLocalFile]         = useState<File | null>(null);
+
+  // main.js가 fs.watch로 폴더 변경을 감지할 때마다 최신 파일 목록을 밀어준다.
+  useEffect(() => {
+    if (typeof window === "undefined" || !window.localFolder) return;
+    return window.localFolder.onChanged((files) => setLocalFolderFiles(files));
+  }, []);
+
+  const connectLocalFolder = useCallback(async () => {
+    if (typeof window === "undefined" || !window.localFolder) return;
+    setLocalFolderConnecting(true);
+    setLocalFolderError(null);
+    try {
+      const result = await window.localFolder.select();
+      if (result.canceled) return;
+      setLocalFolderPath(result.folderPath ?? null);
+      setLocalFolderFiles(result.files ?? []);
+      if (result.error) setLocalFolderError(result.error);
+    } finally {
+      setLocalFolderConnecting(false);
+    }
+  }, []);
+
+  const disconnectLocalFolder = useCallback(() => {
+    if (typeof window !== "undefined" && window.localFolder) void window.localFolder.unwatch();
+    setLocalFolderPath(null);
+    setLocalFolderFiles([]);
+    setLocalFolderError(null);
+  }, []);
+
+  const loadLocalFile = useCallback(async (entry: LocalAudioFileEntry) => {
+    try {
+      setPendingLocalFile(await readLocalAudioFile(entry));
+    } catch (err) {
+      setLocalFolderError(err instanceof Error ? err.message : "파일을 불러올 수 없습니다.");
+    }
+  }, []);
+
+  const clearPendingLocalFile = useCallback(() => setPendingLocalFile(null), []);
+
   const ctx = useMemo<WorkspaceCtx>(
-    () => ({ items, open, setOpen, saveCurrent, rename, remove, exportJson, exportCsv, downloadAudio }),
-    [items, open, saveCurrent, rename, remove, exportJson, exportCsv, downloadAudio],
+    () => ({
+      items, open, setOpen, saveCurrent, rename, remove, exportJson, exportCsv, downloadAudio,
+      localFolderPath, localFolderFiles, localFolderError, localFolderConnecting,
+      connectLocalFolder, disconnectLocalFolder, loadLocalFile,
+      pendingLocalFile, clearPendingLocalFile,
+    }),
+    [
+      items, open, saveCurrent, rename, remove, exportJson, exportCsv, downloadAudio,
+      localFolderPath, localFolderFiles, localFolderError, localFolderConnecting,
+      connectLocalFolder, disconnectLocalFolder, loadLocalFile,
+      pendingLocalFile, clearPendingLocalFile,
+    ],
   );
 
   return <Ctx.Provider value={ctx}>{children}</Ctx.Provider>;
