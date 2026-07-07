@@ -30,6 +30,8 @@ export interface CalibrationValues {
   inputDeviceId: string; // MediaDevices deviceId ("" = 시스템 기본 입력) — 마이크 캡처 대상
   inputDeviceLabel: string; // 선택 장치 이름(표시/재연결 대조용)
   captureDeviceUID: string; // CoreAudio 장치 UID ("" = OS 기본 입력) — 네이티브 캡처/조회 대상(Electron 전용)
+  outputDeviceId: string; // MediaDevices deviceId ("" = 시스템 기본 출력) — 재생 라우팅 대상(WaveSurfer setSinkId). V/I 센싱 루프에서 앰프/스피커(MCHStreamer)로 음원을 보내는 출력.
+  outputDeviceLabel: string; // 선택 출력 장치 이름(표시/재연결 대조용)
   tempBase: string; // °C (프로파일)
   excAmp: string; // mm (프로파일)
   tempMult: string; // 승수
@@ -46,6 +48,8 @@ export const CALIBRATION_EMPTY: CalibrationValues = {
   inputDeviceId: "",
   inputDeviceLabel: "",
   captureDeviceUID: "",
+  outputDeviceId: "",
+  outputDeviceLabel: "",
   tempBase: "",
   excAmp: "",
   tempMult: "",

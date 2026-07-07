@@ -339,6 +339,20 @@ const WaveformPlayer = forwardRef<WaveformPlayerHandle, Props>(function Waveform
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [audioFile, calibration.sampleRate, calibration.bufferSize]);
 
+  // ── 재생 출력 라우팅 (setSinkId) ─────────────────────────────────────────
+  // 캘리브레이션의 outputDeviceId로 재생을 특정 출력(예: 앰프/스피커가 물린 MCHStreamer 출력)에
+  // 보낸다. WaveSurfer(미디어 엘리먼트)가 준비된 뒤 + 값이 바뀔 때마다 적용. 표준 웹 setSinkId라
+  // 웹·Electron 공통이며, "" 이면 시스템 기본 출력. 미지원/권한 미충족 시엔 조용히 무시한다.
+  useEffect(() => {
+    const wv = wavesurferRef.current as (import("wavesurfer.js").default & {
+      setSinkId?: (id: string) => Promise<void>;
+    }) | null;
+    if (!isReady || !wv || typeof wv.setSinkId !== "function") return;
+    wv.setSinkId(calibration.outputDeviceId || "").catch(() => {
+      /* setSinkId 미지원(비보안 컨텍스트 등)·잘못된 deviceId — 기본 출력 유지 */
+    });
+  }, [isReady, calibration.outputDeviceId]);
+
   // ── WebSocket 연결 + 스트리밍 시작 ───────────────────────────────────────
   const openWsAndStream = useCallback(() => {
     // 이미 연결 중이면 재사용

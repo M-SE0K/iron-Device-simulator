@@ -35,6 +35,16 @@ interface DeviceInfo {
   inputChannels?: number;
 }
 
+/** 문자열 옵션들 중 목표값과 수치상 가장 가까운 것을 고른다(자동 보정용). 빈 목록이면 null. */
+function nearestOption(options: string[], value: string): string | null {
+  if (!options.length) return null;
+  const target = Number(value);
+  if (!Number.isFinite(target)) return options[0];
+  return options.reduce((best, o) =>
+    Math.abs(Number(o) - target) < Math.abs(Number(best) - target) ? o : best,
+  );
+}
+
 /** 드롭다운 선택 필드 */
 function SelectField({
   label,
@@ -42,12 +52,14 @@ function SelectField({
   value,
   options,
   onChange,
+  disabled,
 }: {
   label: string;
   unit?: string;
   value: string;
   options: string[];
   onChange: (v: string) => void;
+  disabled?: boolean;
 }) {
   return (
     <div className="flex flex-col gap-1.5">
@@ -58,6 +70,7 @@ function SelectField({
         options={options.map((o) => ({ value: o }))}
         onChange={onChange}
         aria-label={label}
+        disabled={disabled}
       />
     </div>
   );
@@ -151,6 +164,8 @@ export default function CalibrationDrawer({ projectName, onApply }: Props) {
   const [deviceError, setDeviceError] = useState<string | null>(null);
   const [deviceInfo, setDeviceInfo] = useState<DeviceInfo | null>(null);
   const [deviceInfoLoading, setDeviceInfoLoading] = useState(false);
+  // 장치 미지원 SR/Buffer 값을 지원값으로 자동 보정했을 때의 안내 문구(무엇→무엇). null이면 숨김.
+  const [adjustedNote, setAdjustedNote] = useState<string | null>(null);
   // CoreAudio 네이티브 장치 목록(window.audioDevice.list) — Electron 전용. UID로 캡처/조회 대상을 고른다.
   const [nativeDevices, setNativeDevices] = useState<AudioInputDevice[]>([]);
   const [nativeDevicesLoading, setNativeDevicesLoading] = useState(false);
@@ -162,6 +177,9 @@ export default function CalibrationDrawer({ projectName, onApply }: Props) {
   // deviceId를 캘리브레이션에 저장해 마이크 캡처 대상(MicrophonePlayer)을 그 장치로 라우팅한다.
   const [hasMediaDevices, setHasMediaDevices] = useState(false);
   const [inputDevices, setInputDevices] = useState<MediaDeviceInfo[]>([]);
+  // 재생 출력 장치 목록(audiooutput) — WaveSurfer setSinkId 라우팅 대상. 웹·Electron 공용
+  // (setSinkId는 표준 웹 API라 CoreAudio 헬퍼 없이 Chromium 렌더러에서 동작).
+  const [outputDevices, setOutputDevices] = useState<MediaDeviceInfo[]>([]);
   const [devicesLoading, setDevicesLoading] = useState(false);
   // enumerateDevices()는 마이크 권한이 없으면 label을 빈 문자열로 준다 — 이름 노출용 권한 요청 유도.
   const [labelsHidden, setLabelsHidden] = useState(false);
@@ -173,7 +191,7 @@ export default function CalibrationDrawer({ projectName, onApply }: Props) {
     setAppliedRuntime(loadDeviceActualCache());
   }, []);
 
-  // 입력 장치 목록 새로고침 (audioinput만).
+  // 장치 목록 새로고침 (입력 audioinput + 출력 audiooutput 한 번에 열거).
   const refreshInputDevices = useCallback(async () => {
     if (typeof navigator === "undefined" || !navigator.mediaDevices?.enumerateDevices) return;
     setDevicesLoading(true);
@@ -181,6 +199,7 @@ export default function CalibrationDrawer({ projectName, onApply }: Props) {
       const all = await navigator.mediaDevices.enumerateDevices();
       const inputs = all.filter((d) => d.kind === "audioinput");
       setInputDevices(inputs);
+      setOutputDevices(all.filter((d) => d.kind === "audiooutput"));
       setLabelsHidden(inputs.length > 0 && inputs.every((d) => !d.label));
     } finally {
       setDevicesLoading(false);
@@ -234,6 +253,7 @@ export default function CalibrationDrawer({ projectName, onApply }: Props) {
     setDeviceStatus("idle");
     setDeviceActual(null);
     setDeviceError(null);
+    setAdjustedNote(null);
     refreshNativeDevices();
     refreshDeviceInfo(values.captureDeviceUID);
     refreshInputDevices();
@@ -260,6 +280,39 @@ export default function CalibrationDrawer({ projectName, onApply }: Props) {
     const inRange = BUFFER_SIZE_OPTIONS.filter((b) => Number(b) >= r.min && Number(b) <= r.max);
     return inRange.length ? inRange : BUFFER_SIZE_OPTIONS;
   })();
+  // 장치 능력(query) 조회 중에는 아직 이전(또는 미필터) 옵션이 남아있으므로 DEVICE 섹션의
+  // SampleRate/Buffer 선택을 잠근다 — 응답이 오면 그 장치가 지원하는 값만 렌더링된다.
+  // 조회 API가 없는 브라우저/모바일에서는 deviceInfoLoading이 항상 false라 잠기지 않는다.
+  const deviceOptionsLoading = hasAudioDeviceBridge && deviceInfoLoading;
+
+  // 장치 능력이 도착했을 때(로딩 완료), 현재 draft의 SR/Buffer가 그 장치의 지원 목록 밖이면
+  // 가장 가까운 지원값으로 자동 보정한다 — 무효값이 그대로 "적용"→capture로 넘어가는 것을 막는다.
+  // deviceInfo가 바뀔 때(= 장치 전환/새로고침으로 새 능력이 온 시점)에만 실행한다. 보정 결과는
+  // 그 자체로 지원 목록 안의 값이 되므로 재실행돼도 더는 바뀌지 않아 루프가 나지 않는다.
+  useEffect(() => {
+    if (!deviceInfo || deviceInfoLoading) return;
+    const patch: Partial<CalibrationValues> = {};
+    const notes: string[] = [];
+    if (!sampleRateOptions.includes(draft.sampleRate)) {
+      const nearest = nearestOption(sampleRateOptions, draft.sampleRate);
+      if (nearest && nearest !== draft.sampleRate) {
+        patch.sampleRate = nearest;
+        notes.push(`Sample Rate ${draft.sampleRate}→${nearest}Hz`);
+      }
+    }
+    if (!bufferSizeOptions.includes(draft.bufferSize)) {
+      const nearest = nearestOption(bufferSizeOptions, draft.bufferSize);
+      if (nearest && nearest !== draft.bufferSize) {
+        patch.bufferSize = nearest;
+        notes.push(`Buffer ${draft.bufferSize}→${nearest}`);
+      }
+    }
+    if (notes.length) {
+      setDraft((v) => ({ ...v, ...patch }));
+      setAdjustedNote(`이 장치가 지원하지 않아 자동 조정됨: ${notes.join(", ")}`);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [deviceInfo, deviceInfoLoading]);
 
   const apply = async () => {
     setValues(draft);
@@ -443,6 +496,56 @@ export default function CalibrationDrawer({ projectName, onApply }: Props) {
                 )}
               </div>
             )}
+
+            {/* 출력 장치 — 재생을 어느 출력으로 보낼지(WaveSurfer setSinkId). 입력과 달리 웹·Electron
+                양쪽 모두 노출한다(setSinkId는 표준 웹 API라 CoreAudio 헬퍼가 필요 없다). V/I 센싱
+                루프에서 음원을 앰프/스피커(예: MCHStreamer 출력)로 라우팅하는 데 쓴다. */}
+            {hasMediaDevices && (
+              <div className="flex flex-col gap-1.5">
+                <div className="flex items-center justify-between">
+                  <label className="text-[10px] uppercase tracking-wider font-medium text-iron-400">
+                    Output Device
+                  </label>
+                  <button
+                    type="button"
+                    onClick={labelsHidden ? revealDeviceNames : refreshInputDevices}
+                    disabled={devicesLoading}
+                    className="flex items-center gap-1 text-[11px] text-iron-400 hover:text-iron-700 disabled:opacity-50"
+                  >
+                    <RefreshCw className={`w-3 h-3 ${devicesLoading ? "animate-spin" : ""}`} />
+                    {labelsHidden ? "이름 표시" : "새로고침"}
+                  </button>
+                </div>
+                <AnimatedSelect
+                  value={draft.outputDeviceId}
+                  aria-label="Output Device"
+                  onChange={(id) => {
+                    const dev = outputDevices.find((d) => d.deviceId === id);
+                    set({ outputDeviceId: id, outputDeviceLabel: dev?.label ?? "" });
+                  }}
+                  options={[
+                    { value: "", label: "시스템 기본 출력" },
+                    ...outputDevices.map((d, i) => ({
+                      value: d.deviceId,
+                      label: d.label || `출력 ${i + 1}`,
+                    })),
+                    // 저장된 장치가 현재 목록에 없으면(연결 해제) 값이 사라지지 않게 보존 표시
+                    ...(draft.outputDeviceId && !outputDevices.some((d) => d.deviceId === draft.outputDeviceId)
+                      ? [
+                          {
+                            value: draft.outputDeviceId,
+                            label: draft.outputDeviceLabel || "저장된 장치",
+                            hint: "연결 안 됨",
+                          },
+                        ]
+                      : []),
+                  ]}
+                />
+                <p className="text-[10px] text-iron-300 leading-relaxed">
+                  재생 오디오를 보낼 출력 장치입니다. V/I 센싱 시 앰프/스피커가 물린 출력을 선택하세요.
+                </p>
+              </div>
+            )}
           </section>
 
           {/* 연결된 장치 정보 (Electron 전용) */}
@@ -538,22 +641,36 @@ export default function CalibrationDrawer({ projectName, onApply }: Props) {
               Buffer는 per-client(TN2321)라 이 probe로만 실제 반영값을 확인할 수 있으며, 결과는
               아래 상태 문구로 표시한다. */}
           <section className="space-y-3">
-            <h4 className="text-xs font-semibold text-iron-500">DEVICE</h4>
+            <div className="flex items-center gap-2">
+              <h4 className="text-xs font-semibold text-iron-500">DEVICE</h4>
+              {deviceOptionsLoading && (
+                <span className="flex items-center gap-1 text-[10px] text-iron-400">
+                  <RefreshCw className="w-3 h-3 animate-spin" /> 지원 규격 확인 중…
+                </span>
+              )}
+            </div>
             <div className="grid grid-cols-2 gap-3">
               <SelectField
                 label="Sample Rate"
                 unit="Hz"
                 value={draft.sampleRate}
                 options={sampleRateOptions}
-                onChange={(v) => set({ sampleRate: v })}
+                onChange={(v) => { setAdjustedNote(null); set({ sampleRate: v }); }}
+                disabled={deviceOptionsLoading}
               />
               <SelectField
                 label="Buffer Size"
                 value={draft.bufferSize}
                 options={bufferSizeOptions}
-                onChange={(v) => set({ bufferSize: v })}
+                onChange={(v) => { setAdjustedNote(null); set({ bufferSize: v }); }}
+                disabled={deviceOptionsLoading}
               />
             </div>
+            {/* 장치 미지원 값이 지원값으로 자동 보정됐을 때의 안내 — 사용자가 직접 다시 고르거나
+                드로어를 다시 열면 사라진다. */}
+            {adjustedNote && !deviceOptionsLoading && (
+              <p className="text-[11px] text-amber-600 leading-relaxed">⚠️ {adjustedNote}</p>
+            )}
             {hasAudioDeviceBridge && (
               <SelectField
                 label="Capture Channels (네이티브 캡처)"
