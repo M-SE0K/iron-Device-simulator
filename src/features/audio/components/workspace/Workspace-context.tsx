@@ -39,6 +39,16 @@ interface WorkspaceCtx {
   connectLocalFolder: () => Promise<void>;
   disconnectLocalFolder: () => void;
   loadLocalFile: (entry: LocalAudioFileEntry) => Promise<void>;
+  // 브라우저(웹/모바일) 폴더 업로드 — <input webkitdirectory>. Electron localFolder 가
+  // 없는 빌드에서 같은 "폴더에서 파일 고르기" UX 를 제공한다. File 을 직접 들고 있으므로
+  // 별도 IPC 읽기 없이 loadBrowserFile 이 pendingLocalFile 로 바로 흘려보낸다.
+  browserFolderName: string | null;
+  browserFolderFiles: File[];
+  selectBrowserFolder: (files: FileList | File[]) => void;
+  disconnectBrowserFolder: () => void;
+  loadBrowserFile: (file: File) => void;
+  // 마지막으로 로드한(=현재 분석 중인) 파일 이름 — 폴더 목록에서 선택 항목 하이라이트용
+  activeFileName: string | null;
   pendingLocalFile: File | null;
   clearPendingLocalFile: () => void;
 }
@@ -114,6 +124,10 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
   const [localFolderError, setLocalFolderError]         = useState<string | null>(null);
   const [localFolderConnecting, setLocalFolderConnecting] = useState(false);
   const [pendingLocalFile, setPendingLocalFile]         = useState<File | null>(null);
+  const [activeFileName, setActiveFileName]             = useState<string | null>(null);
+  // 브라우저 폴더 업로드(webkitdirectory) 상태 — Electron 이 아닌 빌드에서 사용
+  const [browserFolderName, setBrowserFolderName]       = useState<string | null>(null);
+  const [browserFolderFiles, setBrowserFolderFiles]     = useState<File[]>([]);
 
   // main.js가 fs.watch로 폴더 변경을 감지할 때마다 최신 파일 목록을 밀어준다.
   useEffect(() => {
@@ -146,9 +160,32 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
   const loadLocalFile = useCallback(async (entry: LocalAudioFileEntry) => {
     try {
       setPendingLocalFile(await readLocalAudioFile(entry));
+      setActiveFileName(entry.name);
     } catch (err) {
       setLocalFolderError(err instanceof Error ? err.message : "파일을 불러올 수 없습니다.");
     }
+  }, []);
+
+  // ── 브라우저 폴더 업로드(webkitdirectory) — 웹/모바일 빌드용 ─────────────────
+  const selectBrowserFolder = useCallback((files: FileList | File[]) => {
+    const all = Array.from(files);
+    // webkitRelativePath 는 "폴더/하위/파일.wav" 형태 — 최상위 폴더 이름을 뽑는다.
+    const folder = all[0]?.webkitRelativePath?.split("/")[0] || "폴더";
+    const audio = all.filter(
+      (f) => f.type.startsWith("audio/") || /\.(wav|mp3|flac|aac|m4a|ogg)$/i.test(f.name),
+    );
+    setBrowserFolderName(folder);
+    setBrowserFolderFiles(audio);
+  }, []);
+
+  const disconnectBrowserFolder = useCallback(() => {
+    setBrowserFolderName(null);
+    setBrowserFolderFiles([]);
+  }, []);
+
+  const loadBrowserFile = useCallback((file: File) => {
+    setActiveFileName(file.name);
+    setPendingLocalFile(file); // File 을 그대로 업로드 파이프라인으로 전달
   }, []);
 
   const clearPendingLocalFile = useCallback(() => setPendingLocalFile(null), []);
@@ -158,12 +195,16 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       items, open, setOpen, saveCurrent, rename, remove, exportJson, exportCsv, downloadAudio,
       localFolderPath, localFolderFiles, localFolderError, localFolderConnecting,
       connectLocalFolder, disconnectLocalFolder, loadLocalFile,
+      browserFolderName, browserFolderFiles, selectBrowserFolder, disconnectBrowserFolder,
+      loadBrowserFile, activeFileName,
       pendingLocalFile, clearPendingLocalFile,
     }),
     [
       items, open, saveCurrent, rename, remove, exportJson, exportCsv, downloadAudio,
       localFolderPath, localFolderFiles, localFolderError, localFolderConnecting,
       connectLocalFolder, disconnectLocalFolder, loadLocalFile,
+      browserFolderName, browserFolderFiles, selectBrowserFolder, disconnectBrowserFolder,
+      loadBrowserFile, activeFileName,
       pendingLocalFile, clearPendingLocalFile,
     ],
   );

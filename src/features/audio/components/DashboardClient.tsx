@@ -3,7 +3,7 @@
 import { useState, useCallback, useRef, useEffect, useMemo } from "react";
 import Header from "@/shared/components/Header";
 import { AnalysisModeProvider } from "@/features/audio/components/AnalysisModeContext";
-import AudioUploader from "@/features/audio/components/AudioUploader";
+import SelectedFilePanel from "@/features/audio/components/SelectedFilePanel";
 import WaveformPlayer, { WaveformPlayerHandle } from "@/features/audio/components/player/WaveformPlayer";
 import MicrophonePlayer from "@/features/audio/components/player/MicrophonePlayer";
 import TemperatureChart from "@/features/audio/components/chart/TemperatureChart";
@@ -905,10 +905,9 @@ export default function DashboardPage({ useQueue }: DashboardPageProps) {
 
                 <div className="flex-1 min-h-0 min-w-0">
                   {inputMode === "file" ? (
-                    <AudioUploader
+                    <SelectedFilePanel
                       status={activeStatus}
                       selectedFile={audioFile}
-                      onFileSelected={handleFileSelected}
                       onReset={handleReset}
                     />
                   ) : (
