@@ -8,27 +8,42 @@ BufferFrameSize)에 접근할 방법이 없어서, 이 별도 바이너리가 �
 
 ## 명령어
 
+모든 명령은 `--device <UID>`(선택)로 대상 장치를 지정할 수 있고, 생략하면 **OS 기본 입력 장치**를 쓴다(기존 동작). `<UID>`는 `list`가 돌려주는 각 장치의 `uid`다.
+
 ```bash
+# 연결된 입력 장치 전체 열거 (uid/name/inputChannels/isDefault) — 장치 선택 드롭다운용
+electron/native/audio-device-helper/dist/audio-device-helper list
+
 # 조회 (현재값만)
-electron/native/audio-device-helper/dist/audio-device-helper get
+electron/native/audio-device-helper/dist/audio-device-helper get [--device <UID>]
 
 # 능력 조회 (현재값 + 지원 SampleRate 목록 + Buffer 허용 범위 + 입력 채널 수) — UI 장치 패널용
-electron/native/audio-device-helper/dist/audio-device-helper query
+electron/native/audio-device-helper/dist/audio-device-helper query [--device <UID>]
 
 # 설정 (sampleRate: Hz, bufferSize: samples/frame) — ⚠️ bufferSize는 지속되지 않음, 아래 참고
-electron/native/audio-device-helper/dist/audio-device-helper set <sampleRate> <bufferSize>
+electron/native/audio-device-helper/dist/audio-device-helper set [--device <UID>] <sampleRate> <bufferSize>
 
 # 상주 캡처 (sampleRate/bufferSize 적용 + 캡처 스트리밍) — bufferSize가 실제 적용되는 유일한 모드
-electron/native/audio-device-helper/dist/audio-device-helper capture <sampleRate> <bufferSize> [channels=2]
+electron/native/audio-device-helper/dist/audio-device-helper capture [--device <UID>] <sampleRate> <bufferSize> [channels=2]
 # 예
 electron/native/audio-device-helper/dist/audio-device-helper capture 48000 480 2
+electron/native/audio-device-helper/dist/audio-device-helper query --device BuiltInMicrophoneDevice
 ```
 
-`get`/`query`/`set` 출력은 한 줄 JSON(stdout).
+`list`/`get`/`query`/`set` 출력은 한 줄 JSON(stdout).
 
 ```json
+// list — 입력 채널이 1개 이상인 장치만. app CalibrationDrawer의 "Capture Device" 드롭다운을 채운다
+{
+  "success": true,
+  "devices": [
+    { "uid": "AppleUSBAudioEngine:miniDSP:MCHStreamer AllRate:00006:1,2", "name": "MCHStreamer AllRate", "inputChannels": 8, "sampleRate": 48000, "isDefault": true },
+    { "uid": "BuiltInMicrophoneDevice", "name": "MacBook Pro 마이크", "inputChannels": 1, "sampleRate": 88200, "isDefault": false }
+  ]
+}
+
 // get
-{ "success": true, "device": "MCHStreamer AllRate", "actual": { "sampleRate": 48000, "bufferSize": 512 } }
+{ "success": true, "device": "MCHStreamer AllRate", "deviceUID": "AppleUSBAudioEngine:...", "actual": { "sampleRate": 48000, "bufferSize": 512 } }
 
 // query — CalibrationDrawer "연결된 장치" 패널이 이걸 파싱해 표시한다
 {

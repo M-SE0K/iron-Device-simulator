@@ -24,6 +24,7 @@ import {
   saveDeviceActualCache,
   type DeviceActualCache,
 } from "@/features/audio/lib/cache/calibration";
+import type { AudioInputDevice } from "@/shared/types/electron-bridge";
 
 // window.audioDevice.query()가 돌려주는 장치 능력 정보 (electron-bridge.d.ts의 AudioDeviceQueryResult)
 interface DeviceInfo {
@@ -115,43 +116,6 @@ function Segmented<T extends string>({
   );
 }
 
-/** 숫자 입력 필드 (소수 허용) */
-function NumberField({
-  label,
-  unit,
-  value,
-  onChange,
-  disabled,
-}: {
-  label: string;
-  unit?: string;
-  value: string;
-  onChange: (v: string) => void;
-  disabled?: boolean;
-}) {
-  return (
-    <div className="flex flex-col gap-1.5">
-      <label className="text-[10px] uppercase tracking-wider font-medium text-iron-400">{label}</label>
-      <div className="relative flex items-center">
-        <input
-          type="text"
-          inputMode="decimal"
-          value={value}
-          disabled={disabled}
-          onChange={(e) => onChange(e.target.value.replace(/[^0-9.]/g, ""))}
-          placeholder={disabled ? "모델 선택 필요" : "0"}
-          className="w-full pr-9 pl-3 py-2 rounded-lg border border-iron-200 bg-white font-mono text-sm text-iron-800 focus:outline-none focus:ring-1 focus:ring-brand-blue focus:border-brand-blue placeholder:text-iron-300 disabled:bg-iron-50 disabled:text-iron-300"
-        />
-        {unit && (
-          <span className="absolute right-3 text-xs font-mono font-semibold text-iron-400 pointer-events-none select-none">
-            {unit}
-          </span>
-        )}
-      </div>
-    </div>
-  );
-}
-
 /** 장치 정보 한 줄 (label · value) */
 function DeviceRow({ label, value }: { label: string; value: string }) {
   return (
@@ -187,6 +151,9 @@ export default function CalibrationDrawer({ projectName, onApply }: Props) {
   const [deviceError, setDeviceError] = useState<string | null>(null);
   const [deviceInfo, setDeviceInfo] = useState<DeviceInfo | null>(null);
   const [deviceInfoLoading, setDeviceInfoLoading] = useState(false);
+  // CoreAudio 네이티브 장치 목록(window.audioDevice.list) — Electron 전용. UID로 캡처/조회 대상을 고른다.
+  const [nativeDevices, setNativeDevices] = useState<AudioInputDevice[]>([]);
+  const [nativeDevicesLoading, setNativeDevicesLoading] = useState(false);
   // "적용" 시 capture probe로 확인한 실제 런타임 값 — sessionStorage에 저장되어 새로고침(F5)
   // 후에도 "연결된 장치" 패널에 마지막 적용값이 그대로 렌더링된다.
   const [appliedRuntime, setAppliedRuntime] = useState<DeviceActualCache | null>(null);
@@ -241,12 +208,23 @@ export default function CalibrationDrawer({ projectName, onApply }: Props) {
   }, [refreshInputDevices]);
 
   // 연결된 장치 능력(현재값·지원 SampleRate·Buffer 범위·입력 채널 수) 조회 — Electron 전용.
-  const refreshDeviceInfo = async () => {
+  // uid를 넘기면 그 장치를, 생략하면 현재 선택된 captureDeviceUID(없으면 OS 기본 입력)를 대상으로 한다.
+  const refreshDeviceInfo = async (uid?: string) => {
     if (typeof window === "undefined" || !window.audioDevice) return;
     setDeviceInfoLoading(true);
-    const res = await window.audioDevice.query();
+    const target = uid ?? draft.captureDeviceUID ?? "";
+    const res = await window.audioDevice.query(target || undefined);
     setDeviceInfo(res.success ? res : null);
     setDeviceInfoLoading(false);
+  };
+
+  // CoreAudio 장치 목록 새로고침 — 연결된 입력 장치 전체(uid/name/inputChannels). Electron 전용.
+  const refreshNativeDevices = async () => {
+    if (typeof window === "undefined" || !window.audioDevice?.list) return;
+    setNativeDevicesLoading(true);
+    const res = await window.audioDevice.list();
+    setNativeDevices(res.success && res.devices ? res.devices : []);
+    setNativeDevicesLoading(false);
   };
 
   // 열 때마다 현재 적용값으로 draft 동기화 + 장치 정보 새로고침
@@ -256,7 +234,8 @@ export default function CalibrationDrawer({ projectName, onApply }: Props) {
     setDeviceStatus("idle");
     setDeviceActual(null);
     setDeviceError(null);
-    refreshDeviceInfo();
+    refreshNativeDevices();
+    refreshDeviceInfo(values.captureDeviceUID);
     refreshInputDevices();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
@@ -303,6 +282,7 @@ export default function CalibrationDrawer({ projectName, onApply }: Props) {
       sampleRate: requested.sampleRate,
       bufferSize: requested.bufferSize,
       channels:   captureChannels,
+      deviceUID:  draft.captureDeviceUID || undefined,
     });
 
     if (result.success) {
@@ -413,8 +393,9 @@ export default function CalibrationDrawer({ projectName, onApply }: Props) {
 
           {/* 기본 입력 */}
           <section className="space-y-3">
-            {/* 입력 장치 — OS(navigator.mediaDevices)로 열거, 선택 시 마이크 캡처 대상이 된다 */}
-            {hasMediaDevices && (
+            {/* 입력 장치 — 웹/모바일(getUserMedia) 전용. Electron에서는 아래 "연결된 장치"의
+                Capture Device(CoreAudio UID)가 캡처 대상을 담당하므로 이 선택기는 숨긴다(중복 방지). */}
+            {hasMediaDevices && !hasAudioDeviceBridge && (
               <div className="flex flex-col gap-1.5">
                 <div className="flex items-center justify-between">
                   <label className="text-[10px] uppercase tracking-wider font-medium text-iron-400">
@@ -462,11 +443,6 @@ export default function CalibrationDrawer({ projectName, onApply }: Props) {
                 )}
               </div>
             )}
-
-            <div className="grid grid-cols-2 gap-3">
-              <NumberField label="AMP Output Power" unit="W" value={draft.ampOutputPower} onChange={(v) => set({ ampOutputPower: v })} />
-              <NumberField label="Ambient Temp" unit="°C" value={draft.ambientTemp} onChange={(v) => set({ ambientTemp: v })} />
-            </div>
           </section>
 
           {/* 연결된 장치 정보 (Electron 전용) */}
@@ -476,13 +452,42 @@ export default function CalibrationDrawer({ projectName, onApply }: Props) {
                 <h4 className="text-xs font-semibold text-iron-500">연결된 장치</h4>
                 <button
                   type="button"
-                  onClick={refreshDeviceInfo}
-                  disabled={deviceInfoLoading}
+                  onClick={() => { refreshNativeDevices(); refreshDeviceInfo(); }}
+                  disabled={deviceInfoLoading || nativeDevicesLoading}
                   className="flex items-center gap-1 text-[11px] text-iron-400 hover:text-iron-700 disabled:opacity-50"
                 >
-                  <RefreshCw className={`w-3 h-3 ${deviceInfoLoading ? "animate-spin" : ""}`} /> 새로고침
+                  <RefreshCw className={`w-3 h-3 ${deviceInfoLoading || nativeDevicesLoading ? "animate-spin" : ""}`} /> 새로고침
                 </button>
               </div>
+
+              {/* 캡처 대상 장치 선택 — CoreAudio UID로 특정 장치를 골라 query/capture를 그 장치로 라우팅.
+                  선택은 draft.captureDeviceUID에 저장되어 "적용" 시 MicrophonePlayer의 네이티브 캡처 대상이 된다. */}
+              <div className="flex flex-col gap-1.5">
+                <label className="text-[10px] uppercase tracking-wider font-medium text-iron-400">
+                  Capture Device
+                </label>
+                <AnimatedSelect
+                  value={draft.captureDeviceUID}
+                  aria-label="Capture Device"
+                  onChange={(uid) => {
+                    set({ captureDeviceUID: uid });
+                    refreshDeviceInfo(uid); // 선택 즉시 그 장치의 능력으로 아래 패널을 갱신
+                  }}
+                  options={[
+                    { value: "", label: "OS 기본 입력" },
+                    ...nativeDevices.map((d) => ({
+                      value: d.uid,
+                      label: d.name || "이름 없음",
+                      hint: `${d.inputChannels}ch${d.isDefault ? " · 기본" : ""}`,
+                    })),
+                    // 저장된 장치가 현재 목록에 없으면(연결 해제) 값이 사라지지 않게 보존 표시
+                    ...(draft.captureDeviceUID && !nativeDevices.some((d) => d.uid === draft.captureDeviceUID)
+                      ? [{ value: draft.captureDeviceUID, label: "저장된 장치", hint: "연결 안 됨" }]
+                      : []),
+                  ]}
+                />
+              </div>
+
               {!deviceInfo && !deviceInfoLoading && (
                 <p className="text-xs text-iron-300">장치 정보를 불러오지 못했습니다.</p>
               )}

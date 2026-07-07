@@ -44,12 +44,23 @@ function runAudioHelper(args) {
   });
 }
 
-ipcMain.handle("audio-device:get-config", () => runAudioHelper(["get"]));
-ipcMain.handle("audio-device:set-config", (_event, { sampleRate, bufferSize }) =>
-  runAudioHelper(["set", String(sampleRate), String(bufferSize)])
+// deviceUID가 있으면 `--device <UID>`를 덧붙여 특정 장치를 대상으로, 없으면 OS 기본 입력을 쓴다.
+function withDevice(baseArgs, deviceUID) {
+  return deviceUID ? [...baseArgs, "--device", String(deviceUID)] : baseArgs;
+}
+
+// 연결된 입력 장치 전체 열거(uid/name/inputChannels/isDefault) — UI 장치 선택 드롭다운용.
+ipcMain.handle("audio-device:list", () => runAudioHelper(["list"]));
+ipcMain.handle("audio-device:get-config", (_event, opts) =>
+  runAudioHelper(withDevice(["get"], opts?.deviceUID))
+);
+ipcMain.handle("audio-device:set-config", (_event, { sampleRate, bufferSize, deviceUID }) =>
+  runAudioHelper(withDevice(["set", String(sampleRate), String(bufferSize)], deviceUID))
 );
 // 장치 능력 조회(현재값 + 지원 SampleRate 목록 + Buffer 범위 + 입력 채널 수) — UI 장치 정보 패널용.
-ipcMain.handle("audio-device:query", () => runAudioHelper(["query"]));
+ipcMain.handle("audio-device:query", (_event, opts) =>
+  runAudioHelper(withDevice(["query"], opts?.deviceUID))
+);
 
 // ── 네이티브 오디오 캡처 (상주형 헬퍼) ──────────────────────────────────────
 // `capture` 모드는 헬퍼가 캡처 I/O(IOProc)를 직접 열어 BufferFrameSize의 주인이 되므로
@@ -65,7 +76,7 @@ function stopCapture() {
   return { success: true };
 }
 
-ipcMain.handle("audio-capture:start", (event, { sampleRate, bufferSize, channels }) => {
+ipcMain.handle("audio-capture:start", (event, { sampleRate, bufferSize, channels, deviceUID }) => {
   if (process.platform !== "darwin") {
     return { success: false, error: "unsupported-platform" };
   }
@@ -75,12 +86,10 @@ ipcMain.handle("audio-capture:start", (event, { sampleRate, bufferSize, channels
   const win = BrowserWindow.fromWebContents(event.sender);
 
   return new Promise((resolve) => {
-    const child = spawn(AUDIO_HELPER_PATH, [
-      "capture",
-      String(sampleRate),
-      String(bufferSize),
-      String(channels || 2),
-    ]);
+    const child = spawn(
+      AUDIO_HELPER_PATH,
+      withDevice(["capture", String(sampleRate), String(bufferSize), String(channels || 2)], deviceUID)
+    );
     captureChild = child;
 
     let headerBuf = Buffer.alloc(0);

@@ -29,6 +29,7 @@ export interface CalibrationValues {
   channels: string; // 캡처 채널 수 (네이티브 캡처 전용)
   inputDeviceId: string; // MediaDevices deviceId ("" = 시스템 기본 입력) — 마이크 캡처 대상
   inputDeviceLabel: string; // 선택 장치 이름(표시/재연결 대조용)
+  captureDeviceUID: string; // CoreAudio 장치 UID ("" = OS 기본 입력) — 네이티브 캡처/조회 대상(Electron 전용)
   tempBase: string; // °C (프로파일)
   excAmp: string; // mm (프로파일)
   tempMult: string; // 승수
@@ -44,6 +45,7 @@ export const CALIBRATION_EMPTY: CalibrationValues = {
   channels: "2",
   inputDeviceId: "",
   inputDeviceLabel: "",
+  captureDeviceUID: "",
   tempBase: "",
   excAmp: "",
   tempMult: "",

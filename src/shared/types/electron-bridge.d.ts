@@ -8,9 +8,25 @@ interface AudioDeviceActual {
   bufferSize: number | null;
 }
 
+// audio-device:list 항목 — 연결된 입력 장치 하나 (CoreAudio 열거). uid는 재연결에도 안정적.
+export interface AudioInputDevice {
+  uid: string;
+  name: string;
+  inputChannels: number;
+  sampleRate: number | null;
+  isDefault: boolean; // OS 기본 입력 장치 여부
+}
+
+interface AudioDeviceListResult {
+  success: boolean;
+  devices?: AudioInputDevice[];
+  error?: string;
+}
+
 interface AudioDeviceConfigResult {
   success: boolean;
   device?: string;
+  deviceUID?: string;
   requested?: { sampleRate: number; bufferSize: number };
   actual?: AudioDeviceActual;
   error?: string;
@@ -19,6 +35,7 @@ interface AudioDeviceConfigResult {
 interface AudioDeviceQueryResult {
   success: boolean;
   device?: string;
+  deviceUID?: string;
   current?: AudioDeviceActual;
   supportedSampleRates?: number[];
   bufferRange?: { min: number; max: number };
@@ -29,6 +46,7 @@ interface AudioDeviceQueryResult {
 interface AudioCaptureStartResult {
   success: boolean;
   device?: string;
+  deviceUID?: string;
   channels?: number;
   requested?: { sampleRate: number; bufferSize: number };
   actual?: AudioDeviceActual;
@@ -59,15 +77,18 @@ interface LocalFolderReadResult {
 declare global {
   interface Window {
     audioDevice?: {
-      getConfig: () => Promise<AudioDeviceConfigResult>;
-      setConfig: (sampleRate: number, bufferSize: number) => Promise<AudioDeviceConfigResult>;
-      query: () => Promise<AudioDeviceQueryResult>;
+      list: () => Promise<AudioDeviceListResult>;
+      // deviceUID 생략 시 OS 기본 입력 장치 대상
+      getConfig: (deviceUID?: string) => Promise<AudioDeviceConfigResult>;
+      setConfig: (sampleRate: number, bufferSize: number, deviceUID?: string) => Promise<AudioDeviceConfigResult>;
+      query: (deviceUID?: string) => Promise<AudioDeviceQueryResult>;
     };
     audioCapture?: {
       start: (opts: {
         sampleRate: number;
         bufferSize: number;
         channels?: number;
+        deviceUID?: string; // 생략 시 OS 기본 입력 장치
       }) => Promise<AudioCaptureStartResult>;
       stop: () => Promise<{ success: boolean }>;
       onData: (callback: (chunk: Uint8Array) => void) => () => void;

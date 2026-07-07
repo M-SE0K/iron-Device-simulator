@@ -6,10 +6,14 @@
 // 코드가 없어서(Web/WASM 샌드박스는 이 프로퍼티에 접근 불가) 별도 컴파일 바이너리로 분리했다.
 //
 // 사용법:
-//   audio-device-helper get
-//   audio-device-helper set <sampleRate> <bufferFrameSize>
-//   audio-device-helper capture <sampleRate> <bufferFrameSize> [channels=2]
+//   audio-device-helper list
+//   audio-device-helper get     [--device <UID>]
+//   audio-device-helper query   [--device <UID>]
+//   audio-device-helper set     [--device <UID>] <sampleRate> <bufferFrameSize>
+//   audio-device-helper capture [--device <UID>] <sampleRate> <bufferFrameSize> [channels=2]
 //
+// --device <UID>가 없으면 OS 기본 입력 장치를 대상으로 한다(기존 동작).
+// list는 연결된 입력 장치 전체를 UID/이름/채널과 함께 반환한다(장치 선택 드롭다운용).
 // get/set 출력은 한 줄 JSON (stdout).
 // capture는 상주 모드: 첫 줄 JSON 헤더 → 이후 stdout은 int16 인터리브 raw PCM 스트림.
 // BufferFrameSize는 그 I/O를 실제로 여는 클라이언트가 주인(TN2321)이라 1회성 set으로는
@@ -57,6 +61,63 @@ func deviceName(_ device: AudioDeviceID) -> String {
     }
     guard status == noErr, let cfName = name?.takeRetainedValue() else { return "" }
     return cfName as String
+}
+
+// 재연결(USB 재삽입) 후에도 안정적인 장치 식별자 — 앱은 이 UID를 저장해 장치를 다시 찾는다.
+func deviceUID(_ device: AudioDeviceID) -> String {
+    var uid: Unmanaged<CFString>?
+    var size = UInt32(MemoryLayout<CFString?>.size)
+    var address = AudioObjectPropertyAddress(
+        mSelector: kAudioDevicePropertyDeviceUID,
+        mScope: kAudioObjectPropertyScopeGlobal,
+        mElement: kAudioObjectPropertyElementMain
+    )
+    let status = withUnsafeMutablePointer(to: &uid) { ptr -> OSStatus in
+        AudioObjectGetPropertyData(device, &address, 0, nil, &size, ptr)
+    }
+    guard status == noErr, let cfUID = uid?.takeRetainedValue() else { return "" }
+    return cfUID as String
+}
+
+// 시스템에 연결된 모든 오디오 장치 ID (입력·출력 구분 없이 전부)
+func allDeviceIDs() -> [AudioDeviceID] {
+    var address = AudioObjectPropertyAddress(
+        mSelector: kAudioHardwarePropertyDevices,
+        mScope: kAudioObjectPropertyScopeGlobal,
+        mElement: kAudioObjectPropertyElementMain
+    )
+    var size = UInt32(0)
+    let sys = AudioObjectID(kAudioObjectSystemObject)
+    guard AudioObjectGetPropertyDataSize(sys, &address, 0, nil, &size) == noErr, size > 0 else { return [] }
+    let count = Int(size) / MemoryLayout<AudioDeviceID>.size
+    var ids = [AudioDeviceID](repeating: 0, count: count)
+    guard AudioObjectGetPropertyData(sys, &address, 0, nil, &size, &ids) == noErr else { return [] }
+    return ids
+}
+
+// UID로 특정 장치 해석 — 못 찾으면 nil (장치가 뽑혔거나 UID 오타)
+func deviceByUID(_ uid: String) -> AudioDeviceID? {
+    for id in allDeviceIDs() where deviceUID(id) == uid { return id }
+    return nil
+}
+
+// 입력 채널이 1개 이상인 장치만 열거 — UI 장치 선택 드롭다운용.
+// 각 항목: uid(식별자) · name · inputChannels · sampleRate · isDefault(OS 기본 입력 여부).
+func inputDevicesList() -> [[String: Any]] {
+    let defID = defaultInputDevice()
+    var list: [[String: Any]] = []
+    for id in allDeviceIDs() {
+        let channels = inputChannelCount(id)
+        guard channels > 0 else { continue } // 출력 전용 장치 제외
+        list.append([
+            "uid": deviceUID(id),
+            "name": deviceName(id),
+            "inputChannels": channels,
+            "sampleRate": getSampleRate(id) as Any,
+            "isDefault": defID != nil && id == defID,
+        ])
+    }
+    return list
 }
 
 func getSampleRate(_ device: AudioDeviceID) -> Double? {
@@ -257,6 +318,7 @@ func runCapture(device: AudioDeviceID, sampleRate reqRate: Double, bufferFrames 
     writeJSONLine([
         "success": true,
         "device": deviceName(device),
+        "deviceUID": deviceUID(device),
         "channels": outChannels,
         "requested": ["sampleRate": reqRate, "bufferSize": reqBuffer],
         "actual": [
@@ -276,20 +338,44 @@ func runCapture(device: AudioDeviceID, sampleRate reqRate: Double, bufferFrames 
 
 // ─── 진입점 ────────────────────────────────────────────────────────────────
 
-let args = CommandLine.arguments
-guard args.count >= 2 else {
-    printJSONAndExit(["success": false, "error": "usage: audio-device-helper <get|set|capture> [sampleRate] [bufferFrameSize] [channels]"])
+// program name을 뺀 인자. `--device <UID>` 옵션은 위치 어디에 있든 먼저 뽑아내
+// 위치 인자(sampleRate/bufferFrameSize/channels) 인덱스에 영향을 주지 않게 한다.
+var argv = Array(CommandLine.arguments.dropFirst())
+var requestedUID: String? = nil
+if let idx = argv.firstIndex(of: "--device"), idx + 1 < argv.count {
+    requestedUID = argv[idx + 1]
+    argv.removeSubrange(idx...(idx + 1))
 }
 
-guard let device = defaultInputDevice() else {
-    printJSONAndExit(["success": false, "error": "no-default-input-device"])
+guard let command = argv.first else {
+    printJSONAndExit(["success": false, "error": "usage: audio-device-helper <list|get|query|set|capture> [--device <UID>] [sampleRate] [bufferFrameSize] [channels]"])
 }
 
-switch args[1] {
+// list는 특정 장치가 필요 없다 — 연결된 입력 장치 전체를 반환
+if command == "list" {
+    printJSONAndExit(["success": true, "devices": inputDevicesList()])
+}
+
+// 장치 해석: --device <UID>가 있으면 그 장치, 없으면 OS 기본 입력 장치(기존 동작)
+let device: AudioDeviceID
+if let uid = requestedUID {
+    guard let resolved = deviceByUID(uid) else {
+        printJSONAndExit(["success": false, "error": "device-not-found: \(uid)"])
+    }
+    device = resolved
+} else {
+    guard let def = defaultInputDevice() else {
+        printJSONAndExit(["success": false, "error": "no-default-input-device"])
+    }
+    device = def
+}
+
+switch command {
 case "get":
     printJSONAndExit([
         "success": true,
         "device": deviceName(device),
+        "deviceUID": deviceUID(device),
         "actual": [
             "sampleRate": getSampleRate(device) as Any,
             "bufferSize": getBufferFrameSize(device) as Any,
@@ -297,7 +383,7 @@ case "get":
     ])
 
 case "query":
-    // 기본 입력 장치의 능력(capability) 조회 — 현재값 + 지원 SampleRate 목록 + Buffer 범위 + 입력 채널 수.
+    // 대상 장치의 능력(capability) 조회 — 현재값 + 지원 SampleRate 목록 + Buffer 범위 + 입력 채널 수.
     // get과 달리 UI가 드롭다운/장치 정보 패널을 채우는 데 쓰는 풍부한 정보를 준다.
     var bufferRange: [String: Any] = [:]
     if let range = bufferFrameSizeRange(device) {
@@ -306,6 +392,7 @@ case "query":
     printJSONAndExit([
         "success": true,
         "device": deviceName(device),
+        "deviceUID": deviceUID(device),
         "current": [
             "sampleRate": getSampleRate(device) as Any,
             "bufferSize": getBufferFrameSize(device) as Any,
@@ -316,8 +403,8 @@ case "query":
     ])
 
 case "set":
-    guard args.count >= 4, let reqRate = Double(args[2]), let reqBuffer = UInt32(args[3]) else {
-        printJSONAndExit(["success": false, "error": "usage: audio-device-helper set <sampleRate> <bufferFrameSize>"])
+    guard argv.count >= 3, let reqRate = Double(argv[1]), let reqBuffer = UInt32(argv[2]) else {
+        printJSONAndExit(["success": false, "error": "usage: audio-device-helper set [--device <UID>] <sampleRate> <bufferFrameSize>"])
     }
     let rateApplied = setSampleRate(device, reqRate)
     let bufferApplied = setBufferFrameSize(device, reqBuffer)
@@ -326,6 +413,7 @@ case "set":
     printJSONAndExit([
         "success": rateApplied && bufferApplied,
         "device": deviceName(device),
+        "deviceUID": deviceUID(device),
         "requested": ["sampleRate": reqRate, "bufferSize": reqBuffer],
         "actual": [
             "sampleRate": getSampleRate(device) as Any,
@@ -334,12 +422,12 @@ case "set":
     ])
 
 case "capture":
-    guard args.count >= 4, let reqRate = Double(args[2]), let reqBuffer = UInt32(args[3]) else {
-        printJSONAndExit(["success": false, "error": "usage: audio-device-helper capture <sampleRate> <bufferFrameSize> [channels]"])
+    guard argv.count >= 3, let reqRate = Double(argv[1]), let reqBuffer = UInt32(argv[2]) else {
+        printJSONAndExit(["success": false, "error": "usage: audio-device-helper capture [--device <UID>] <sampleRate> <bufferFrameSize> [channels]"])
     }
-    let outChannels = args.count >= 5 ? max(1, Int(args[4]) ?? 2) : 2
+    let outChannels = argv.count >= 4 ? max(1, Int(argv[3]) ?? 2) : 2
     runCapture(device: device, sampleRate: reqRate, bufferFrames: reqBuffer, outChannels: outChannels)
 
 default:
-    printJSONAndExit(["success": false, "error": "unknown-command: \(args[1])"])
+    printJSONAndExit(["success": false, "error": "unknown-command: \(command)"])
 }

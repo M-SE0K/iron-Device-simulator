@@ -193,11 +193,11 @@ export default function MicrophonePlayer({
 
       const nativeCapture = typeof window !== "undefined" ? window.audioCapture : undefined;
 
-      // 네이티브 CoreAudio 헬퍼는 'OS 기본 입력 장치'만 열 수 있고 MediaDevices deviceId를 CoreAudio
-      // 장치로 변환할 수 없다. 따라서 특정 장치를 명시적으로 고른 경우엔 그 deviceId를 정확히 지정할 수
-      // 있는 getUserMedia 경로로 캡처한다(버퍼 크기 강제는 불가). '시스템 기본 입력'일 때만 네이티브
-      // 캡처(버퍼 크기 제어 유지)를 사용한다.
-      if (nativeCapture && !selectedDeviceId) {
+      // Electron(네이티브 브리지 존재)에서는 항상 네이티브 CoreAudio 캡처를 쓴다 — 헬퍼가 이제
+      // Capture Device(CoreAudio UID)로 임의 입력 장치를 열 수 있어(버퍼 크기 제어 유지) getUserMedia로
+      // 우회할 필요가 없다. 브리지가 없는 웹/모바일 빌드에서만 getUserMedia로 폴백하며, 그 경로에선
+      // Input Device(MediaDevices deviceId)로 장치를 지정한다. (두 장치 선택 UI는 빌드별로 분리됨)
+      if (nativeCapture) {
         // ── 네이티브 CoreAudio 캡처 (Electron 전용) ────────────────────────
         // 상주 헬퍼(audio-device-helper capture)가 캡처 I/O(IOProc)를 직접 소유하므로
         // BufferFrameSize가 실제로 적용·유지된다. getUserMedia 경로에서는 캡처를 여는
@@ -205,10 +205,12 @@ export default function MicrophonePlayer({
         // 캡처 채널 수 (calibration에서 설정, 최소 2). MCHStreamer 등 다채널 장치의 V/I 센싱
         // 채널을 받으려면 늘린다 — 단, 분석 파이프라인은 항상 ch0/ch1(L/R)만 사용한다.
         const captureChannels = Math.max(2, Number(calibration.channels) || 2);
+        // 캡처 대상 장치 — calibration에서 고른 CoreAudio UID("" = OS 기본 입력)
         const res = await nativeCapture.start({
           sampleRate: reqSampleRate,
           bufferSize: reqBufferSize,
           channels:   captureChannels,
+          deviceUID:  calibration.captureDeviceUID?.trim() || undefined,
         });
         if (!res.success) {
           throw new Error(`네이티브 캡처 시작 실패: ${res.error ?? "unknown"}`);

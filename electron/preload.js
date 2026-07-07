@@ -2,10 +2,13 @@
 const { contextBridge, ipcRenderer } = require("electron");
 
 contextBridge.exposeInMainWorld("audioDevice", {
-  getConfig: () => ipcRenderer.invoke("audio-device:get-config"),
-  setConfig: (sampleRate, bufferSize) =>
-    ipcRenderer.invoke("audio-device:set-config", { sampleRate, bufferSize }),
-  query: () => ipcRenderer.invoke("audio-device:query"),
+  // 연결된 입력 장치 전체 열거 — 장치 선택 드롭다운용
+  list: () => ipcRenderer.invoke("audio-device:list"),
+  // deviceUID를 넘기면 그 장치, 생략하면 OS 기본 입력을 대상으로 한다
+  getConfig: (deviceUID) => ipcRenderer.invoke("audio-device:get-config", { deviceUID }),
+  setConfig: (sampleRate, bufferSize, deviceUID) =>
+    ipcRenderer.invoke("audio-device:set-config", { sampleRate, bufferSize, deviceUID }),
+  query: (deviceUID) => ipcRenderer.invoke("audio-device:query", { deviceUID }),
 });
 
 contextBridge.exposeInMainWorld("audioCapture", {
