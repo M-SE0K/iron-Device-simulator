@@ -847,25 +847,6 @@ export default function DashboardPage({ useQueue }: DashboardPageProps) {
               {/* upload-section: 비율 조정 → flex-[숫자] 변경.
                   lg 미만: 고정 높이로 내부 h-full 카드가 확정 높이를 갖도록 함 */}
               <div id="upload-section" className="h-[220px] lg:h-auto lg:min-h-0 lg:flex-[2] flex flex-col gap-2">
-                {/* 입력/분석 모드 토글은 Calibration 드로어로 이동 — 여기는 저장/REC 액션만 */}
-                <div className="flex items-center gap-1 text-xs font-mono shrink-0">
-                  <div className="ml-auto flex gap-1.5">
-                    <button
-                      onClick={handleSaveToWorkspace}
-                      disabled={!audioFile || chartFrames.length === 0}
-                      className={cn(
-                        "px-2 py-1 rounded border transition-all",
-                        !audioFile || chartFrames.length === 0
-                          ? "text-iron-300 border-iron-200 cursor-not-allowed"
-                          : "bg-iron-50 text-iron-500 border-iron-200 hover:border-iron-400",
-                      )}
-                      title="현재 음원과 분석 그래프를 작업 영역에 저장"
-                    >
-                      저장
-                    </button>
-                  </div>
-                </div>
-
                 {/* 배치 컨트롤 (파일 + 분석 모드 전용) — 모드 토글 자체는 Calibration 드로어로 이동 */}
                 {inputMode === "file" && analysisMode === "batch" && (
                   <div className="flex items-center gap-1.5 text-xs font-mono shrink-0">
@@ -909,6 +890,8 @@ export default function DashboardPage({ useQueue }: DashboardPageProps) {
                       status={activeStatus}
                       selectedFile={audioFile}
                       onReset={handleReset}
+                      onSave={handleSaveToWorkspace}
+                      canSave={!!audioFile && chartFrames.length > 0}
                     />
                   ) : (
                     <MicrophonePlayer

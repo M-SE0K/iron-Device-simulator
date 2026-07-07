@@ -2,7 +2,7 @@
 
 import dynamic from "next/dynamic";
 import { useMemo, useLayoutEffect, useRef, useCallback, useState, useEffect } from "react";
-import { Maximize2, Thermometer } from "lucide-react";
+import { Maximize2 } from "lucide-react";
 import { AnalysisFrame } from "@/features/audio/types";
 import { findFrameIndex } from "@/shared/lib/utils";
 import { cn } from "@/shared/lib/utils";
@@ -262,7 +262,6 @@ export default function TemperatureChart({ frames, currentTime, isActive, stream
     <div id="temperature-chart" className="card flex flex-col h-full">
       <div className="card-header">
         <div className="chart-title-group flex items-center gap-2">
-          <Thermometer size={14} className="text-iron-400" />
           <span className="card-title">Temperature</span>
           {onExpand && (
             <button

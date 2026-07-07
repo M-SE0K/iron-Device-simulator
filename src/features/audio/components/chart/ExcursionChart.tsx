@@ -2,7 +2,7 @@
 
 import dynamic from "next/dynamic";
 import { useMemo, useState, useRef, useCallback, useEffect } from "react";
-import { Activity, Maximize2 } from "lucide-react";
+import { Maximize2 } from "lucide-react";
 import { AnalysisFrame } from "@/features/audio/types";
 import { findFrameIndex } from "@/shared/lib/utils";
 import { cn } from "@/shared/lib/utils";
@@ -248,7 +248,6 @@ export default function ExcursionChart({ frames, currentTime, isActive, streamin
     <div id="excursion-chart" className="card flex flex-col h-full">
       <div className="card-header">
         <div className="chart-title-group flex items-center gap-2">
-          <Activity size={14} className="text-iron-400" />
           <span className="card-title">Excursion</span>
           {onExpand && (
             <button

@@ -8,14 +8,17 @@ import { FileAudio, FolderOpen, X } from "lucide-react";
 import { AppStatus } from "@/features/audio/types";
 import CalibrationSummary from "@/features/audio/components/calibration/CalibrationSummary";
 import { useWorkspace } from "@/features/audio/components/workspace/Workspace-context";
+import { cn } from "@/shared/lib/utils";
 
 interface Props {
   status: AppStatus;
   selectedFile: File | null;
   onReset: () => void;
+  onSave: () => void;
+  canSave: boolean;
 }
 
-export default function SelectedFilePanel({ status, selectedFile, onReset }: Props) {
+export default function SelectedFilePanel({ status, selectedFile, onReset, onSave, canSave }: Props) {
   const { setOpen } = useWorkspace();
   const isLocked = status === "uploading" || status === "analyzing";
 
@@ -32,6 +35,19 @@ export default function SelectedFilePanel({ status, selectedFile, onReset }: Pro
           </p>
           <CalibrationSummary />
         </div>
+        <button
+          onClick={onSave}
+          disabled={!canSave}
+          className={cn(
+            "px-2 py-1 rounded border text-xs font-mono transition-all shrink-0",
+            !canSave
+              ? "text-iron-300 border-iron-200 cursor-not-allowed"
+              : "bg-iron-50 text-iron-500 border-iron-200 hover:border-iron-400",
+          )}
+          title="현재 음원과 분석 그래프를 작업 영역에 저장"
+        >
+          저장
+        </button>
         {!isLocked && (
           <button
             id="reset-file-btn"
