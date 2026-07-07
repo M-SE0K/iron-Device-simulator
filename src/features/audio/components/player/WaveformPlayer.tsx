@@ -5,11 +5,8 @@ import { Play, Pause, Square } from "lucide-react";
 import { cn, formatTime } from "@/shared/lib/utils";
 import { AppStatus, AnalysisFrame, StreamDebugInfo, DebugLogEntry, InputParameterValues } from "@/features/audio/types";
 import { createAnalysisSocket, type SocketLike } from "@/features/audio/lib/engine/protocol/local-socket";
-
-// ─── PCM 처리 상수 ────────────────────────────────────────────────────────────
-const SAMPLE_RATE    = 48000;
-const SAMPLES_PER_CH = 480;
-const FRAME_BYTES    = SAMPLES_PER_CH * 2 * 2; // 480 samples × 2ch × 2 bytes = 1920
+import { DEFAULT_ENGINE_CONFIG, frameBytes, type EngineRuntimeConfig } from "@/features/audio/lib/engine/core";
+import { useCalibration } from "@/features/audio/components/calibration/Calibration-context";
 
 // ─── 카드 내부 비율 (%) — 자유롭게 조절 ──────────────────────────────────────
 // header(타이틀 영역) + body(파형 + 컨트롤) = 100
@@ -81,11 +78,15 @@ const WaveformPlayer = forwardRef<WaveformPlayerHandle, Props>(function Waveform
   onDurationReady,
   enableStreaming = true,
 }: Props, ref) {
+  const { values: calibration } = useCalibration();
+
   const containerRef    = useRef<HTMLDivElement>(null);
   const wavesurferRef   = useRef<import("wavesurfer.js").default | null>(null);
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration]       = useState(0);
   const [isReady, setIsReady]         = useState(false);
+  // 화면 표시용 — engineConfigRef와 같은 시점에 세팅되는 state 사본(ref는 리렌더를 안 일으킴)
+  const [displayConfig, setDisplayConfig] = useState<EngineRuntimeConfig | null>(null);
 
   // inputParams ref: prop 변경 시 최신값을 클로저에서 참조할 수 있게 유지
   const inputParamsRef = useRef<InputParameterValues | undefined>(inputParams);
@@ -94,6 +95,9 @@ const WaveformPlayer = forwardRef<WaveformPlayerHandle, Props>(function Waveform
   // ── PCM 프레임 데이터 (AudioContext 디코딩 결과) ──────────────────────────
   const pcmFramesRef      = useRef<ArrayBuffer[]>([]);
   const pcmReadyRef       = useRef(false);
+  // 현재 디코딩된 PCM에 실제로 적용된 sampleRate/samplesPerCh — calibration이 디코딩 도중
+  // 바뀌어도 이미 디코딩된 프레임과 어긋나지 않도록, 디코딩 시작 시점 값을 여기 고정해 둔다.
+  const engineConfigRef   = useRef<EngineRuntimeConfig>(DEFAULT_ENGINE_CONFIG);
 
   // ── 분석 소켓 상태 (브라우저 WASM 엔진, LocalWasmSocket) ─────────────────
   const wsRef             = useRef<SocketLike | null>(null);
@@ -160,7 +164,8 @@ const WaveformPlayer = forwardRef<WaveformPlayerHandle, Props>(function Waveform
       const wv = wavesurferRef.current;
       if (!wv) return;
 
-      const currentFrame = Math.floor(wv.getCurrentTime() * SAMPLE_RATE / SAMPLES_PER_CH);
+      const { sampleRate, samplesPerCh } = engineConfigRef.current;
+      const currentFrame = Math.floor(wv.getCurrentTime() * sampleRate / samplesPerCh);
       const frames       = pcmFramesRef.current;
       const now          = performance.now();
 
@@ -216,6 +221,7 @@ const WaveformPlayer = forwardRef<WaveformPlayerHandle, Props>(function Waveform
     setIsReady(false);
     setCurrentTime(0);
     setDuration(0);
+    setDisplayConfig(null);
     pcmFramesRef.current     = [];
     pcmReadyRef.current      = false;
     lastSentFrameRef.current = 0;
@@ -286,10 +292,18 @@ const WaveformPlayer = forwardRef<WaveformPlayerHandle, Props>(function Waveform
 
       // PCM 디코딩 (AudioContext — 파일 선택 직후 실행)
       try {
+        // 디코딩 시작 시점의 calibration 값으로 이번 세션의 프레임 설정을 고정한다
+        // (비동기 디코딩 도중 calibration이 또 바뀌어도 이미 만든 프레임과 어긋나지 않게).
+        const reqSampleRate   = Number(calibration.sampleRate) || DEFAULT_ENGINE_CONFIG.sampleRate;
+        const reqSamplesPerCh = Number(calibration.bufferSize) || DEFAULT_ENGINE_CONFIG.samplesPerCh;
+        const config: EngineRuntimeConfig = { sampleRate: reqSampleRate, samplesPerCh: reqSamplesPerCh };
+        engineConfigRef.current = config;
+        setDisplayConfig(config);
+
         const arrayBuf   = await audioFile.arrayBuffer();
         if (destroyed) return;
 
-        const audioCtx   = new AudioContext({ sampleRate: SAMPLE_RATE });
+        const audioCtx   = new AudioContext({ sampleRate: reqSampleRate });
         const audioBuffer = await audioCtx.decodeAudioData(arrayBuf);
         await audioCtx.close();
         if (destroyed) return;
@@ -302,16 +316,17 @@ const WaveformPlayer = forwardRef<WaveformPlayerHandle, Props>(function Waveform
         const interleaved  = encodeToInt16(ch0, ch1);
         // Int16Array.buffer는 ArrayBuffer | SharedArrayBuffer → 명시적 캐스트
         const rawBytes     = interleaved.buffer as ArrayBuffer;
-        const totalFrames  = Math.floor(ch0.length / SAMPLES_PER_CH);
+        const chunkBytes   = frameBytes(config);
+        const totalFrames  = Math.floor(ch0.length / reqSamplesPerCh);
         const frames: ArrayBuffer[] = [];
 
         for (let i = 0; i < totalFrames; i++) {
-          frames.push(rawBytes.slice(i * FRAME_BYTES, (i + 1) * FRAME_BYTES));
+          frames.push(rawBytes.slice(i * chunkBytes, (i + 1) * chunkBytes));
         }
 
         pcmFramesRef.current = frames;
         pcmReadyRef.current  = true;
-        console.log(`[WaveformPlayer] PCM 디코딩 완료: ${totalFrames} 프레임`);
+        console.log(`[WaveformPlayer] PCM 디코딩 완료: ${totalFrames} 프레임 (${reqSampleRate}Hz, ${reqSamplesPerCh}samples/ch)`);
       } catch (err) {
         console.error("[WaveformPlayer] PCM 디코딩 실패:", err);
       }
@@ -322,7 +337,7 @@ const WaveformPlayer = forwardRef<WaveformPlayerHandle, Props>(function Waveform
       ws?.destroy();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [audioFile]);
+  }, [audioFile, calibration.sampleRate, calibration.bufferSize]);
 
   // ── WebSocket 연결 + 스트리밍 시작 ───────────────────────────────────────
   const openWsAndStream = useCallback(() => {
@@ -347,10 +362,13 @@ const WaveformPlayer = forwardRef<WaveformPlayerHandle, Props>(function Waveform
 
     ws.onopen = () => {
       const p = inputParamsRef.current;
+      const { sampleRate, samplesPerCh } = engineConfigRef.current;
       ws.send(JSON.stringify({
         type:           "init",
         ampOutputPower: p?.ampOutputPower ?? "",
         speakerModel:   p?.speakerModel   ?? "",
+        sampleRate,
+        bufferSize:     samplesPerCh,
       }));
     };
 
@@ -362,7 +380,8 @@ const WaveformPlayer = forwardRef<WaveformPlayerHandle, Props>(function Waveform
       } else if (msg.type === "frame") {
         // ── RTT 계산 ──────────────────────────────────────────────────────
         const recvAt    = performance.now();
-        const frameIdx  = Math.round((msg.time as number) * SAMPLE_RATE / SAMPLES_PER_CH);
+        const { sampleRate, samplesPerCh } = engineConfigRef.current;
+        const frameIdx  = Math.round((msg.time as number) * sampleRate / samplesPerCh);
         const sentAt    = sendTimestampsRef.current.get(frameIdx);
         if (sentAt !== undefined) {
           const rtt = parseFloat((recvAt - sentAt).toFixed(2));
@@ -522,10 +541,13 @@ const WaveformPlayer = forwardRef<WaveformPlayerHandle, Props>(function Waveform
 
         batchWs.onopen = () => {
           const p = inputParamsRef.current;
+          const { sampleRate, samplesPerCh } = engineConfigRef.current;
           batchWs.send(JSON.stringify({
             type:           "init",
             ampOutputPower: p?.ampOutputPower ?? "",
             speakerModel:   p?.speakerModel   ?? "",
+            sampleRate,
+            bufferSize:     samplesPerCh,
           }));
         };
 
@@ -534,7 +556,8 @@ const WaveformPlayer = forwardRef<WaveformPlayerHandle, Props>(function Waveform
           if (msg.type === "ready") {
             sendAll();
           } else if (msg.type === "frame") {
-            const frameIdx = Math.round((msg.time as number) * SAMPLE_RATE / SAMPLES_PER_CH);
+            const { sampleRate, samplesPerCh } = engineConfigRef.current;
+            const frameIdx = Math.round((msg.time as number) * sampleRate / samplesPerCh);
             collected.set(frameIdx, {
               time:        msg.time      as number,
               temperature: msg.temperature as [number, number],
@@ -594,11 +617,18 @@ const WaveformPlayer = forwardRef<WaveformPlayerHandle, Props>(function Waveform
         style={{ height: `${WAVEFORM_HEADER_PERCENT}%` }}
       >
         <span className="card-title">Waveform</span>
-        {isReady && (
-          <span id="waveform-time-display" className="font-mono text-xs text-iron-400">
-            {formatTime(currentTime)} / {formatTime(duration)}
-          </span>
-        )}
+        <div className="flex items-center gap-3">
+          {displayConfig && (
+            <span id="waveform-engine-config" className="font-mono text-xs text-iron-400">
+              {displayConfig.sampleRate.toLocaleString()}Hz · buf {displayConfig.samplesPerCh}
+            </span>
+          )}
+          {isReady && (
+            <span id="waveform-time-display" className="font-mono text-xs text-iron-400">
+              {formatTime(currentTime)} / {formatTime(duration)}
+            </span>
+          )}
+        </div>
       </div>
 
       {/* 카드 바디 — 비율: WAVEFORM_BODY_PERCENT% */}

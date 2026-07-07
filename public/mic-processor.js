@@ -2,16 +2,20 @@
  * mic-processor.js — AudioWorklet 프로세서
  *
  * AudioWorklet 컨텍스트(별도 스레드)에서 실행.
- * Web Audio API 기본 청크(128샘플)를 480샘플 단위로 버퍼링한 뒤
- * 메인 스레드로 Float32 L/R 배열을 전송한다.
+ * Web Audio API 기본 청크(128샘플)를 processorOptions.samplesPerCh 단위로 버퍼링한 뒤
+ * 메인 스레드로 Float32 L/R 배열을 전송한다. (Calibration UI의 bufferSize가 여기로 전달됨)
  */
-const SAMPLES_PER_CH = 480;
+const DEFAULT_SAMPLES_PER_CH = 480;
 
 class MicProcessor extends AudioWorkletProcessor {
-  constructor() {
+  constructor(options) {
     super();
-    this._bufL   = new Float32Array(SAMPLES_PER_CH);
-    this._bufR   = new Float32Array(SAMPLES_PER_CH);
+    const requested = options?.processorOptions?.samplesPerCh;
+    this._samplesPerCh = Number.isFinite(requested) && requested > 0
+      ? requested
+      : DEFAULT_SAMPLES_PER_CH;
+    this._bufL   = new Float32Array(this._samplesPerCh);
+    this._bufR   = new Float32Array(this._samplesPerCh);
     this._offset = 0;
   }
 
@@ -25,7 +29,7 @@ class MicProcessor extends AudioWorkletProcessor {
 
     let pos = 0;
     while (pos < L.length) {
-      const space = SAMPLES_PER_CH - this._offset;
+      const space = this._samplesPerCh - this._offset;
       const copy  = Math.min(space, L.length - pos);
 
       this._bufL.set(L.subarray(pos, pos + copy), this._offset);
@@ -33,7 +37,7 @@ class MicProcessor extends AudioWorkletProcessor {
       this._offset += copy;
       pos          += copy;
 
-      if (this._offset === SAMPLES_PER_CH) {
+      if (this._offset === this._samplesPerCh) {
         this.port.postMessage({ L: this._bufL.slice(), R: this._bufR.slice() });
         this._offset = 0;
       }
