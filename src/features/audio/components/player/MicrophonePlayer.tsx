@@ -4,6 +4,7 @@ import { useEffect, useRef, useState, useCallback } from "react";
 import { Mic, Square } from "lucide-react";
 import { AppStatus, AnalysisFrame, StreamDebugInfo, DebugLogEntry, InputParameterValues } from "@/features/audio/types";
 import { createAnalysisSocket, type SocketLike } from "@/features/audio/lib/engine/protocol/local-socket";
+import { encodeToInt16 } from "@/features/audio/lib/engine/utils";
 import { useCalibration } from "@/features/audio/components/calibration/Calibration-context";
 
 interface Props {
@@ -14,18 +15,6 @@ interface Props {
   onDebugUpdate: (info: Partial<StreamDebugInfo>) => void;
   onDebugLog?: (entry: DebugLogEntry) => void;
   inputParams: InputParameterValues;
-}
-
-// ─── Float32 → Int16 인터리브 변환 (웹 캡처 경로 전용) ───────────────────────
-// L.length는 mic-processor.js가 processorOptions로 받은 samplesPerCh와 같다.
-function encodeToInt16(L: Float32Array, R: Float32Array): ArrayBuffer {
-  const samplesPerCh = L.length;
-  const pcm = new Int16Array(samplesPerCh * 2);
-  for (let i = 0; i < samplesPerCh; i++) {
-    pcm[i * 2]     = Math.max(-32768, Math.min(32767, Math.round(L[i] * 32767)));
-    pcm[i * 2 + 1] = Math.max(-32768, Math.min(32767, Math.round(R[i] * 32767)));
-  }
-  return pcm.buffer;
 }
 
 export default function MicrophonePlayer({
@@ -327,9 +316,9 @@ export default function MicrophonePlayer({
       worklet.port.onmessage = (e: MessageEvent<{ L: Float32Array; R: Float32Array }>) => {
         if (!isActiveRef.current || ws.readyState !== WebSocket.OPEN) return;
 
-        const buf = encodeToInt16(e.data.L, e.data.R);
+        const interleaved = encodeToInt16(e.data.L, e.data.R);
         lastSendAtRef.current = performance.now();
-        ws.send(buf);
+        ws.send(interleaved.buffer as ArrayBuffer);
 
         const sent = ++frameCountRef.current;
         if (sent % 10 === 0) onDebugUpdate({ framesSent: sent });

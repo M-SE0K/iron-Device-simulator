@@ -5,10 +5,8 @@
 // 엔진에 실제로 전달되는 값은 speakerModel·ampOutputPower 이며, 나머지(주변온도/프로파일 보정)는
 // 향후 ff_prot_set_param 연동을 위한 선행 필드다(현재 모델별 SPEAKER_PROFILES 로 후처리).
 import { createContext, useContext, useEffect, useMemo, useState, type Dispatch, type ReactNode, type SetStateAction } from "react";
-import { SPEAKER_PROFILES } from "@/features/audio/lib/engine/core";
 import { loadCalibrationCache, saveCalibrationCache } from "@/features/audio/lib/cache/calibration";
 
-export const SPEAKER_MODELS = Object.keys(SPEAKER_PROFILES); // ["Z3 SPK", ...]
 const DEFAULT_AMBIENT = 25;
 
 // 파일 업로드(WaveformPlayer)/마이크(MicrophonePlayer, 네이티브+getUserMedia 폴백) 두 경로 모두
@@ -55,20 +53,6 @@ export const CALIBRATION_EMPTY: CalibrationValues = {
   tempMult: "",
   excMult: "",
 };
-
-/** 선택 모델의 프로파일 값으로 보정 4필드를 채운 사본 반환 */
-export function withProfile(values: CalibrationValues, model: string): CalibrationValues {
-  const p = SPEAKER_PROFILES[model];
-  if (!p) return { ...values, speakerModel: model, tempBase: "", excAmp: "", tempMult: "", excMult: "" };
-  return {
-    ...values,
-    speakerModel: model,
-    tempBase: String(p.tempBase),
-    excAmp: String(p.excAmp),
-    tempMult: String(p.tempMult),
-    excMult: String(p.excMult),
-  };
-}
 
 interface CalibrationCtx {
   values: CalibrationValues;

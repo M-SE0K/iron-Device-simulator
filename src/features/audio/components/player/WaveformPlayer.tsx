@@ -6,6 +6,7 @@ import { cn, formatTime } from "@/shared/lib/utils";
 import { AppStatus, AnalysisFrame, StreamDebugInfo, DebugLogEntry, InputParameterValues } from "@/features/audio/types";
 import { createAnalysisSocket, type SocketLike } from "@/features/audio/lib/engine/protocol/local-socket";
 import { DEFAULT_ENGINE_CONFIG, frameBytes, type EngineRuntimeConfig } from "@/features/audio/lib/engine/core";
+import { encodeToInt16 } from "@/features/audio/lib/engine/utils";
 import { useCalibration } from "@/features/audio/components/calibration/Calibration-context";
 
 // ─── 카드 내부 비율 (%) — 자유롭게 조절 ──────────────────────────────────────
@@ -34,16 +35,6 @@ interface Props {
   onDurationReady?: (duration: number) => void;
   /** false면 재생 시 실시간 스트리밍(WS/rAF) 없이 오디오 재생만 (배치 모드) */
   enableStreaming?: boolean;
-}
-
-// ─── Float32 → Int16 PCM 인터리브 변환 ───────────────────────────────────────
-function encodeToInt16(ch0: Float32Array, ch1: Float32Array): Int16Array {
-  const out = new Int16Array(ch0.length * 2);
-  for (let i = 0; i < ch0.length; i++) {
-    out[i * 2]     = Math.max(-32768, Math.min(32767, Math.round(ch0[i] * 32767)));
-    out[i * 2 + 1] = Math.max(-32768, Math.min(32767, Math.round(ch1[i] * 32767)));
-  }
-  return out;
 }
 
 /** page.tsx에서 ref로 접근할 수 있는 WaveformPlayer 핸들 */
@@ -201,6 +192,19 @@ const WaveformPlayer = forwardRef<WaveformPlayerHandle, Props>(function Waveform
   }, []);
 
   // ── WebSocket 정리 ────────────────────────────────────────────────────────
+  // ── 소켓 init 메시지 생성 (스트리밍/배치 공용) ────────────────────────────
+  const buildInitMessage = useCallback(() => {
+    const p = inputParamsRef.current;
+    const { sampleRate, samplesPerCh } = engineConfigRef.current;
+    return JSON.stringify({
+      type:           "init",
+      ampOutputPower: p?.ampOutputPower ?? "",
+      speakerModel:   p?.speakerModel   ?? "",
+      sampleRate,
+      bufferSize:     samplesPerCh,
+    });
+  }, []);
+
   const closeWs = useCallback(() => {
     stopRaf();
     const ws = wsRef.current;
@@ -375,15 +379,7 @@ const WaveformPlayer = forwardRef<WaveformPlayerHandle, Props>(function Waveform
     wsRef.current = ws;
 
     ws.onopen = () => {
-      const p = inputParamsRef.current;
-      const { sampleRate, samplesPerCh } = engineConfigRef.current;
-      ws.send(JSON.stringify({
-        type:           "init",
-        ampOutputPower: p?.ampOutputPower ?? "",
-        speakerModel:   p?.speakerModel   ?? "",
-        sampleRate,
-        bufferSize:     samplesPerCh,
-      }));
+      ws.send(buildInitMessage());
     };
 
     ws.onmessage = (event) => {
@@ -472,7 +468,7 @@ const WaveformPlayer = forwardRef<WaveformPlayerHandle, Props>(function Waveform
       wsReadyRef.current = false;
       onDebugUpdate?.({ wsConnected: false });
     };
-  }, [startRaf, onStreamStart, onFrameReceived, onStatusChange]);
+  }, [startRaf, onStreamStart, onFrameReceived, onStatusChange, buildInitMessage]);
 
   // ── 일시정지 (WebSocket 유지 → 재개 시 스트림/차트 보존) ──────────────────
   const pausePlayback = useCallback(() => {
@@ -554,15 +550,7 @@ const WaveformPlayer = forwardRef<WaveformPlayerHandle, Props>(function Waveform
         };
 
         batchWs.onopen = () => {
-          const p = inputParamsRef.current;
-          const { sampleRate, samplesPerCh } = engineConfigRef.current;
-          batchWs.send(JSON.stringify({
-            type:           "init",
-            ampOutputPower: p?.ampOutputPower ?? "",
-            speakerModel:   p?.speakerModel   ?? "",
-            sampleRate,
-            bufferSize:     samplesPerCh,
-          }));
+          batchWs.send(buildInitMessage());
         };
 
         batchWs.onmessage = (event) => {
@@ -604,7 +592,7 @@ const WaveformPlayer = forwardRef<WaveformPlayerHandle, Props>(function Waveform
         };
       });
     },
-    [],
+    [buildInitMessage],
   );
 
   // page.tsx에서 ref.current.sendMessage()로 WS 전송

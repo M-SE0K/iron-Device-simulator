@@ -1,5 +1,5 @@
 /**
- * engine/utils.ts — 공유 분석 유틸 (deinterleave, 후처리 보정)
+ * engine/utils.ts — 공유 분석 유틸 (PCM 인터리브 변환, 후처리 보정)
  *
  * wasm-client-engine이 사용하는 PCM 변환과 SPEAKER_PROFILES 후처리 보정을 모아둔다.
  */
@@ -10,6 +10,20 @@ import {
   SPEAKER_PROFILES, DEFAULT_PROFILE, powerTempMult,
   type MemoryLayout, type FrameResult, type EngineRuntimeConfig,
 } from "./core";
+
+// ─── PCM 변환: 플래너(Float32, ch0/ch1) → 인터리브 Int16(L R L R) ────────────
+/**
+ * 마이크/파일 캡처의 플래너 Float32 채널 쌍을 분석 소켓 전송용 인터리브
+ * Int16 PCM으로 변환한다 (WaveformPlayer/MicrophonePlayer 공용).
+ */
+export function encodeToInt16(ch0: Float32Array, ch1: Float32Array): Int16Array {
+  const out = new Int16Array(ch0.length * 2);
+  for (let i = 0; i < ch0.length; i++) {
+    out[i * 2]     = Math.max(-32768, Math.min(32767, Math.round(ch0[i] * 32767)));
+    out[i * 2 + 1] = Math.max(-32768, Math.min(32767, Math.round(ch1[i] * 32767)));
+  }
+  return out;
+}
 
 // ─── PCM 변환: 인터리브(L R L R) → 플래너(LL...RR...) ────────────────────────
 /**

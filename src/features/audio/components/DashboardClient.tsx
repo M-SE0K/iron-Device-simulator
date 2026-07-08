@@ -125,6 +125,19 @@ export default function DashboardPage({ useQueue }: DashboardPageProps) {
     totalE2eMs: number | null;
   }>({ reactMs: null, echartsMs: null, totalRecvMs: null, totalE2eMs: null });
 
+  // ── JSON 다운로드 헬퍼 ────────────────────────────────────────────────────
+  const downloadJson = useCallback((obj: unknown, filename: string) => {
+    const blob = new Blob([JSON.stringify(obj, null, 2)], { type: "application/json" });
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement("a");
+    a.href     = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }, []);
+
   // ── 측정 모드 토글 + JSON 다운로드 ──────────────────────────────────────
   const handleMeasureToggle = useCallback(() => {
     if (!isMeasuringRef.current) {
@@ -216,17 +229,9 @@ export default function DashboardPage({ useQueue }: DashboardPageProps) {
       };
 
       const timestamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
-      const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
-      const url  = URL.createObjectURL(blob);
-      const a    = document.createElement("a");
-      a.href     = url;
-      a.download = `iron-device-measurement-${timestamp}.json`;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
+      downloadJson(data, `iron-device-measurement-${timestamp}.json`);
     }
-  }, [audioFile]);
+  }, [audioFile, downloadJson]);
 
   // ── 측정 중 프레임 카운트 UI 갱신 (200ms 간격) ───────────────────────────
   useEffect(() => {
@@ -385,19 +390,6 @@ export default function DashboardPage({ useQueue }: DashboardPageProps) {
     preservedEventsRef.current = 0;
     eventLogRef.current        = [];
     prevTempRef.current        = null;
-  }, []);
-
-  // ── JSON 다운로드 헬퍼 ────────────────────────────────────────────────────
-  const downloadJson = useCallback((obj: unknown, filename: string) => {
-    const blob = new Blob([JSON.stringify(obj, null, 2)], { type: "application/json" });
-    const url  = URL.createObjectURL(blob);
-    const a    = document.createElement("a");
-    a.href     = url;
-    a.download = filename;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
   }, []);
 
   // ── 분석 모드 전환 ────────────────────────────────────────────────────────

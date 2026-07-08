@@ -3,8 +3,8 @@
 // 우측 슬라이딩 드로어 — 캘리브레이션 파라미터 편집(앱 전역 단일 소스).
 // 값은 CalibrationProvider(Context)에 보관되어 대시보드 분석에 그대로 쓰인다("캘리브레이션 단일 적용").
 // 편집은 로컬 draft 에서 하고 "적용" 시 Context 에 커밋한다.
-//   · 스피커 모델 / AMP 출력 전력(W) / 주변 온도(°C)
-//   · 선택 모델의 물리 프로파일(SPEAKER_PROFILES): 온도 베이스·익스커션 진폭·승수
+//   · Input Source / Analysis Mode / Input·Output·Capture Device
+//   · Sample Rate / Buffer Size / Capture Channels (+ 연결된 장치 능력 패널)
 // 좌측 WorkspaceDrawer와 동일하게 항상 마운트된 순수 DOM(비Radix)로 구현 — open 불리언으로
 // 클래스만 토글해 열기/닫기 양방향 슬라이드·페이드 애니메이션을 대칭적으로 재생한다.
 import { useCallback, useEffect, useState } from "react";
