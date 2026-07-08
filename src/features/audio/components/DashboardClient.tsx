@@ -13,13 +13,14 @@ import { AppStatus, AnalysisFrame, StreamDebugInfo, DebugLogEntry, MeasurementEx
 import { useCalibration } from "./calibration/Calibration-context";
 import { useWorkspace } from "./workspace/Workspace-context";
 import { cn } from "@/shared/lib/utils";
-import { saveFrameCache, loadFrameCache, clearFrameCache } from "@/features/audio/lib/cache/frame";
-import { putAudio, getCachedAudio, clearAudio } from "@/features/audio/lib/cache/audio-blob";
+import { clearFrameCache } from "@/features/audio/lib/cache/frame";
+import { putAudio, clearAudio } from "@/features/audio/lib/cache/audio-blob";
 import { coalesceFrames } from "@/features/audio/lib/render/coalesce";
-import { detectEvents } from "@/features/audio/lib/render/detect-events";
+import { detectEvents, DEFAULT_TEMP_WARN, DEFAULT_TEMP_DANGER, type TempThresholds } from "@/features/audio/lib/render/detect-events";
 import type { QueuedFrame } from "@/features/audio/lib/render/types";
 import { useMeasurementCapture } from "@/features/audio/components/hooks/useMeasurementCapture";
 import { useRenderTelemetry } from "@/features/audio/components/hooks/useRenderTelemetry";
+import { useFrameCachePersistence } from "@/features/audio/components/hooks/useFrameCachePersistence";
 
 interface DashboardPageProps {
   useQueue: boolean;
@@ -46,6 +47,19 @@ export default function DashboardPage({ useQueue }: DashboardPageProps) {
     () => ({ ampOutputPower: calibration.ampOutputPower, speakerModel: calibration.speakerModel }),
     [calibration.ampOutputPower, calibration.speakerModel],
   );
+  // 온도 WARN/DANGER 임계값 — 차트 markLine과 detectEvents 이벤트 감지가 공유한다.
+  // 파싱 실패(빈 문자열/NaN) 시 기본값(65/75°C)으로 fallback.
+  const tempThresholds = useMemo<TempThresholds>(() => {
+    const warn = Number(calibration.tempWarn);
+    const danger = Number(calibration.tempDanger);
+    return {
+      warn: Number.isFinite(warn) ? warn : DEFAULT_TEMP_WARN,
+      danger: Number.isFinite(danger) ? danger : DEFAULT_TEMP_DANGER,
+    };
+  }, [calibration.tempWarn, calibration.tempDanger]);
+  useEffect(() => {
+    thresholdsRef.current = tempThresholds;
+  }, [tempThresholds]);
   const [inputMode, setInputMode] = useState<"file" | "mic">("file");
 
   // ── 차트 상세(자세히 보기) 뷰 — 어느 차트를 전체화면으로 열었는지 (null = 대시보드) ──
@@ -107,6 +121,10 @@ export default function DashboardPage({ useQueue }: DashboardPageProps) {
   const eventLogRef          = useRef<{ audioTime: number; eventType: "temp_warn" | "temp_danger" | "exc_peak" }[]>([]);
   // Step 6: 직전 렌더 frame의 temperature (threshold crossing 감지용)
   const prevTempRef          = useRef<[number, number] | null>(null);
+  // Calibration.tempWarn/tempDanger — Render Scheduler(setInterval)가 effect 재실행 없이
+  // 최신값을 읽도록 ref로 미러링한다(변경 시 outputQueueRef 등 카운터를 리셋하지 않기 위해
+  // 의도적으로 스케줄러 effect의 deps에는 넣지 않는다).
+  const thresholdsRef        = useRef<TempThresholds>({ warn: DEFAULT_TEMP_WARN, danger: DEFAULT_TEMP_DANGER });
   // 렌더 업데이트 빈도 측정
   const lastRenderRateRef    = useRef<{ time: number; count: number }>({ time: 0, count: 0 });
   const renderUpdateRateRef  = useRef<number | null>(null);
@@ -153,16 +171,12 @@ export default function DashboardPage({ useQueue }: DashboardPageProps) {
   useEffect(() => { audioDurationRef.current    = audioDuration;   }, [audioDuration]);
   useEffect(() => { analysisModeRef.current     = analysisMode;    }, [analysisMode]);
 
-  // ── sessionStorage 저장 헬퍼 ──────────────────────────────────────────────
-  const persistCache = useCallback(() => {
-    saveFrameCache({
-      fileName:       audioFile?.name ?? fileNameRef.current,
-      audioDuration:  audioDurationRef.current,
-      analysisMode:   analysisModeRef.current,
-      realtimeFrames: streamingFramesRef.current,
-      batchFrames:    batchFramesRef.current,
-    });
-  }, [audioFile]);
+  // ── sessionStorage 프레임 캐시 + IndexedDB 오디오 복원 (F5/탭 전환 대응) ──────
+  const { persistCache } = useFrameCachePersistence({
+    audioFile, realtimeStatus, batchStatus,
+    streamingFramesRef, batchFramesRef, audioDurationRef, analysisModeRef, fileNameRef,
+    setStreamingFrames, setBatchFrames, setAudioDuration, setAnalysisMode, setAudioFile,
+  });
 
   // ── 작업 영역(Workspace) 저장 — 현재 음원 + 활성 모드의 분석 그래프를 영구 보존 ──────
   const handleSaveToWorkspace = useCallback(async () => {
@@ -181,48 +195,6 @@ export default function DashboardPage({ useQueue }: DashboardPageProps) {
       audioType: audioFile.type,
     });
   }, [audioFile, saveCurrent]);
-
-  // ── 마운트 시 캐시 복원 (탭 전환 후 재마운트 / 새로고침 대응) ──────────────
-  useEffect(() => {
-    const snap = loadFrameCache();
-    if (snap) {
-      if (snap.realtimeFrames.length) { setStreamingFrames(snap.realtimeFrames); streamingFramesRef.current = snap.realtimeFrames; }
-      if (snap.batchFrames.length)    { setBatchFrames(snap.batchFrames);        batchFramesRef.current     = snap.batchFrames; }
-      if (snap.audioDuration != null) { setAudioDuration(snap.audioDuration);     audioDurationRef.current    = snap.audioDuration; }
-      setAnalysisMode(snap.analysisMode);
-      analysisModeRef.current = snap.analysisMode;
-      fileNameRef.current = snap.fileName;
-    }
-
-    // 오디오 원본(IndexedDB) 복원 → WaveformPlayer가 재디코딩하여 파형을 다시 그린다.
-    // handleFileSelected를 거치지 않으므로 복원된 차트 캐시를 비우지 않는다.
-    let cancelled = false;
-    void getCachedAudio().then((file) => {
-      if (cancelled || !file) return;
-      fileNameRef.current = file.name;
-      setAudioFile(file);
-    });
-    return () => { cancelled = true; };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  // ── 재생 정지(paused/ready) 시 캐시 저장 ──────────────────────────────────
-  useEffect(() => {
-    const stalled = (s: AppStatus) => s === "paused" || s === "ready";
-    if (stalled(realtimeStatus) || stalled(batchStatus)) persistCache();
-  }, [realtimeStatus, batchStatus, persistCache]);
-
-  // ── 탭 숨김/이탈(새로고침 포함) 직전 캐시 저장 ────────────────────────────
-  useEffect(() => {
-    const onPageHide = () => persistCache();
-    const onVisibility = () => { if (document.visibilityState === "hidden") persistCache(); };
-    window.addEventListener("pagehide", onPageHide);
-    document.addEventListener("visibilitychange", onVisibility);
-    return () => {
-      window.removeEventListener("pagehide", onPageHide);
-      document.removeEventListener("visibilitychange", onVisibility);
-    };
-  }, [persistCache]);
 
   // ── 파일 선택 / 초기화 ────────────────────────────────────────────────────
   // 모든 분석 버퍼/상태를 새 음원 기준으로 비우는 공통 루틴 (캐시 I/O 제외)
@@ -439,7 +411,7 @@ export default function DashboardPage({ useQueue }: DashboardPageProps) {
       if (bucket.length === 0) return;
 
       // Step 6: 이벤트 감지
-      const eventFrames = detectEvents(bucket, prevTempRef.current);
+      const eventFrames = detectEvents(bucket, prevTempRef.current, thresholdsRef.current);
 
       // Step 5: Coalescing 정책 — 요약 frame으로 병합
       const renderFrame = coalesceFrames(bucket);
@@ -682,6 +654,8 @@ export default function DashboardPage({ useQueue }: DashboardPageProps) {
                   onReactRender={handleReactRender}
                   onEchartsRender={handleEchartsRender}
                   onExpand={() => setDetailChart("temperature")}
+                  warnThreshold={tempThresholds.warn}
+                  dangerThreshold={tempThresholds.danger}
                 />
               </div>
               <div className="h-[300px] lg:h-auto lg:min-h-0 lg:flex-1">
@@ -713,6 +687,8 @@ export default function DashboardPage({ useQueue }: DashboardPageProps) {
           audioDuration={audioDuration}
           followWindow={analysisMode === "realtime"}
           lttb={LTTB_ENABLED}
+          warnThreshold={tempThresholds.warn}
+          dangerThreshold={tempThresholds.danger}
           onClose={() => setDetailChart(null)}
         />
       )}

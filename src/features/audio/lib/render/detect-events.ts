@@ -1,14 +1,29 @@
 import type { QueuedFrame } from "./types";
 
-const TEMP_WARN   = 65;
-const TEMP_DANGER = 75;
+// Calibration에서 tempWarn/tempDanger를 지정하지 않았을 때(또는 파싱 실패 시)의 기본값 —
+// Calibration-context.tsx의 CALIBRATION_EMPTY와 TemperatureChart.tsx의 markLine이
+// 이 값을 공유한다(단일 진실원).
+export const DEFAULT_TEMP_WARN   = 65;
+export const DEFAULT_TEMP_DANGER = 75;
+
+export interface TempThresholds {
+  warn: number;
+  danger: number;
+}
+
+const DEFAULT_THRESHOLDS: TempThresholds = { warn: DEFAULT_TEMP_WARN, danger: DEFAULT_TEMP_DANGER };
 
 /**
  * bucket 안에서 온도 임계 교차(WARN/DANGER)와 익스커션 피크를 감지한다.
  * 감지된 프레임은 bucket[i].frame을 isEvent/eventType이 채워진 새 객체로
  * 교체한다(제자리 변경) — coalesceFrames가 이후 이 변경을 그대로 읽는다.
  */
-export function detectEvents(bucket: QueuedFrame[], prevTemp: [number, number] | null): QueuedFrame[] {
+export function detectEvents(
+  bucket: QueuedFrame[],
+  prevTemp: [number, number] | null,
+  thresholds: TempThresholds = DEFAULT_THRESHOLDS,
+): QueuedFrame[] {
+  const { warn: TEMP_WARN, danger: TEMP_DANGER } = thresholds;
   const events: QueuedFrame[] = [];
   for (let i = 0; i < bucket.length; i++) {
     const f = bucket[i].frame;

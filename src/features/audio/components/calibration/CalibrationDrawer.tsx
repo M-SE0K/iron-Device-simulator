@@ -13,10 +13,8 @@ import AnimatedSelect from "@/shared/components/AnimatedSelect";
 import DeviceSelectField from "./DeviceSelectField";
 import { useAnalysisMode } from "@/features/audio/components/AnalysisModeContext";
 import {
-  BUFFER_SIZE_OPTIONS,
   CALIBRATION_EMPTY,
   CHANNEL_OPTIONS,
-  SAMPLE_RATE_OPTIONS,
   useCalibration,
   type CalibrationValues,
 } from "./Calibration-context";
@@ -27,16 +25,8 @@ import {
 } from "@/features/audio/lib/cache/calibration";
 import { useNativeAudioDevice } from "./hooks/useNativeAudioDevice";
 import { useMediaDevices } from "./hooks/useMediaDevices";
-
-/** 문자열 옵션들 중 목표값과 수치상 가장 가까운 것을 고른다(자동 보정용). 빈 목록이면 null. */
-function nearestOption(options: string[], value: string): string | null {
-  if (!options.length) return null;
-  const target = Number(value);
-  if (!Number.isFinite(target)) return options[0];
-  return options.reduce((best, o) =>
-    Math.abs(Number(o) - target) < Math.abs(Number(best) - target) ? o : best,
-  );
-}
+import { useDeviceOptionAutoCorrect } from "./hooks/useDeviceOptionAutoCorrect";
+import { useCalibrationDraft } from "./hooks/useCalibrationDraft";
 
 /** 드롭다운 선택 필드 */
 function SelectField({
@@ -65,6 +55,36 @@ function SelectField({
         aria-label={label}
         disabled={disabled}
       />
+    </div>
+  );
+}
+
+/** 숫자 자유 입력 필드 — 고정 옵션 목록이 없는 값(온도 임계값 등)용. AnimatedSelect 트리거와 톤을 맞췄다. */
+function NumberField({
+  label,
+  unit,
+  value,
+  onChange,
+}: {
+  label: string;
+  unit?: string;
+  value: string;
+  onChange: (v: string) => void;
+}) {
+  return (
+    <div className="flex flex-col gap-1.5">
+      <label className="text-[10px] uppercase tracking-wider font-medium text-iron-400">{label}</label>
+      <div className="flex items-center gap-2 px-3 py-2 rounded-lg border border-iron-200 bg-white focus-within:border-brand-blue focus-within:ring-1 focus-within:ring-brand-blue">
+        <input
+          type="number"
+          inputMode="decimal"
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          aria-label={label}
+          className="w-full min-w-0 font-mono text-sm text-iron-900 bg-transparent focus:outline-none"
+        />
+        {unit && <span className="text-xs text-iron-400 shrink-0">{unit}</span>}
+      </div>
     </div>
   );
 }
@@ -147,13 +167,11 @@ export default function CalibrationDrawer({ projectName, onApply }: Props) {
   // 대시보드 밖(Provider 부재)에서는 null 이므로 해당 섹션을 숨긴다.
   const mode = useAnalysisMode();
   const [open, setOpen] = useState(false);
-  const [draft, setDraft] = useState<CalibrationValues>(values);
+  const { draft, setDraft, set } = useCalibrationDraft(open, values);
 
   const [deviceStatus, setDeviceStatus] = useState<DeviceApplyStatus>("idle");
   const [deviceActual, setDeviceActual] = useState<{ sampleRate: number | null; bufferSize: number | null } | null>(null);
   const [deviceError, setDeviceError] = useState<string | null>(null);
-  // 장치 미지원 SR/Buffer 값을 지원값으로 자동 보정했을 때의 안내 문구(무엇→무엇). null이면 숨김.
-  const [adjustedNote, setAdjustedNote] = useState<string | null>(null);
   // "적용" 시 capture probe로 확인한 실제 런타임 값 — sessionStorage에 저장되어 새로고침(F5)
   // 후에도 "연결된 장치" 패널에 마지막 적용값이 그대로 렌더링된다.
   const [appliedRuntime, setAppliedRuntime] = useState<DeviceActualCache | null>(null);
@@ -166,20 +184,24 @@ export default function CalibrationDrawer({ projectName, onApply }: Props) {
     hasMediaDevices, inputDevices, outputDevices, devicesLoading, labelsHidden,
     refreshInputDevices, revealDeviceNames,
   } = useMediaDevices();
+  const {
+    sampleRateOptions, bufferSizeOptions, deviceOptionsLoading, adjustedNote, clearAdjustedNote,
+  } = useDeviceOptionAutoCorrect({ deviceInfo, deviceInfoLoading, hasAudioDeviceBridge, draft, set });
 
   useEffect(() => {
     // 새로고침 후에도 마지막으로 적용된 런타임 값을 복원해 "연결된 장치" 패널에 표시
     setAppliedRuntime(loadDeviceActualCache());
   }, []);
 
-  // 열 때마다 현재 적용값으로 draft 동기화 + 장치 정보 새로고침
+  // 열 때마다 deviceStatus/adjustedNote 리셋 + 장치 정보 새로고침 (draft 자체의 동기화는
+  // useCalibrationDraft가 별도 [open] effect로 담당 — React는 같은 의존성의 effect 여러
+  // 개를 선언 순서대로 전부 실행하므로 하나였을 때와 동작이 같다).
   useEffect(() => {
     if (!open) return;
-    setDraft(values);
     setDeviceStatus("idle");
     setDeviceActual(null);
     setDeviceError(null);
-    setAdjustedNote(null);
+    clearAdjustedNote();
     refreshNativeDevices();
     refreshDeviceInfo(values.captureDeviceUID);
     refreshInputDevices();
@@ -192,53 +214,6 @@ export default function CalibrationDrawer({ projectName, onApply }: Props) {
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [open]);
-
-  const set = (patch: Partial<CalibrationValues>) => setDraft((v) => ({ ...v, ...patch }));
-
-  // DEVICE 섹션 선택지 — Electron(Swift/CoreAudio) query()로 받은 장치 능력이 있으면 그 값으로,
-  // 없으면(브라우저) 데모 목록으로 SampleRate/Buffer 옵션을 구성한다.
-  const sampleRateOptions = deviceInfo?.supportedSampleRates?.length
-    ? deviceInfo.supportedSampleRates.map(String)
-    : SAMPLE_RATE_OPTIONS;
-  const bufferSizeOptions = (() => {
-    const r = deviceInfo?.bufferRange;
-    if (!r) return BUFFER_SIZE_OPTIONS;
-    const inRange = BUFFER_SIZE_OPTIONS.filter((b) => Number(b) >= r.min && Number(b) <= r.max);
-    return inRange.length ? inRange : BUFFER_SIZE_OPTIONS;
-  })();
-  // 장치 능력(query) 조회 중에는 아직 이전(또는 미필터) 옵션이 남아있으므로 DEVICE 섹션의
-  // SampleRate/Buffer 선택을 잠근다 — 응답이 오면 그 장치가 지원하는 값만 렌더링된다.
-  // 조회 API가 없는 브라우저/모바일에서는 deviceInfoLoading이 항상 false라 잠기지 않는다.
-  const deviceOptionsLoading = hasAudioDeviceBridge && deviceInfoLoading;
-
-  // 장치 능력이 도착했을 때(로딩 완료), 현재 draft의 SR/Buffer가 그 장치의 지원 목록 밖이면
-  // 가장 가까운 지원값으로 자동 보정한다 — 무효값이 그대로 "적용"→capture로 넘어가는 것을 막는다.
-  // deviceInfo가 바뀔 때(= 장치 전환/새로고침으로 새 능력이 온 시점)에만 실행한다. 보정 결과는
-  // 그 자체로 지원 목록 안의 값이 되므로 재실행돼도 더는 바뀌지 않아 루프가 나지 않는다.
-  useEffect(() => {
-    if (!deviceInfo || deviceInfoLoading) return;
-    const patch: Partial<CalibrationValues> = {};
-    const notes: string[] = [];
-    if (!sampleRateOptions.includes(draft.sampleRate)) {
-      const nearest = nearestOption(sampleRateOptions, draft.sampleRate);
-      if (nearest && nearest !== draft.sampleRate) {
-        patch.sampleRate = nearest;
-        notes.push(`Sample Rate ${draft.sampleRate}→${nearest}Hz`);
-      }
-    }
-    if (!bufferSizeOptions.includes(draft.bufferSize)) {
-      const nearest = nearestOption(bufferSizeOptions, draft.bufferSize);
-      if (nearest && nearest !== draft.bufferSize) {
-        patch.bufferSize = nearest;
-        notes.push(`Buffer ${draft.bufferSize}→${nearest}`);
-      }
-    }
-    if (notes.length) {
-      setDraft((v) => ({ ...v, ...patch }));
-      setAdjustedNote(`이 장치가 지원하지 않아 자동 조정됨: ${notes.join(", ")}`);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [deviceInfo, deviceInfoLoading]);
 
   const apply = async () => {
     setValues(draft);
@@ -439,6 +414,26 @@ export default function CalibrationDrawer({ projectName, onApply }: Props) {
             )}
           </section>
 
+          {/* 온도 임계값 — TemperatureChart의 WARN/DANGER markLine과 렌더 이벤트 감지(detectEvents)가
+              공유한다. 값이 비어있거나 숫자가 아니면 기본값(65/75°C)으로 fallback. */}
+          <section className="space-y-3">
+            <h4 className="text-xs font-semibold text-iron-500">THRESHOLD</h4>
+            <div className="grid grid-cols-2 gap-3">
+              <NumberField
+                label="Temp WARN"
+                unit="°C"
+                value={draft.tempWarn}
+                onChange={(v) => set({ tempWarn: v })}
+              />
+              <NumberField
+                label="Temp DANGER"
+                unit="°C"
+                value={draft.tempDanger}
+                onChange={(v) => set({ tempDanger: v })}
+              />
+            </div>
+          </section>
+
           {/* 연결된 장치 정보 (Electron 전용) */}
           {hasAudioDeviceBridge && (
             <section className="space-y-3">
@@ -537,14 +532,14 @@ export default function CalibrationDrawer({ projectName, onApply }: Props) {
                 unit="Hz"
                 value={draft.sampleRate}
                 options={sampleRateOptions}
-                onChange={(v) => { setAdjustedNote(null); set({ sampleRate: v }); }}
+                onChange={(v) => { clearAdjustedNote(); set({ sampleRate: v }); }}
                 disabled={deviceOptionsLoading}
               />
               <SelectField
                 label="Buffer Size"
                 value={draft.bufferSize}
                 options={bufferSizeOptions}
-                onChange={(v) => { setAdjustedNote(null); set({ bufferSize: v }); }}
+                onChange={(v) => { clearAdjustedNote(); set({ bufferSize: v }); }}
                 disabled={deviceOptionsLoading}
               />
             </div>

@@ -21,6 +21,9 @@ interface Props {
   audioDuration?: number | null;
   followWindow?: boolean;
   lttb?: boolean;
+  /** temperature 상세 뷰의 WARN/DANGER markLine — Calibration.tempWarn/tempDanger */
+  warnThreshold?: number;
+  dangerThreshold?: number;
   onClose: () => void;
 }
 
@@ -47,6 +50,8 @@ export default function ChartDetailOverlay({
   audioDuration,
   followWindow,
   lttb,
+  warnThreshold,
+  dangerThreshold,
   onClose,
 }: Props) {
   const isTemp = metric === "temperature";
@@ -164,6 +169,8 @@ export default function ChartDetailOverlay({
             audioDuration={audioDuration}
             followWindow={followWindow}
             lttb={lttb}
+            warnThreshold={warnThreshold}
+            dangerThreshold={dangerThreshold}
           />
         ) : (
           <ExcursionChart

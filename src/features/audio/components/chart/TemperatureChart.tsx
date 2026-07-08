@@ -6,6 +6,7 @@ import { Maximize2 } from "lucide-react";
 import { AnalysisFrame } from "@/features/audio/types";
 import { findFrameIndex } from "@/shared/lib/utils";
 import { cn } from "@/shared/lib/utils";
+import { DEFAULT_TEMP_WARN, DEFAULT_TEMP_DANGER } from "@/features/audio/lib/render/detect-events";
 
 const ReactECharts = dynamic(() => import("echarts-for-react"), { ssr: false });
 
@@ -29,11 +30,13 @@ interface Props {
   onEchartsRender?: (ts: number) => void;
   /** 설정 시 헤더에 "자세히 보기" 확대 버튼을 렌더 → 클릭 시 상세 뷰 전환 */
   onExpand?: () => void;
+  /** 온도 WARN 임계값(°C) — Calibration.tempWarn. 미지정 시 기본값(65°C) */
+  warnThreshold?: number;
+  /** 온도 DANGER 임계값(°C) — Calibration.tempDanger. 미지정 시 기본값(75°C) */
+  dangerThreshold?: number;
 }
 
-const WARN_THRESHOLD   = 65;
-const DANGER_THRESHOLD = 75;
-const WINDOW_SIZE      = 1000;
+const WINDOW_SIZE = 1000;
 
 // 채널별 색상
 const CH_COLOR: Record<ChannelMode, { ch0: string; ch1: string }> = {
@@ -42,7 +45,7 @@ const CH_COLOR: Record<ChannelMode, { ch0: string; ch1: string }> = {
   Both: { ch0: "#0057B8", ch1: "#7C3AED" },
 };
 
-export default function TemperatureChart({ frames, currentTime, isActive, streaming = false, audioDuration, followWindow = false, lttb = true, onReactRender, onEchartsRender, onExpand }: Props) {
+export default function TemperatureChart({ frames, currentTime, isActive, streaming = false, audioDuration, followWindow = false, lttb = true, onReactRender, onEchartsRender, onExpand, warnThreshold = DEFAULT_TEMP_WARN, dangerThreshold = DEFAULT_TEMP_DANGER }: Props) {
   const [channelMode, setChannelMode] = useState<ChannelMode>("Both");
 
   // ── 줌 상태 보존 — ref로 관리해서 렌더 유발 없이 option에 반영 ────────────
@@ -106,8 +109,8 @@ export default function TemperatureChart({ frames, currentTime, isActive, stream
 
   const tempColor =
     displayTemp === null ? "#7D8699"
-    : displayTemp >= DANGER_THRESHOLD ? "#EF4444"
-    : displayTemp >= WARN_THRESHOLD   ? "#F59E0B"
+    : displayTemp >= dangerThreshold ? "#EF4444"
+    : displayTemp >= warnThreshold   ? "#F59E0B"
     : CH_COLOR[channelMode].ch0;
 
   // ── ECharts 옵션 ─────────────────────────────────────────────────────────
@@ -139,8 +142,8 @@ export default function TemperatureChart({ frames, currentTime, isActive, stream
         silent: true,
         symbol: "none",
         data: [
-          { yAxis: WARN_THRESHOLD,   lineStyle: { color: "#F59E0B", type: "dashed", width: 1 }, label: { formatter: "WARN",   color: "#F59E0B", fontSize: 9 } },
-          { yAxis: DANGER_THRESHOLD, lineStyle: { color: "#EF4444", type: "dashed", width: 1 }, label: { formatter: "DANGER", color: "#EF4444", fontSize: 9 } },
+          { yAxis: warnThreshold,   lineStyle: { color: "#F59E0B", type: "dashed", width: 1 }, label: { formatter: "WARN",   color: "#F59E0B", fontSize: 9 } },
+          { yAxis: dangerThreshold, lineStyle: { color: "#EF4444", type: "dashed", width: 1 }, label: { formatter: "DANGER", color: "#EF4444", fontSize: 9 } },
         ],
       },
     };
@@ -254,7 +257,7 @@ export default function TemperatureChart({ frames, currentTime, isActive, stream
         },
       },
     };
-  }, [windowFrames, channelMode, audioDuration, followWindow, lttb]);
+  }, [windowFrames, channelMode, audioDuration, followWindow, lttb, warnThreshold, dangerThreshold]);
 
   const showChart = audioDuration != null || frames.length > 0;
 

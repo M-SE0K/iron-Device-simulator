@@ -6,6 +6,7 @@
 // 향후 ff_prot_set_param 연동을 위한 선행 필드다(현재 모델별 SPEAKER_PROFILES 로 후처리).
 import { createContext, useContext, useEffect, useMemo, useState, type Dispatch, type ReactNode, type SetStateAction } from "react";
 import { loadCalibrationCache, saveCalibrationCache } from "@/features/audio/lib/cache/calibration";
+import { DEFAULT_TEMP_WARN, DEFAULT_TEMP_DANGER } from "@/features/audio/lib/render/detect-events";
 
 const DEFAULT_AMBIENT = 25;
 
@@ -34,6 +35,8 @@ export interface CalibrationValues {
   excAmp: string; // mm (프로파일)
   tempMult: string; // 승수
   excMult: string; // 승수
+  tempWarn: string; // °C — 온도 WARN 임계값(차트 markLine + detectEvents 이벤트 감지 공용)
+  tempDanger: string; // °C — 온도 DANGER 임계값(차트 markLine + detectEvents 이벤트 감지 공용)
 }
 
 export const CALIBRATION_EMPTY: CalibrationValues = {
@@ -52,6 +55,8 @@ export const CALIBRATION_EMPTY: CalibrationValues = {
   excAmp: "",
   tempMult: "",
   excMult: "",
+  tempWarn: String(DEFAULT_TEMP_WARN),
+  tempDanger: String(DEFAULT_TEMP_DANGER),
 };
 
 interface CalibrationCtx {
