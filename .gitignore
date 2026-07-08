@@ -8,9 +8,6 @@ node_modules/
 /.next/
 /out/
 
-# WASM 빌드 산출물 (native/build-wasm.sh 로 재생성 — native/wasm/ 는 native/.gitignore 로 별도 관리)
-/public/wasm/
-
 # Capacitor 모바일 패키징 산출물 (npx cap add android/ios 로 재생성 — 용량이 커서 저장소에 올리지 않음)
 /android/
 /ios/
@@ -21,8 +18,11 @@ node_modules/
 # Electron 패키징 산출물 (scripts/build-electron.sh 로 재생성)
 /dist-electron/
 
-# CoreAudio HAL 헬퍼 컴파일 산출물 (electron/native/audio-device-helper/build-mac.sh 로 재생성)
-/electron/native/audio-device-helper/dist/
+# 로컬 전용 소스 — 원격 레포에는 올리지 않음 (각자 로컬에서만 보관/빌드)
+/electron/
+/native/
+/public/
+/resources/
 
 # Environment variables
 .env
