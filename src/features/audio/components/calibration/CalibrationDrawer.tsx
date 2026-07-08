@@ -10,6 +10,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { RefreshCw, RotateCcw, SlidersHorizontal, X } from "lucide-react";
 import AnimatedSelect from "@/shared/components/AnimatedSelect";
+import DeviceSelectField from "./DeviceSelectField";
 import { useAnalysisMode } from "@/features/audio/components/AnalysisModeContext";
 import {
   BUFFER_SIZE_OPTIONS,
@@ -363,6 +364,19 @@ export default function CalibrationDrawer({ projectName, onApply }: Props) {
     await refreshDeviceInfo();
   };
 
+  // Input/Output Device 헤더의 새로고침 버튼 — 동작이 완전히 동일해 하나로 공유한다.
+  const refreshDevicesButton = (
+    <button
+      type="button"
+      onClick={labelsHidden ? revealDeviceNames : refreshInputDevices}
+      disabled={devicesLoading}
+      className="flex items-center gap-1 text-[11px] text-iron-400 hover:text-iron-700 disabled:opacity-50"
+    >
+      <RefreshCw className={`w-3 h-3 ${devicesLoading ? "animate-spin" : ""}`} />
+      {labelsHidden ? "이름 표시" : "새로고침"}
+    </button>
+  );
+
   return (
     <>
       {/* 트리거 (우측) */}
@@ -449,102 +463,54 @@ export default function CalibrationDrawer({ projectName, onApply }: Props) {
             {/* 입력 장치 — 웹/모바일(getUserMedia) 전용. Electron에서는 아래 "연결된 장치"의
                 Capture Device(CoreAudio UID)가 캡처 대상을 담당하므로 이 선택기는 숨긴다(중복 방지). */}
             {hasMediaDevices && !hasAudioDeviceBridge && (
-              <div className="flex flex-col gap-1.5">
-                <div className="flex items-center justify-between">
-                  <label className="text-[10px] uppercase tracking-wider font-medium text-iron-400">
-                    Input Device
-                  </label>
-                  <button
-                    type="button"
-                    onClick={labelsHidden ? revealDeviceNames : refreshInputDevices}
-                    disabled={devicesLoading}
-                    className="flex items-center gap-1 text-[11px] text-iron-400 hover:text-iron-700 disabled:opacity-50"
-                  >
-                    <RefreshCw className={`w-3 h-3 ${devicesLoading ? "animate-spin" : ""}`} />
-                    {labelsHidden ? "이름 표시" : "새로고침"}
-                  </button>
-                </div>
-                <AnimatedSelect
-                  value={draft.inputDeviceId}
-                  aria-label="Input Device"
-                  onChange={(id) => {
-                    const dev = inputDevices.find((d) => d.deviceId === id);
-                    set({ inputDeviceId: id, inputDeviceLabel: dev?.label ?? "" });
-                  }}
-                  options={[
-                    { value: "", label: "시스템 기본 입력" },
-                    ...inputDevices.map((d, i) => ({
-                      value: d.deviceId,
-                      label: d.label || `마이크 ${i + 1}`,
-                    })),
-                    // 저장된 장치가 현재 목록에 없으면(연결 해제) 값이 사라지지 않게 보존 표시
-                    ...(draft.inputDeviceId && !inputDevices.some((d) => d.deviceId === draft.inputDeviceId)
-                      ? [
-                          {
-                            value: draft.inputDeviceId,
-                            label: draft.inputDeviceLabel || "저장된 장치",
-                            hint: "연결 안 됨",
-                          },
-                        ]
-                      : []),
-                  ]}
-                />
-                {labelsHidden && (
+              <DeviceSelectField
+                label="Input Device"
+                aria-label="Input Device"
+                value={draft.inputDeviceId}
+                onChange={(id) => {
+                  const dev = inputDevices.find((d) => d.deviceId === id);
+                  set({ inputDeviceId: id, inputDeviceLabel: dev?.label ?? "" });
+                }}
+                devices={inputDevices.map((d, i) => ({
+                  value: d.deviceId,
+                  label: d.label || `마이크 ${i + 1}`,
+                }))}
+                placeholderLabel="시스템 기본 입력"
+                savedLabel={draft.inputDeviceLabel || "저장된 장치"}
+                headerRight={refreshDevicesButton}
+                footnote={labelsHidden && (
                   <p className="text-[10px] text-iron-300 leading-relaxed">
                     마이크 권한을 허용하면 장치 이름이 표시됩니다.
                   </p>
                 )}
-              </div>
+              />
             )}
 
             {/* 출력 장치 — 재생을 어느 출력으로 보낼지(WaveSurfer setSinkId). 입력과 달리 웹·Electron
                 양쪽 모두 노출한다(setSinkId는 표준 웹 API라 CoreAudio 헬퍼가 필요 없다). V/I 센싱
                 루프에서 음원을 앰프/스피커(예: MCHStreamer 출력)로 라우팅하는 데 쓴다. */}
             {hasMediaDevices && (
-              <div className="flex flex-col gap-1.5">
-                <div className="flex items-center justify-between">
-                  <label className="text-[10px] uppercase tracking-wider font-medium text-iron-400">
-                    Output Device
-                  </label>
-                  <button
-                    type="button"
-                    onClick={labelsHidden ? revealDeviceNames : refreshInputDevices}
-                    disabled={devicesLoading}
-                    className="flex items-center gap-1 text-[11px] text-iron-400 hover:text-iron-700 disabled:opacity-50"
-                  >
-                    <RefreshCw className={`w-3 h-3 ${devicesLoading ? "animate-spin" : ""}`} />
-                    {labelsHidden ? "이름 표시" : "새로고침"}
-                  </button>
-                </div>
-                <AnimatedSelect
-                  value={draft.outputDeviceId}
-                  aria-label="Output Device"
-                  onChange={(id) => {
-                    const dev = outputDevices.find((d) => d.deviceId === id);
-                    set({ outputDeviceId: id, outputDeviceLabel: dev?.label ?? "" });
-                  }}
-                  options={[
-                    { value: "", label: "시스템 기본 출력" },
-                    ...outputDevices.map((d, i) => ({
-                      value: d.deviceId,
-                      label: d.label || `출력 ${i + 1}`,
-                    })),
-                    // 저장된 장치가 현재 목록에 없으면(연결 해제) 값이 사라지지 않게 보존 표시
-                    ...(draft.outputDeviceId && !outputDevices.some((d) => d.deviceId === draft.outputDeviceId)
-                      ? [
-                          {
-                            value: draft.outputDeviceId,
-                            label: draft.outputDeviceLabel || "저장된 장치",
-                            hint: "연결 안 됨",
-                          },
-                        ]
-                      : []),
-                  ]}
-                />
-                <p className="text-[10px] text-iron-300 leading-relaxed">
-                  재생 오디오를 보낼 출력 장치입니다. V/I 센싱 시 앰프/스피커가 물린 출력을 선택하세요.
-                </p>
-              </div>
+              <DeviceSelectField
+                label="Output Device"
+                aria-label="Output Device"
+                value={draft.outputDeviceId}
+                onChange={(id) => {
+                  const dev = outputDevices.find((d) => d.deviceId === id);
+                  set({ outputDeviceId: id, outputDeviceLabel: dev?.label ?? "" });
+                }}
+                devices={outputDevices.map((d, i) => ({
+                  value: d.deviceId,
+                  label: d.label || `출력 ${i + 1}`,
+                }))}
+                placeholderLabel="시스템 기본 출력"
+                savedLabel={draft.outputDeviceLabel || "저장된 장치"}
+                headerRight={refreshDevicesButton}
+                footnote={(
+                  <p className="text-[10px] text-iron-300 leading-relaxed">
+                    재생 오디오를 보낼 출력 장치입니다. V/I 센싱 시 앰프/스피커가 물린 출력을 선택하세요.
+                  </p>
+                )}
+              />
             )}
           </section>
 
@@ -565,31 +531,22 @@ export default function CalibrationDrawer({ projectName, onApply }: Props) {
 
               {/* 캡처 대상 장치 선택 — CoreAudio UID로 특정 장치를 골라 query/capture를 그 장치로 라우팅.
                   선택은 draft.captureDeviceUID에 저장되어 "적용" 시 MicrophonePlayer의 네이티브 캡처 대상이 된다. */}
-              <div className="flex flex-col gap-1.5">
-                <label className="text-[10px] uppercase tracking-wider font-medium text-iron-400">
-                  Capture Device
-                </label>
-                <AnimatedSelect
-                  value={draft.captureDeviceUID}
-                  aria-label="Capture Device"
-                  onChange={(uid) => {
-                    set({ captureDeviceUID: uid });
-                    refreshDeviceInfo(uid); // 선택 즉시 그 장치의 능력으로 아래 패널을 갱신
-                  }}
-                  options={[
-                    { value: "", label: "OS 기본 입력" },
-                    ...nativeDevices.map((d) => ({
-                      value: d.uid,
-                      label: d.name || "이름 없음",
-                      hint: `${d.inputChannels}ch${d.isDefault ? " · 기본" : ""}`,
-                    })),
-                    // 저장된 장치가 현재 목록에 없으면(연결 해제) 값이 사라지지 않게 보존 표시
-                    ...(draft.captureDeviceUID && !nativeDevices.some((d) => d.uid === draft.captureDeviceUID)
-                      ? [{ value: draft.captureDeviceUID, label: "저장된 장치", hint: "연결 안 됨" }]
-                      : []),
-                  ]}
-                />
-              </div>
+              <DeviceSelectField
+                label="Capture Device"
+                aria-label="Capture Device"
+                value={draft.captureDeviceUID}
+                onChange={(uid) => {
+                  set({ captureDeviceUID: uid });
+                  refreshDeviceInfo(uid); // 선택 즉시 그 장치의 능력으로 아래 패널을 갱신
+                }}
+                devices={nativeDevices.map((d) => ({
+                  value: d.uid,
+                  label: d.name || "이름 없음",
+                  hint: `${d.inputChannels}ch${d.isDefault ? " · 기본" : ""}`,
+                }))}
+                placeholderLabel="OS 기본 입력"
+                savedLabel="저장된 장치"
+              />
 
               {!deviceInfo && !deviceInfoLoading && (
                 <p className="text-xs text-iron-300">장치 정보를 불러오지 못했습니다.</p>

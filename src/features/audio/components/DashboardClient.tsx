@@ -15,6 +15,9 @@ import { useWorkspace } from "./workspace/Workspace-context";
 import { cn } from "@/shared/lib/utils";
 import { saveFrameCache, loadFrameCache, clearFrameCache } from "@/features/audio/lib/cache/frame";
 import { putAudio, getCachedAudio, clearAudio } from "@/features/audio/lib/cache/audio-blob";
+import { coalesceFrames } from "@/features/audio/lib/render/coalesce";
+import { detectEvents } from "@/features/audio/lib/render/detect-events";
+import type { QueuedFrame } from "@/features/audio/lib/render/types";
 
 interface DashboardPageProps {
   useQueue: boolean;
@@ -94,10 +97,6 @@ export default function DashboardPage({ useQueue }: DashboardPageProps) {
   const streamingLenRef      = useRef(0);
 
   // ── Step 3: Output Queue ────────────────────────────────────────────────
-  interface QueuedFrame {
-    frame: AnalysisFrame;
-    recvAt: number;
-  }
   const outputQueueRef       = useRef<QueuedFrame[]>([]);
   const droppedFramesRef     = useRef(0);
   const renderTickCountRef   = useRef(0);
@@ -513,85 +512,6 @@ export default function DashboardPage({ useQueue }: DashboardPageProps) {
       });
     }
   }, [useQueue]);
-
-  // ── Step 5: Coalescing 함수 — bucket을 하나의 요약 frame으로 병합 ──────
-  function coalesceFrames(bucket: QueuedFrame[]): AnalysisFrame {
-    if (bucket.length === 1) return bucket[0].frame;
-
-    const frames = bucket.map(q => q.frame);
-    const latest = frames[frames.length - 1];
-
-    return {
-      ...latest,
-      sourceCount: frames.length,
-      timeStart:   frames[0].time,
-      timeEnd:     latest.time,
-      // 온도: 최신값 사용, 구간 내 최댓값 별도 보존
-      temperatureMax: [
-        Math.max(...frames.map(f => f.temperature[0])),
-        Math.max(...frames.map(f => f.temperature[1])),
-      ],
-      // 익스커션: 최신값 사용, 구간 내 min/max envelope 보존
-      excursionMin: [
-        Math.min(...frames.map(f => f.excursion[0])),
-        Math.min(...frames.map(f => f.excursion[1])),
-      ],
-      excursionMax: [
-        Math.max(...frames.map(f => f.excursion[0])),
-        Math.max(...frames.map(f => f.excursion[1])),
-      ],
-    };
-  }
-
-  // ── Step 6: 이벤트 감지 함수 ──────────────────────────────────────────────
-  const TEMP_WARN   = 65;
-  const TEMP_DANGER = 75;
-
-  function detectEvents(bucket: QueuedFrame[], prevTemp: [number, number] | null): QueuedFrame[] {
-    const events: QueuedFrame[] = [];
-    for (let i = 0; i < bucket.length; i++) {
-      const f = bucket[i].frame;
-      const prev = i > 0 ? bucket[i - 1].frame : null;
-      // 이전 온도: bucket 내 이전 frame 또는 직전 렌더 사이클의 마지막 온도
-      const prevT = prev ? prev.temperature : prevTemp;
-
-      // Temperature threshold crossing 감지
-      if (prevT) {
-        for (let ch = 0; ch < 2; ch++) {
-          const was = prevT[ch];
-          const now = f.temperature[ch];
-          // WARN crossing (아래→위 또는 위→아래)
-          if ((was < TEMP_WARN && now >= TEMP_WARN) || (was >= TEMP_WARN && now < TEMP_WARN)) {
-            events.push(bucket[i]);
-            bucket[i].frame = { ...f, isEvent: true, eventType: "temp_warn" };
-            break;
-          }
-          // DANGER crossing
-          if ((was < TEMP_DANGER && now >= TEMP_DANGER) || (was >= TEMP_DANGER && now < TEMP_DANGER)) {
-            events.push(bucket[i]);
-            bucket[i].frame = { ...f, isEvent: true, eventType: "temp_danger" };
-            break;
-          }
-        }
-      }
-      // 이미 이벤트로 잡힌 frame은 skip
-      if (bucket[i].frame.isEvent) continue;
-
-      // Excursion peak 감지: 앞뒤 frame보다 절대값이 큰 극값
-      if (prev && i < bucket.length - 1) {
-        const next = bucket[i + 1].frame;
-        for (let ch = 0; ch < 2; ch++) {
-          const cur = Math.abs(f.excursion[ch]);
-          if (cur > Math.abs(prev.excursion[ch]) && cur > Math.abs(next.excursion[ch])) {
-            events.push(bucket[i]);
-            bucket[i].frame = { ...f, isEvent: true, eventType: "exc_peak" };
-            break;
-          }
-        }
-      }
-    }
-    return events;
-  }
 
   // ── Step 3: Render Scheduler — 16ms마다 큐를 drain하여 state update ─────
   useEffect(() => {
