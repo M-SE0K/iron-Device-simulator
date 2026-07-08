@@ -6,7 +6,7 @@
 // 온도/익스커션 표시 자체는 영향 없다. refs는 DashboardClient(부모)가 계속 소유하고,
 // 이 훅은 그 refs를 읽고 쓰는 핸들러 함수만 제공한다(MicrophonePlayer capture 훅과 동일 패턴).
 import { useCallback, type MutableRefObject, type RefObject } from "react";
-import type { StreamDebugInfo, DebugLogEntry } from "@/features/audio/types";
+import type { StreamDebugInfo, DebugLogEntry } from "@/features/audio/lib/debug/types";
 import type { WaveformPlayerHandle } from "@/features/audio/components/player/WaveformPlayer";
 
 interface RenderMetrics {

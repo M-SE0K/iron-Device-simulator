@@ -2,7 +2,8 @@
 
 import { useEffect, useRef, useState, useCallback } from "react";
 import { Mic, Square } from "lucide-react";
-import { AppStatus, AnalysisFrame, StreamDebugInfo, DebugLogEntry, InputParameterValues } from "@/features/audio/types";
+import { AppStatus, AnalysisFrame, InputParameterValues } from "@/features/audio/types";
+import { StreamDebugInfo, DebugLogEntry } from "@/features/audio/lib/debug/types";
 import { createAnalysisSocket, type SocketLike } from "@/features/audio/lib/engine/protocol/local-socket";
 import { useCalibration } from "@/features/audio/components/calibration/CalibrationContext";
 import { useNativeCapture } from "./capture/useNativeCapture";
@@ -100,6 +101,7 @@ export default function MicrophonePlayer({
         type:           "init",
         ampOutputPower: inputParams.ampOutputPower ?? "",
         speakerModel:   inputParams.speakerModel   ?? "",
+        ambientTemp:    inputParams.ambientTemp    ?? "",
         sampleRate:     actualRate,
         bufferSize:     samplesPerCh,
       }));

@@ -4,7 +4,7 @@
 // BufferSize는 캡처를 여는 Chromium이 주인이라 강제할 수 없고, latency 제약으로
 // 힌트만 전달한다(반영 보장 없음 — 진짜 제어는 useNativeCapture 경로).
 import { useCallback, type MutableRefObject } from "react";
-import type { StreamDebugInfo } from "@/features/audio/types";
+import type { StreamDebugInfo } from "@/features/audio/lib/debug/types";
 import type { SocketLike } from "@/features/audio/lib/engine/protocol/local-socket";
 import { encodeToInt16 } from "@/features/audio/lib/engine/utils";
 

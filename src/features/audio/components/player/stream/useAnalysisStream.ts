@@ -4,7 +4,8 @@
 // PCM 프레임은 usePcmDecoder가 미리 만들어 두고, 이 훅은 WaveSurfer 재생 시각(getCurrentTime)을
 // 기준으로 미전송 프레임을 소켓에 흘려보낸다.
 import { useCallback, useRef, type MutableRefObject } from "react";
-import type { AnalysisFrame, AppStatus, DebugLogEntry, InputParameterValues, StreamDebugInfo } from "@/features/audio/types";
+import type { AnalysisFrame, AppStatus, InputParameterValues } from "@/features/audio/types";
+import type { DebugLogEntry, StreamDebugInfo } from "@/features/audio/lib/debug/types";
 import { createAnalysisSocket, type SocketLike } from "@/features/audio/lib/engine/protocol/local-socket";
 import type { EngineRuntimeConfig } from "@/features/audio/lib/engine/core";
 import { buildInitMessage } from "./buildInitMessage";

@@ -7,7 +7,7 @@
 // (MicrophonePlayer capture 훅과 동일 패턴 — 다른 리셋 경로가 같은 상태를 직접 건드리므로
 // 상태 소유권 자체를 옮기면 그 호출부들도 함께 고쳐야 해서 위험이 커진다).
 import { useCallback, useEffect, type MutableRefObject } from "react";
-import type { DebugLogEntry, MeasurementExport } from "@/features/audio/types";
+import type { DebugLogEntry, MeasurementExport } from "@/features/audio/lib/debug/types";
 
 type RawFrame = MeasurementExport["rawFrames"][number];
 type EventLogEntry = MeasurementExport["summary"]["eventLog"][number];

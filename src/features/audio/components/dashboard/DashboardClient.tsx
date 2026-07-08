@@ -9,7 +9,8 @@ import MicrophonePlayer from "@/features/audio/components/player/MicrophonePlaye
 import TemperatureChart from "@/features/audio/components/chart/TemperatureChart";
 import ExcursionChart from "@/features/audio/components/chart/ExcursionChart";
 import ChartDetailOverlay, { type DetailMetric } from "@/features/audio/components/chart/ChartDetailOverlay";
-import { AppStatus, AnalysisFrame, StreamDebugInfo, DebugLogEntry, MeasurementExport, InputParameterValues } from "@/features/audio/types";
+import { AppStatus, AnalysisFrame, InputParameterValues } from "@/features/audio/types";
+import { StreamDebugInfo, DebugLogEntry, MeasurementExport } from "@/features/audio/lib/debug/types";
 import { useCalibration } from "../calibration/CalibrationContext";
 import { useWorkspace } from "../workspace/WorkspaceContext";
 import { cn } from "@/shared/lib/utils";
@@ -44,8 +45,12 @@ export default function DashboardPage({ useQueue }: DashboardPageProps) {
   // 좌측 작업 영역 드로어와 공유하는 저장 세션 목록/액션 (workspace-context)
   const { saveCurrent, pendingLocalFile, clearPendingLocalFile } = useWorkspace();
   const inputParams = useMemo<InputParameterValues>(
-    () => ({ ampOutputPower: calibration.ampOutputPower, speakerModel: calibration.speakerModel }),
-    [calibration.ampOutputPower, calibration.speakerModel],
+    () => ({
+      ampOutputPower: calibration.ampOutputPower,
+      speakerModel:   calibration.speakerModel,
+      ambientTemp:    calibration.ambientTemp,
+    }),
+    [calibration.ampOutputPower, calibration.speakerModel, calibration.ambientTemp],
   );
   // 온도 WARN/DANGER 임계값 — 차트 markLine과 detectEvents 이벤트 감지가 공유한다.
   // 파싱 실패(빈 문자열/NaN) 시 기본값(65/75°C)으로 fallback.

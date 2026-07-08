@@ -5,7 +5,8 @@
 // BufferFrameSize가 실제로 적용·유지된다 — getUserMedia 경로에서는 캡처를 여는
 // Chromium이 버퍼 크기의 주인이라(TN2321) 요청값을 강제할 수 없었다.
 import { useCallback, type MutableRefObject } from "react";
-import type { AppStatus, StreamDebugInfo } from "@/features/audio/types";
+import type { AppStatus } from "@/features/audio/types";
+import type { StreamDebugInfo } from "@/features/audio/lib/debug/types";
 import type { SocketLike } from "@/features/audio/lib/engine/protocol/local-socket";
 import { createNativeFrameReframer } from "./reframeNativeChunk";
 

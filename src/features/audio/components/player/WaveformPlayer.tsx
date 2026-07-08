@@ -3,7 +3,8 @@
 import { useEffect, useRef, useState, useCallback, forwardRef, useImperativeHandle } from "react";
 import { Play, Pause, Square } from "lucide-react";
 import { cn, formatTime } from "@/shared/lib/utils";
-import { AppStatus, AnalysisFrame, StreamDebugInfo, DebugLogEntry, InputParameterValues } from "@/features/audio/types";
+import { AppStatus, AnalysisFrame, InputParameterValues } from "@/features/audio/types";
+import { StreamDebugInfo, DebugLogEntry } from "@/features/audio/lib/debug/types";
 import { useCalibration } from "@/features/audio/components/calibration/CalibrationContext";
 import { usePcmDecoder } from "./stream/usePcmDecoder";
 import { useAnalysisStream } from "./stream/useAnalysisStream";
