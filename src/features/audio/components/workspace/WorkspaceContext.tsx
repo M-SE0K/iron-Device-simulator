@@ -1,23 +1,15 @@
 "use client";
 
-// 작업 영역(Workspace) 단일 소스 (앱 전역 Context) — VSCode 워크스페이스 참고.
+// 작업 영역(Workspace) 단일 소스 (앱 전역 Context)
 // 대시보드 "저장" 버튼(DashboardClient)과 좌측 드로어(WorkspaceDrawer)가 같은 목록을 공유한다.
-// 실제 영속화는 lib/cache/workspace.ts(IndexedDB)가 담당하며, 이 Context는 목록 상태 +
-// 드로어 open 상태 + CRUD/내보내기 액션만 감싼다.
-import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
-import {
-  listWorkspaceItems,
-  saveWorkspaceItem,
-  renameWorkspaceItem,
-  deleteWorkspaceItem,
-  getWorkspacePayload,
-  framesToCsv,
-  sanitizeFileName,
-  type WorkspaceItemMeta,
-  type SaveWorkspaceInput,
-} from "@/features/audio/lib/cache/workspace";
-import { readLocalAudioFile, type LocalAudioFileEntry } from "@/features/audio/lib/local-folder";
-import { downloadBlob } from "@/shared/lib/utils";
+// 실제 절차는 hooks/(useWorkspaceItems·useLocalFolderConnection·useBrowserFolderUpload)로 갈라져 있고,
+// 이 Context는 그것들을 조합해 값을 노출하는 역할만 한다(calibration/ CalibrationContext와 동일한 분리 패턴).
+import { createContext, useCallback, useContext, useMemo, useState, type ReactNode } from "react";
+import { useWorkspaceItems } from "./hooks/useWorkspaceItems";
+import { useLocalFolderConnection } from "./hooks/useLocalFolderConnection";
+import { useBrowserFolderUpload } from "./hooks/useBrowserFolderUpload";
+import type { WorkspaceItemMeta, SaveWorkspaceInput } from "@/features/audio/lib/cache/workspace";
+import type { LocalAudioFileEntry } from "@/features/audio/lib/local-folder";
 
 interface WorkspaceCtx {
   items: WorkspaceItemMeta[];
@@ -56,139 +48,29 @@ interface WorkspaceCtx {
 const Ctx = createContext<WorkspaceCtx | null>(null);
 
 export function WorkspaceProvider({ children }: { children: ReactNode }) {
-  const [items, setItems] = useState<WorkspaceItemMeta[]>([]);
-  const [open, setOpen]   = useState(false);
+  const [open, setOpen] = useState(false);
 
-  const refresh = useCallback(async () => {
-    setItems(await listWorkspaceItems());
+  const { items, saveCurrent, rename, remove, exportJson, exportCsv, downloadAudio } =
+    useWorkspaceItems(() => setOpen(true));
+
+  // 로컬/브라우저 두 폴더 소스가 공유하는 다리 상태 — 어느 쪽에서 로드하든 DashboardClient의
+  // 기존 handleFileSelected(File) 파이프라인으로 그대로 흘려보낸다.
+  const [pendingLocalFile, setPendingLocalFile] = useState<File | null>(null);
+  const [activeFileName, setActiveFileName]     = useState<string | null>(null);
+  const onFileLoad = useCallback((file: File, name: string) => {
+    setPendingLocalFile(file);
+    setActiveFileName(name);
   }, []);
-
-  useEffect(() => {
-    void refresh();
-  }, [refresh]);
-
-  const saveCurrent = useCallback(async (input: SaveWorkspaceInput) => {
-    await saveWorkspaceItem(input);
-    await refresh();
-    setOpen(true);
-  }, [refresh]);
-
-  const rename = useCallback(async (id: string, name: string) => {
-    await renameWorkspaceItem(id, name);
-    await refresh();
-  }, [refresh]);
-
-  const remove = useCallback(async (id: string) => {
-    await deleteWorkspaceItem(id);
-    await refresh();
-  }, [refresh]);
-
-  const exportJson = useCallback(async (meta: WorkspaceItemMeta) => {
-    const payload = await getWorkspacePayload(meta.id);
-    if (!payload) return;
-    const data = {
-      meta: {
-        name:          meta.name,
-        audioFileName: meta.audioFileName,
-        audioDuration: meta.audioDuration,
-        analysisMode:  meta.analysisMode,
-        createdAt:     new Date(meta.createdAt).toISOString(),
-        frameCount:    meta.frameCount,
-      },
-      frames: payload.frames,
-    };
-    downloadBlob(
-      new Blob([JSON.stringify(data, null, 2)], { type: "application/json" }),
-      `${sanitizeFileName(meta.name)}.json`,
-    );
-  }, []);
-
-  const exportCsv = useCallback(async (meta: WorkspaceItemMeta) => {
-    const payload = await getWorkspacePayload(meta.id);
-    if (!payload) return;
-    downloadBlob(
-      new Blob([framesToCsv(payload.frames)], { type: "text/csv;charset=utf-8" }),
-      `${sanitizeFileName(meta.name)}.csv`,
-    );
-  }, []);
-
-  const downloadAudio = useCallback(async (meta: WorkspaceItemMeta) => {
-    const payload = await getWorkspacePayload(meta.id);
-    if (!payload?.audioBlob) return;
-    downloadBlob(payload.audioBlob, meta.audioFileName ?? `${sanitizeFileName(meta.name)}.audio`);
-  }, []);
-
-  // ── 로컬 폴더 연결(Electron 데스크톱 전용) ──────────────────────────────────
-  const [localFolderPath, setLocalFolderPath]           = useState<string | null>(null);
-  const [localFolderFiles, setLocalFolderFiles]         = useState<LocalAudioFileEntry[]>([]);
-  const [localFolderError, setLocalFolderError]         = useState<string | null>(null);
-  const [localFolderConnecting, setLocalFolderConnecting] = useState(false);
-  const [pendingLocalFile, setPendingLocalFile]         = useState<File | null>(null);
-  const [activeFileName, setActiveFileName]             = useState<string | null>(null);
-  // 브라우저 폴더 업로드(webkitdirectory) 상태 — Electron 이 아닌 빌드에서 사용
-  const [browserFolderName, setBrowserFolderName]       = useState<string | null>(null);
-  const [browserFolderFiles, setBrowserFolderFiles]     = useState<File[]>([]);
-
-  // main.js가 fs.watch로 폴더 변경을 감지할 때마다 최신 파일 목록을 밀어준다.
-  useEffect(() => {
-    if (typeof window === "undefined" || !window.localFolder) return;
-    return window.localFolder.onChanged((files) => setLocalFolderFiles(files));
-  }, []);
-
-  const connectLocalFolder = useCallback(async () => {
-    if (typeof window === "undefined" || !window.localFolder) return;
-    setLocalFolderConnecting(true);
-    setLocalFolderError(null);
-    try {
-      const result = await window.localFolder.select();
-      if (result.canceled) return;
-      setLocalFolderPath(result.folderPath ?? null);
-      setLocalFolderFiles(result.files ?? []);
-      if (result.error) setLocalFolderError(result.error);
-    } finally {
-      setLocalFolderConnecting(false);
-    }
-  }, []);
-
-  const disconnectLocalFolder = useCallback(() => {
-    if (typeof window !== "undefined" && window.localFolder) void window.localFolder.unwatch();
-    setLocalFolderPath(null);
-    setLocalFolderFiles([]);
-    setLocalFolderError(null);
-  }, []);
-
-  const loadLocalFile = useCallback(async (entry: LocalAudioFileEntry) => {
-    try {
-      setPendingLocalFile(await readLocalAudioFile(entry));
-      setActiveFileName(entry.name);
-    } catch (err) {
-      setLocalFolderError(err instanceof Error ? err.message : "파일을 불러올 수 없습니다.");
-    }
-  }, []);
-
-  // ── 브라우저 폴더 업로드(webkitdirectory) — 웹/모바일 빌드용 ─────────────────
-  const selectBrowserFolder = useCallback((files: FileList | File[]) => {
-    const all = Array.from(files);
-    // webkitRelativePath 는 "폴더/하위/파일.wav" 형태 — 최상위 폴더 이름을 뽑는다.
-    const folder = all[0]?.webkitRelativePath?.split("/")[0] || "폴더";
-    const audio = all.filter(
-      (f) => f.type.startsWith("audio/") || /\.(wav|mp3|flac|aac|m4a|ogg)$/i.test(f.name),
-    );
-    setBrowserFolderName(folder);
-    setBrowserFolderFiles(audio);
-  }, []);
-
-  const disconnectBrowserFolder = useCallback(() => {
-    setBrowserFolderName(null);
-    setBrowserFolderFiles([]);
-  }, []);
-
-  const loadBrowserFile = useCallback((file: File) => {
-    setActiveFileName(file.name);
-    setPendingLocalFile(file); // File 을 그대로 업로드 파이프라인으로 전달
-  }, []);
-
   const clearPendingLocalFile = useCallback(() => setPendingLocalFile(null), []);
+
+  const {
+    localFolderPath, localFolderFiles, localFolderError, localFolderConnecting,
+    connectLocalFolder, disconnectLocalFolder, loadLocalFile,
+  } = useLocalFolderConnection(onFileLoad);
+
+  const {
+    browserFolderName, browserFolderFiles, selectBrowserFolder, disconnectBrowserFolder, loadBrowserFile,
+  } = useBrowserFolderUpload(onFileLoad);
 
   const ctx = useMemo<WorkspaceCtx>(
     () => ({
