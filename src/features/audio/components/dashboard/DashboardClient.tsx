@@ -130,7 +130,7 @@ export default function DashboardPage({ useQueue }: DashboardPageProps) {
   const renderUpdateRateRef  = useRef<number | null>(null);
 
   // ── 렌더 파이프라인 측정용 refs ──────────────────────────────────────────
-  // 프레임 수신 시각 (WaveformPlayer → page.tsx handoff 시점)
+  // 프레임 수신 시각 (WaveformPlayer → DashboardClient handoff 시점)
   const frameRecvAtRef      = useRef<number>(0);
   // React useLayoutEffect 완료 시각
   const reactRenderAtRef    = useRef<number>(0);
