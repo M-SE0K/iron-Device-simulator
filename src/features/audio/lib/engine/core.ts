@@ -20,7 +20,6 @@ export const SAMPLE_RATE      = 48000;
 export const CHANNELS         = 2;
 export const BYTES_PER_SAMPLE = 2;
 export const SAMPLES_PER_CH   = 480;
-export const FRAME_BYTES      = SAMPLES_PER_CH * CHANNELS * BYTES_PER_SAMPLE; // 1920 (기본값)
 
 /** 세션 단위 런타임 프레임 설정 — Calibration UI의 sampleRate/bufferSize로 채워진다 */
 export interface EngineRuntimeConfig {

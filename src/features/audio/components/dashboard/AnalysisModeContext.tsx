@@ -6,8 +6,8 @@
 // Provider는 DashboardClient가 자신의 반환 JSX를 감싸며 제공하므로, 대시보드 밖에서는 null 이다.
 import { createContext, useContext } from "react";
 
-export type InputMode = "file" | "mic";
-export type AnalysisMode = "realtime" | "batch";
+type InputMode = "file" | "mic";
+type AnalysisMode = "realtime" | "batch";
 
 export interface AnalysisModeContextValue {
   inputMode: InputMode;
