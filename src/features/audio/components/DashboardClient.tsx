@@ -18,6 +18,8 @@ import { putAudio, getCachedAudio, clearAudio } from "@/features/audio/lib/cache
 import { coalesceFrames } from "@/features/audio/lib/render/coalesce";
 import { detectEvents } from "@/features/audio/lib/render/detect-events";
 import type { QueuedFrame } from "@/features/audio/lib/render/types";
+import { useMeasurementCapture } from "@/features/audio/components/hooks/useMeasurementCapture";
+import { useRenderTelemetry } from "@/features/audio/components/hooks/useRenderTelemetry";
 
 interface DashboardPageProps {
   useQueue: boolean;
@@ -137,109 +139,13 @@ export default function DashboardPage({ useQueue }: DashboardPageProps) {
     URL.revokeObjectURL(url);
   }, []);
 
-  // ── 측정 모드 토글 + JSON 다운로드 ──────────────────────────────────────
-  const handleMeasureToggle = useCallback(() => {
-    if (!isMeasuringRef.current) {
-      // 측정 시작
-      measureLogsRef.current           = [];
-      rawFramesRef.current             = [];
-      renderedFramesRef.current        = [];
-      renderFreshnessLogsRef.current   = [];
-      measureStartTimeRef.current      = performance.now();
-      maxStreamingLenRef.current       = 0;
-      isMeasuringRef.current      = true;
-      setIsMeasuring(true);
-      setMeasureFrameCount(0);
-    } else {
-      // 측정 종료 → JSON 다운로드
-      isMeasuringRef.current = false;
-      setIsMeasuring(false);
-
-      const logs        = measureLogsRef.current;
-      const durationSec = parseFloat(
-        ((performance.now() - measureStartTimeRef.current) / 1000).toFixed(3)
-      );
-
-      // ── 요약 통계 계산 ─────────────────────────────────────────────────
-      const avg = (arr: number[]) =>
-        arr.length > 0 ? parseFloat((arr.reduce((a, b) => a + b, 0) / arr.length).toFixed(2)) : null;
-      const safeMin = (arr: number[]) =>
-        arr.length > 0 ? parseFloat(Math.min(...arr).toFixed(2)) : null;
-      const safeMax = (arr: number[]) =>
-        arr.length > 0 ? parseFloat(Math.max(...arr).toFixed(2)) : null;
-      const percentile = (arr: number[], p: number) => {
-        if (arr.length === 0) return null;
-        const sorted = [...arr].sort((a, b) => a - b);
-        const idx = Math.ceil(sorted.length * p / 100) - 1;
-        return parseFloat(sorted[Math.max(0, idx)].toFixed(2));
-      };
-      const fullStats = (arr: number[]) => ({
-        avg: avg(arr), min: safeMin(arr), max: safeMax(arr),
-        p50: percentile(arr, 50), p95: percentile(arr, 95), p99: percentile(arr, 99),
-      });
-
-      const rttVals  = logs.map(l => l.rttMs).filter((v): v is number => v !== null);
-      const srvVals  = logs.map(l => l.serverProcMs);
-      const tempVals = logs.map(l => l.temperature);
-      const excVals  = logs.map(l => l.excursion);
-      const recvRenderVals = logs
-        .map(l => l.totalRecvRenderMs)
-        .filter((v): v is number => v !== null);
-      const e2eVals  = logs
-        .map(l => (l.rttMs !== null && l.totalRecvRenderMs !== null)
-          ? parseFloat((l.rttMs + l.totalRecvRenderMs).toFixed(2))
-          : null)
-        .filter((v): v is number => v !== null);
-      const freshnessVals = logs
-        .map(l => l.freshnessLagMs)
-        .filter((v): v is number => v !== null);
-      const renderFreshnessVals = renderFreshnessLogsRef.current;
-
-      const data: MeasurementExport = {
-        meta: {
-          recordedAt:             new Date().toISOString(),
-          audioFile:              audioFile?.name ?? null,
-          measurementDurationSec: durationSec,
-          frameCount:             logs.length,
-        },
-        summary: {
-          rtt:            fullStats(rttVals),
-          serverProc:     { avg: avg(srvVals) },
-          recvRender:     fullStats(recvRenderVals),
-          e2e:            fullStats(e2eVals),
-          freshnessLag:         fullStats(freshnessVals),
-          renderFreshnessLag:   fullStats(renderFreshnessVals),
-          temperature:    { avg: avg(tempVals) ?? 0, min: safeMin(tempVals) ?? 0, max: safeMax(tempVals) ?? 0 },
-          excursion:      { avg: avg(excVals)  ?? 0, min: safeMin(excVals)  ?? 0, max: safeMax(excVals)  ?? 0 },
-          maxStreamingFramesLen: maxStreamingLenRef.current,
-          totalDroppedFrames:   droppedFramesRef.current,
-          droppedFrameRatio:    logs.length > 0
-            ? parseFloat((droppedFramesRef.current / (droppedFramesRef.current + logs.length)).toFixed(4))
-            : null,
-          avgSourceCount:       renderTickCountRef.current > 0
-            ? parseFloat((sourceCountSumRef.current / renderTickCountRef.current).toFixed(2))
-            : null,
-          preservedEvents:      preservedEventsRef.current,
-          eventLog:             eventLogRef.current,
-        },
-        frames:         logs,
-        rawFrames:      rawFramesRef.current,
-        renderedFrames: renderedFramesRef.current,
-      };
-
-      const timestamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
-      downloadJson(data, `iron-device-measurement-${timestamp}.json`);
-    }
-  }, [audioFile, downloadJson]);
-
-  // ── 측정 중 프레임 카운트 UI 갱신 (200ms 간격) ───────────────────────────
-  useEffect(() => {
-    if (!isMeasuring) return;
-    const timer = setInterval(() => {
-      setMeasureFrameCount(measureLogsRef.current.length);
-    }, 200);
-    return () => clearInterval(timer);
-  }, [isMeasuring]);
+  // ── 측정 모드 토글 + JSON 다운로드 (내부 측정 하네스 전용) ────────────────
+  const { handleMeasureToggle } = useMeasurementCapture({
+    isMeasuring, setIsMeasuring, setMeasureFrameCount,
+    isMeasuringRef, measureLogsRef, measureStartTimeRef, rawFramesRef, renderedFramesRef,
+    renderFreshnessLogsRef, maxStreamingLenRef, droppedFramesRef, renderTickCountRef,
+    sourceCountSumRef, preservedEventsRef, eventLogRef, audioFile, downloadJson,
+  });
 
   // ── 캐시 미러 refs 동기화 (이벤트 핸들러에서 최신값 읽기용) ───────────────
   useEffect(() => { streamingFramesRef.current = streamingFrames; }, [streamingFrames]);
@@ -396,9 +302,6 @@ export default function DashboardPage({ useQueue }: DashboardPageProps) {
   // 탭만 바꾸면 차트는 해당 모드의 마지막 상태를 그대로 보여준다(캐싱).
   const handleAnalysisModeChange = useCallback((mode: "realtime" | "batch") => {
     if (mode === analysisModeRef.current) return;
-    // 떠나는 모드의 재생만 일시정지한다 (오디오 정지). 실시간 WS는 닫지 않으므로
-    // 다시 돌아와 Play 하면 같은 WS를 재사용 → 차트가 0초부터 다시 그려지지 않는다.
-    // (네이티브 락 해제는 "분석 시작" 시점에만 수행 → handleRunBatch)
     if (analysisModeRef.current === "realtime") realtimeWaveRef.current?.pause();
     else                                        batchWaveRef.current?.pause();
     setAnalysisMode(mode);
@@ -604,91 +507,13 @@ export default function DashboardPage({ useQueue }: DashboardPageProps) {
     return () => clearInterval(timer);
   }, [isPlaying, useQueue]);
 
-  // ── 디버그 업데이트 시 최신 rtt/srv 캐시 ────────────────────────────────
-  const handleDebugUpdate = useCallback((info: Partial<StreamDebugInfo>) => {
-    if (info.latestRttMs !== undefined)       { latestRttRef.current = info.latestRttMs; latestRttMsRef.current = info.latestRttMs; }
-    if (info.serverProcessingMs !== undefined) latestSrvProcMsRef.current = info.serverProcessingMs;
-  }, []);
-
-  // ── React 렌더 완료 콜백 (TemperatureChart useLayoutEffect에서 호출) ──────
-  const handleReactRender = useCallback((ts: number) => {
-    reactRenderAtRef.current = ts;
-  }, []);
-
-  // ── ECharts 렌더 완료 콜백 (TemperatureChart onEvents rendered에서 호출) ──
-  const handleEchartsRender = useCallback((ts: number) => {
-    const echartsMs      = parseFloat((ts - reactRenderAtRef.current).toFixed(2));
-    const totalRecvMs    = parseFloat((ts - frameRecvAtRef.current).toFixed(2));
-    const rtt            = latestRttRef.current;
-    const totalE2eMs     = rtt !== null
-      ? parseFloat((rtt + totalRecvMs).toFixed(2))
-      : null;
-
-    // freshness lag 계산: 현재 오디오 재생 시각 - 최신 렌더된 frame의 time
-    const audioNow       = currentTimeRef.current;
-    const renderedTime   = latestFrameTimeRef.current;
-    const freshnessLagMs = audioNow > 0 && renderedTime > 0
-      ? parseFloat(((audioNow - renderedTime) * 1000).toFixed(2))
-      : null;
-
-    const reactMs = parseFloat((reactRenderAtRef.current - frameRecvAtRef.current).toFixed(2));
-    latestRenderMetrics.current = { reactMs, echartsMs, totalRecvMs, totalE2eMs };
-
-    if (isMeasuringRef.current && freshnessLagMs !== null) {
-      renderFreshnessLogsRef.current.push(freshnessLagMs);
-    }
-
-    // ── 서버로 metrics 역전송 (METRICS_INTERVAL마다 1회) ─────────────────────
-    metricsCountRef.current++;
-    if (metricsCountRef.current % METRICS_INTERVAL === 0) {
-      realtimeWaveRef.current?.sendMessage({
-        type:              "metrics",
-        frameIdx:          latestFrameIdxRef.current,
-        audioTime:         latestAudioTimeRef.current,
-        rttMs:             latestRttMsRef.current,
-        serverProcMs:      latestSrvProcMsRef.current,
-        reactRenderMs:     reactMs,
-        echartsRenderMs:   echartsMs,
-        totalRecvRenderMs: totalRecvMs,
-        totalE2eMs,
-      });
-    }
-
-    // 브라우저 콘솔 요약
-    if (metricsCountRef.current % METRICS_INTERVAL === 0) {
-      console.debug(
-        `[Pipeline] RTT:${rtt?.toFixed(2) ?? "—"}ms` +
-        ` | react:${reactMs}ms | echarts:${echartsMs}ms` +
-        ` | recv→render:${totalRecvMs}ms | E2E:${totalE2eMs ?? "—"}ms`
-      );
-    }
-  }, []);
-
-  // ── 프레임 로그 엔트리 수집 ───────────────────────────────────────────────
-  const handleDebugLog = useCallback((entry: DebugLogEntry) => {
-    // 최신 frameIdx/audioTime 캐시
-    latestFrameIdxRef.current  = entry.frameIdx;
-    latestAudioTimeRef.current = entry.audioTime;
-    // 직전 렌더 사이클의 render 타임을 첨부
-    const m = latestRenderMetrics.current;
-    // freshness lag 계산
-    const audioNow     = currentTimeRef.current;
-    const frameTime    = entry.audioTime;
-    const freshLag     = audioNow > 0 && frameTime > 0
-      ? parseFloat(((audioNow - frameTime) * 1000).toFixed(2))
-      : null;
-    const enriched: DebugLogEntry = {
-      ...entry,
-      reactRenderMs:     m.reactMs,
-      echartsRenderMs:   m.echartsMs,
-      totalRecvRenderMs: m.totalRecvMs,
-      freshnessLagMs:    freshLag,
-    };
-    // 측정 모드: 제한 없이 별도 버퍼에 누적
-    if (isMeasuringRef.current) {
-      measureLogsRef.current.push(enriched);
-    }
-  }, []);
+  // ── 렌더 파이프라인 텔레메트리(RTT/react/echarts/freshness lag 집계 + metrics 역전송) ──
+  const { handleDebugUpdate, handleReactRender, handleEchartsRender, handleDebugLog } = useRenderTelemetry({
+    realtimeWaveRef, frameRecvAtRef, reactRenderAtRef, latestRttRef, latestRenderMetrics,
+    metricsCountRef, METRICS_INTERVAL, latestFrameIdxRef, latestAudioTimeRef,
+    latestRttMsRef, latestSrvProcMsRef, currentTimeRef, latestFrameTimeRef,
+    isMeasuringRef, renderFreshnessLogsRef, measureLogsRef,
+  });
 
   // ── 상태 변경 (모드별) ────────────────────────────────────────────────────
   const handleRealtimeStatus = useCallback((s: AppStatus) => {
@@ -743,23 +568,11 @@ export default function DashboardPage({ useQueue }: DashboardPageProps) {
     >
       <Header />
 
-      {/* lg 미만: 세로 스크롤 허용 / lg 이상: 단일 뷰포트(내용이 넘치면 내부 스크롤) */}
       <main id="dashboard-main" className="flex-1 min-h-0 overflow-y-auto p-3">
         <div id="dashboard-content" className="lg:h-full w-full flex flex-col gap-3">
-
-          {/* 좌/우 2열 메인 그리드 — lg 미만에서는 1열로 쌓이며 자연 높이 + 최소 높이 보장 */}
           <div id="dashboard-grid" className="grid grid-cols-1 lg:grid-cols-2 gap-3 lg:flex-1 lg:min-h-[600px]">
-
-            {/* 좌측: upload-section / Waveform — 스택 (파라미터는 헤더 Calibration View 로 분리)
-                ┌─ 비율 조정 가이드 ──────────────────────────────────────────┐
-                │ upload-section : flex-[2]   ← 작게 하려면 숫자 ↓ (예: 1)    │
-                │ WaveformPlayer : flex-[3]   ← 크게 하려면 숫자 ↑ (예: 5)    │
-                └────────────────────────────────────────────────────────────┘ */}
             <div id="left-column" className="flex flex-col gap-3 min-h-0">
-              {/* upload-section: 비율 조정 → flex-[숫자] 변경.
-                  lg 미만: 고정 높이로 내부 h-full 카드가 확정 높이를 갖도록 함 */}
               <div id="upload-section" className="h-[220px] lg:h-auto lg:min-h-0 lg:flex-[2] flex flex-col gap-2">
-                {/* 배치 컨트롤 (파일 + 분석 모드 전용) — 모드 토글 자체는 Calibration 드로어로 이동 */}
                 {inputMode === "file" && analysisMode === "batch" && (
                   <div className="flex items-center gap-1.5 text-xs font-mono shrink-0">
                     <div className="ml-auto flex items-center gap-1.5">
@@ -821,17 +634,8 @@ export default function DashboardPage({ useQueue }: DashboardPageProps) {
                   <p id="error-message" className="error-message text-xs text-red-500 px-1 shrink-0">오류: {errorMsg}</p>
                 )}
               </div>
-
-              {/* Input Parameters 카드 제거 — 파라미터는 헤더의 Calibration View 드로어로 단일화 */}
-
-              {/* Waveform player — 비율 조정 → flex-[숫자] 변경.
-                  lg 미만: 고정 높이(h-[260px])로 카드 % 높이 사슬을 확정시켜 겹침 방지 */}
-              {/* 모드별 독립 WaveformPlayer 2개 — 둘 다 마운트 유지(absolute 오버레이),
-                  비활성 모드는 invisible 처리. 각자 고유한 WaveSurfer/재생 위치를 가지므로
-                  실시간 추적 탭과 분석 탭의 파형이 서로 동기화되지 않는다. */}
               {inputMode === "file" && (
                 <div className="relative h-[260px] lg:h-auto lg:min-h-0 lg:flex-[3]">
-                  {/* 실시간 추적 전용 — 스트리밍 ON */}
                   <div className={cn("absolute inset-0", analysisMode !== "realtime" && "invisible pointer-events-none")}>
                     <WaveformPlayer
                       ref={realtimeWaveRef}
@@ -848,7 +652,6 @@ export default function DashboardPage({ useQueue }: DashboardPageProps) {
                       enableStreaming
                     />
                   </div>
-                  {/* 분석 전용 — 스트리밍 OFF (오디오 재생만, 배치 분석은 runBatchAnalysis) */}
                   <div className={cn("absolute inset-0", analysisMode !== "batch" && "invisible pointer-events-none")}>
                     <WaveformPlayer
                       ref={batchWaveRef}
@@ -866,9 +669,6 @@ export default function DashboardPage({ useQueue }: DashboardPageProps) {
                 </div>
               )}
             </div>
-
-            {/* 우측: 온도 차트 / 익스큐션 차트 — 스택.
-                lg 미만: 각 차트에 고정 높이(h-[300px])를 줘 ECharts height:100% 기준을 확정 */}
             <div id="charts-section" className="flex flex-col gap-3 min-h-0">
               <div className="h-[300px] lg:h-auto lg:min-h-0 lg:flex-1">
                 <TemperatureChart

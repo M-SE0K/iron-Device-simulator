@@ -7,7 +7,7 @@
 //   · Sample Rate / Buffer Size / Capture Channels (+ 연결된 장치 능력 패널)
 // 좌측 WorkspaceDrawer와 동일하게 항상 마운트된 순수 DOM(비Radix)로 구현 — open 불리언으로
 // 클래스만 토글해 열기/닫기 양방향 슬라이드·페이드 애니메이션을 대칭적으로 재생한다.
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import { RefreshCw, RotateCcw, SlidersHorizontal, X } from "lucide-react";
 import AnimatedSelect from "@/shared/components/AnimatedSelect";
 import DeviceSelectField from "./DeviceSelectField";
@@ -25,16 +25,8 @@ import {
   saveDeviceActualCache,
   type DeviceActualCache,
 } from "@/features/audio/lib/cache/calibration";
-import type { AudioInputDevice } from "@/shared/types/electron-bridge";
-
-// window.audioDevice.query()가 돌려주는 장치 능력 정보 (electron-bridge.d.ts의 AudioDeviceQueryResult)
-interface DeviceInfo {
-  device?: string;
-  current?: { sampleRate: number | null; bufferSize: number | null };
-  supportedSampleRates?: number[];
-  bufferRange?: { min: number; max: number };
-  inputChannels?: number;
-}
+import { useNativeAudioDevice } from "./hooks/useNativeAudioDevice";
+import { useMediaDevices } from "./hooks/useMediaDevices";
 
 /** 문자열 옵션들 중 목표값과 수치상 가장 가까운 것을 고른다(자동 보정용). 빈 목록이면 null. */
 function nearestOption(options: string[], value: string): string | null {
@@ -157,95 +149,28 @@ export default function CalibrationDrawer({ projectName, onApply }: Props) {
   const [open, setOpen] = useState(false);
   const [draft, setDraft] = useState<CalibrationValues>(values);
 
-  // window.audioDevice는 Electron 데스크톱 빌드에서만 존재(preload.js) — 브라우저/개발서버에서는
-  // 항상 undefined. 하이드레이션 불일치를 피하려 마운트 후에만 감지한다.
-  const [hasAudioDeviceBridge, setHasAudioDeviceBridge] = useState(false);
   const [deviceStatus, setDeviceStatus] = useState<DeviceApplyStatus>("idle");
   const [deviceActual, setDeviceActual] = useState<{ sampleRate: number | null; bufferSize: number | null } | null>(null);
   const [deviceError, setDeviceError] = useState<string | null>(null);
-  const [deviceInfo, setDeviceInfo] = useState<DeviceInfo | null>(null);
-  const [deviceInfoLoading, setDeviceInfoLoading] = useState(false);
   // 장치 미지원 SR/Buffer 값을 지원값으로 자동 보정했을 때의 안내 문구(무엇→무엇). null이면 숨김.
   const [adjustedNote, setAdjustedNote] = useState<string | null>(null);
-  // CoreAudio 네이티브 장치 목록(window.audioDevice.list) — Electron 전용. UID로 캡처/조회 대상을 고른다.
-  const [nativeDevices, setNativeDevices] = useState<AudioInputDevice[]>([]);
-  const [nativeDevicesLoading, setNativeDevicesLoading] = useState(false);
   // "적용" 시 capture probe로 확인한 실제 런타임 값 — sessionStorage에 저장되어 새로고침(F5)
   // 후에도 "연결된 장치" 패널에 마지막 적용값이 그대로 렌더링된다.
   const [appliedRuntime, setAppliedRuntime] = useState<DeviceActualCache | null>(null);
 
-  // OS 오디오 입력 장치 목록 — navigator.mediaDevices.enumerateDevices()로 열거(브라우저·Electron 공용).
-  // deviceId를 캘리브레이션에 저장해 마이크 캡처 대상(MicrophonePlayer)을 그 장치로 라우팅한다.
-  const [hasMediaDevices, setHasMediaDevices] = useState(false);
-  const [inputDevices, setInputDevices] = useState<MediaDeviceInfo[]>([]);
-  // 재생 출력 장치 목록(audiooutput) — WaveSurfer setSinkId 라우팅 대상. 웹·Electron 공용
-  // (setSinkId는 표준 웹 API라 CoreAudio 헬퍼 없이 Chromium 렌더러에서 동작).
-  const [outputDevices, setOutputDevices] = useState<MediaDeviceInfo[]>([]);
-  const [devicesLoading, setDevicesLoading] = useState(false);
-  // enumerateDevices()는 마이크 권한이 없으면 label을 빈 문자열로 준다 — 이름 노출용 권한 요청 유도.
-  const [labelsHidden, setLabelsHidden] = useState(false);
+  const {
+    hasAudioDeviceBridge, deviceInfo, deviceInfoLoading, refreshDeviceInfo,
+    nativeDevices, nativeDevicesLoading, refreshNativeDevices,
+  } = useNativeAudioDevice(draft.captureDeviceUID);
+  const {
+    hasMediaDevices, inputDevices, outputDevices, devicesLoading, labelsHidden,
+    refreshInputDevices, revealDeviceNames,
+  } = useMediaDevices();
 
   useEffect(() => {
-    setHasAudioDeviceBridge(typeof window !== "undefined" && !!window.audioDevice);
-    setHasMediaDevices(typeof navigator !== "undefined" && !!navigator.mediaDevices?.enumerateDevices);
     // 새로고침 후에도 마지막으로 적용된 런타임 값을 복원해 "연결된 장치" 패널에 표시
     setAppliedRuntime(loadDeviceActualCache());
   }, []);
-
-  // 장치 목록 새로고침 (입력 audioinput + 출력 audiooutput 한 번에 열거).
-  const refreshInputDevices = useCallback(async () => {
-    if (typeof navigator === "undefined" || !navigator.mediaDevices?.enumerateDevices) return;
-    setDevicesLoading(true);
-    try {
-      const all = await navigator.mediaDevices.enumerateDevices();
-      const inputs = all.filter((d) => d.kind === "audioinput");
-      setInputDevices(inputs);
-      setOutputDevices(all.filter((d) => d.kind === "audiooutput"));
-      setLabelsHidden(inputs.length > 0 && inputs.every((d) => !d.label));
-    } finally {
-      setDevicesLoading(false);
-    }
-  }, []);
-
-  // 마이크 권한을 1회 얻어 장치 이름(label)을 노출한 뒤 즉시 트랙을 닫고 재열거한다.
-  const revealDeviceNames = useCallback(async () => {
-    if (typeof navigator === "undefined" || !navigator.mediaDevices?.getUserMedia) return;
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      stream.getTracks().forEach((t) => t.stop());
-      await refreshInputDevices();
-    } catch {
-      /* 권한 거부 — 이름 없이 fallback 표기 유지 */
-    }
-  }, [refreshInputDevices]);
-
-  // 장치 연결/해제 시 목록 자동 갱신
-  useEffect(() => {
-    if (typeof navigator === "undefined" || !navigator.mediaDevices?.addEventListener) return;
-    const handler = () => refreshInputDevices();
-    navigator.mediaDevices.addEventListener("devicechange", handler);
-    return () => navigator.mediaDevices.removeEventListener("devicechange", handler);
-  }, [refreshInputDevices]);
-
-  // 연결된 장치 능력(현재값·지원 SampleRate·Buffer 범위·입력 채널 수) 조회 — Electron 전용.
-  // uid를 넘기면 그 장치를, 생략하면 현재 선택된 captureDeviceUID(없으면 OS 기본 입력)를 대상으로 한다.
-  const refreshDeviceInfo = async (uid?: string) => {
-    if (typeof window === "undefined" || !window.audioDevice) return;
-    setDeviceInfoLoading(true);
-    const target = uid ?? draft.captureDeviceUID ?? "";
-    const res = await window.audioDevice.query(target || undefined);
-    setDeviceInfo(res.success ? res : null);
-    setDeviceInfoLoading(false);
-  };
-
-  // CoreAudio 장치 목록 새로고침 — 연결된 입력 장치 전체(uid/name/inputChannels). Electron 전용.
-  const refreshNativeDevices = async () => {
-    if (typeof window === "undefined" || !window.audioDevice?.list) return;
-    setNativeDevicesLoading(true);
-    const res = await window.audioDevice.list();
-    setNativeDevices(res.success && res.devices ? res.devices : []);
-    setNativeDevicesLoading(false);
-  };
 
   // 열 때마다 현재 적용값으로 draft 동기화 + 장치 정보 새로고침
   useEffect(() => {
