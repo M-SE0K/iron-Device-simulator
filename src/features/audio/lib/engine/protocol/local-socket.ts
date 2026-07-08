@@ -18,8 +18,7 @@ import {
 
 /**
  * WaveformPlayer/MicrophonePlayer가 실제로 사용하는 WebSocket 부분집합.
- * 이벤트 핸들러는 일부러 `any`로 느슨하게 잡아, 네이티브 WebSocket(구체적인
- * CloseEvent/MessageEvent 타입 사용)이 구조적으로 그대로 대입 가능하게 한다.
+ * 이벤트 핸들러는 일부러 `any`로 느슨하게 잡아, 네이티브 WebSocket(구체적인 CloseEvent/MessageEvent 타입 사용)이 구조적으로 그대로 대입 가능하게 한다.
  */
 export interface SocketLike {
   readyState: number;

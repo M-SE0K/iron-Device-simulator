@@ -4,7 +4,7 @@ import { useEffect, useRef, useState, useCallback } from "react";
 import { Mic, Square } from "lucide-react";
 import { AppStatus, AnalysisFrame, StreamDebugInfo, DebugLogEntry, InputParameterValues } from "@/features/audio/types";
 import { createAnalysisSocket, type SocketLike } from "@/features/audio/lib/engine/protocol/local-socket";
-import { useCalibration } from "@/features/audio/components/calibration/Calibration-context";
+import { useCalibration } from "@/features/audio/components/calibration/CalibrationContext";
 import { useNativeCapture } from "./capture/useNativeCapture";
 import { useWebAudioWorkletCapture } from "./capture/useWebAudioWorkletCapture";
 

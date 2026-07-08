@@ -2,7 +2,7 @@
 // CalibrationDrawer "적용" 시 Context에 커밋된 값을 새로고침(F5)에도 유지한다.
 //   · 수명: 탭이 살아있는 동안(새로고침 포함, lib/cache/frame.ts와 동일 정책). 탭을 닫으면 사라진다.
 //   · CalibrationValues 필드가 늘어나도 깨지지 않도록 Partial로 불러와 기본값과 병합해서 쓴다.
-import type { CalibrationValues } from "@/features/audio/components/calibration/Calibration-context";
+import type { CalibrationValues } from "@/features/audio/components/calibration/CalibrationContext";
 
 const KEY = "irondevice:calibration:v1";
 

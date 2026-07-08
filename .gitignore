@@ -57,6 +57,7 @@ next-env.d.ts
 measurements/
 test-audio.wav
 
-#CLAUDE
+#CLAUDE & iron-device
 CLAUDE.md
 libirontune.so
+/docs

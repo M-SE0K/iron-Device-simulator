@@ -4,10 +4,10 @@ import { useEffect, useRef, useState, useCallback, forwardRef, useImperativeHand
 import { Play, Pause, Square } from "lucide-react";
 import { cn, formatTime } from "@/shared/lib/utils";
 import { AppStatus, AnalysisFrame, StreamDebugInfo, DebugLogEntry, InputParameterValues } from "@/features/audio/types";
-import { createAnalysisSocket, type SocketLike } from "@/features/audio/lib/engine/protocol/local-socket";
-import { DEFAULT_ENGINE_CONFIG, frameBytes, type EngineRuntimeConfig } from "@/features/audio/lib/engine/core";
-import { encodeToInt16 } from "@/features/audio/lib/engine/utils";
-import { useCalibration } from "@/features/audio/components/calibration/Calibration-context";
+import { useCalibration } from "@/features/audio/components/calibration/CalibrationContext";
+import { usePcmDecoder } from "./stream/usePcmDecoder";
+import { useAnalysisStream } from "./stream/useAnalysisStream";
+import { useBatchAnalysis } from "./stream/useBatchAnalysis";
 
 // ─── 카드 내부 비율 (%) — 자유롭게 조절 ──────────────────────────────────────
 // header(타이틀 영역) + body(파형 + 컨트롤) = 100
@@ -71,175 +71,39 @@ const WaveformPlayer = forwardRef<WaveformPlayerHandle, Props>(function Waveform
 }: Props, ref) {
   const { values: calibration } = useCalibration();
 
-  const containerRef    = useRef<HTMLDivElement>(null);
-  const wavesurferRef   = useRef<import("wavesurfer.js").default | null>(null);
+  const containerRef  = useRef<HTMLDivElement>(null);
+  const wavesurferRef = useRef<import("wavesurfer.js").default | null>(null);
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration]       = useState(0);
   const [isReady, setIsReady]         = useState(false);
-  // 화면 표시용 — engineConfigRef와 같은 시점에 세팅되는 state 사본(ref는 리렌더를 안 일으킴)
-  const [displayConfig, setDisplayConfig] = useState<EngineRuntimeConfig | null>(null);
 
   // inputParams ref: prop 변경 시 최신값을 클로저에서 참조할 수 있게 유지
   const inputParamsRef = useRef<InputParameterValues | undefined>(inputParams);
   useEffect(() => { inputParamsRef.current = inputParams; }, [inputParams]);
 
-  // ── PCM 프레임 데이터 (AudioContext 디코딩 결과) ──────────────────────────
-  const pcmFramesRef      = useRef<ArrayBuffer[]>([]);
-  const pcmReadyRef       = useRef(false);
-  // 현재 디코딩된 PCM에 실제로 적용된 sampleRate/samplesPerCh — calibration이 디코딩 도중
-  // 바뀌어도 이미 디코딩된 프레임과 어긋나지 않도록, 디코딩 시작 시점 값을 여기 고정해 둔다.
-  const engineConfigRef   = useRef<EngineRuntimeConfig>(DEFAULT_ENGINE_CONFIG);
+  // ── PCM 디코딩 파이프라인 (AudioContext 디코딩 → 프레임 청킹) ─────────────
+  const { pcmFramesRef, pcmReadyRef, engineConfigRef, displayConfig } = usePcmDecoder(
+    audioFile, calibration.sampleRate, calibration.bufferSize,
+  );
 
-  // ── 분석 소켓 상태 (브라우저 WASM 엔진, LocalWasmSocket) ─────────────────
-  const wsRef             = useRef<SocketLike | null>(null);
-  const wsReadyRef        = useRef(false);
+  // ── 실시간 분석 스트림 (소켓 open/close, rAF 전송 루프, RTT/디버그) ────────
+  const stream = useAnalysisStream({
+    wavesurferRef, pcmFramesRef, engineConfigRef, inputParamsRef,
+    onStreamStart, onFrameReceived, onStatusChange, onDebugUpdate, onDebugLog,
+  });
 
-  // ── rAF 루프 ─────────────────────────────────────────────────────────────
-  const rafRef            = useRef<number | null>(null);
-  const lastSentFrameRef  = useRef(0);
+  // ── 배치 분석 (재생 동기화 없이 전체 PCM을 한 번에 분석) ───────────────────
+  const { runBatchAnalysis } = useBatchAnalysis({
+    pcmFramesRef, pcmReadyRef, engineConfigRef, inputParamsRef,
+  });
 
-  // ── 레이턴시 측정 ─────────────────────────────────────────────────────────
-  // key: frameIndex, value: performance.now() 전송 시각
-  const sendTimestampsRef   = useRef<Map<number, number>>(new Map());
-  const framesSentRef       = useRef(0);
-  const framesReceivedRef   = useRef(0);
-  const rttSamplesRef       = useRef<number[]>([]); // 최근 100개
-  const lastServerProcMsRef = useRef<number | null>(null);
-  // rAF 전송 속도 측정
-  const lastSendRateCheckRef = useRef<{ time: number; count: number }>({ time: 0, count: 0 });
-  const sendRateFpsRef       = useRef<number | null>(null);
-  // 디버그 UI 스로틀 (10fps)
-  const lastDebugFlushRef   = useRef(0);
-
-  // ── 디버그 메트릭 flush (스로틀 10fps) ──────────────────────────────────
-  const flushDebug = useCallback((wsConnected: boolean) => {
-    if (!onDebugUpdate) return;
-    const now = performance.now();
-    if (now - lastDebugFlushRef.current < 100) return; // 100ms 미만이면 스킵
-    lastDebugFlushRef.current = now;
-
-    const samples = rttSamplesRef.current;
-    const avgRttMs = samples.length > 0
-      ? parseFloat((samples.reduce((a, b) => a + b, 0) / samples.length).toFixed(2))
-      : null;
-    const minRttMs = samples.length > 0 ? parseFloat(Math.min(...samples).toFixed(2)) : null;
-    const maxRttMs = samples.length > 0 ? parseFloat(Math.max(...samples).toFixed(2)) : null;
-    const latestRttMs = samples.length > 0
-      ? parseFloat(samples[samples.length - 1].toFixed(2))
-      : null;
-
-    onDebugUpdate({
-      wsConnected,
-      framesSent:        framesSentRef.current,
-      framesReceived:    framesReceivedRef.current,
-      latestRttMs,
-      avgRttMs,
-      minRttMs,
-      maxRttMs,
-      serverProcessingMs: lastServerProcMsRef.current,
-      sendRateFps:        sendRateFpsRef.current,
-    });
-  }, [onDebugUpdate]);
-
-  // ── rAF 루프: WaveSurfer currentTime 기준으로 미전송 프레임 일괄 전송 ─────
-  const startRaf = useCallback(() => {
-    if (rafRef.current) cancelAnimationFrame(rafRef.current);
-
-    const loop = () => {
-      const ws = wsRef.current;
-      if (!ws || ws.readyState !== WebSocket.OPEN || !wsReadyRef.current) {
-        rafRef.current = requestAnimationFrame(loop);
-        return;
-      }
-
-      const wv = wavesurferRef.current;
-      if (!wv) return;
-
-      const { sampleRate, samplesPerCh } = engineConfigRef.current;
-      const currentFrame = Math.floor(wv.getCurrentTime() * sampleRate / samplesPerCh);
-      const frames       = pcmFramesRef.current;
-      const now          = performance.now();
-
-      while (lastSentFrameRef.current < currentFrame && lastSentFrameRef.current < frames.length) {
-        const idx = lastSentFrameRef.current;
-        sendTimestampsRef.current.set(idx, performance.now());
-        ws.send(frames[idx]);
-        framesSentRef.current++;
-        lastSentFrameRef.current++;
-      }
-
-      // 전송 속도 측정 (1초 윈도우)
-      const rateCheck = lastSendRateCheckRef.current;
-      if (now - rateCheck.time >= 1000) {
-        sendRateFpsRef.current = parseFloat(
-          ((framesSentRef.current - rateCheck.count) / ((now - rateCheck.time) / 1000)).toFixed(1)
-        );
-        lastSendRateCheckRef.current = { time: now, count: framesSentRef.current };
-      }
-
-      flushDebug(true);
-      rafRef.current = requestAnimationFrame(loop);
-    };
-
-    rafRef.current = requestAnimationFrame(loop);
-  }, [flushDebug]);
-
-  const stopRaf = useCallback(() => {
-    if (rafRef.current !== null) {
-      cancelAnimationFrame(rafRef.current);
-      rafRef.current = null;
-    }
-  }, []);
-
-  // ── WebSocket 정리 ────────────────────────────────────────────────────────
-  // ── 소켓 init 메시지 생성 (스트리밍/배치 공용) ────────────────────────────
-  const buildInitMessage = useCallback(() => {
-    const p = inputParamsRef.current;
-    const { sampleRate, samplesPerCh } = engineConfigRef.current;
-    return JSON.stringify({
-      type:           "init",
-      ampOutputPower: p?.ampOutputPower ?? "",
-      speakerModel:   p?.speakerModel   ?? "",
-      sampleRate,
-      bufferSize:     samplesPerCh,
-    });
-  }, []);
-
-  const closeWs = useCallback(() => {
-    stopRaf();
-    const ws = wsRef.current;
-    if (ws) {
-      if (ws.readyState === WebSocket.OPEN) {
-        ws.send(JSON.stringify({ type: "stop" }));
-      }
-      ws.close();
-      wsRef.current = null;
-    }
-    wsReadyRef.current = false;
-  }, [stopRaf]);
-
-  // ── 파일 변경 시: WaveSurfer 재초기화 + PCM 디코딩 ──────────────────────
+  // ── 파일/엔진설정 변경 시: WaveSurfer 재초기화 (PCM 디코딩은 usePcmDecoder가 별도로 담당) ──
   useEffect(() => {
     // 이전 세션 정리
-    closeWs();
+    stream.reset();
     setIsReady(false);
     setCurrentTime(0);
     setDuration(0);
-    setDisplayConfig(null);
-    pcmFramesRef.current     = [];
-    pcmReadyRef.current      = false;
-    lastSentFrameRef.current = 0;
-    // 디버그 카운터 리셋
-    sendTimestampsRef.current.clear();
-    framesSentRef.current        = 0;
-    framesReceivedRef.current    = 0;
-    rttSamplesRef.current        = [];
-    lastServerProcMsRef.current  = null;
-    sendRateFpsRef.current       = null;
-    lastSendRateCheckRef.current = { time: 0, count: 0 };
-    onDebugUpdate?.({ wsConnected: false, framesSent: 0, framesReceived: 0,
-      latestRttMs: null, avgRttMs: null, minRttMs: null, maxRttMs: null,
-      serverProcessingMs: null, sendRateFps: null });
 
     if (!containerRef.current || !audioFile) return;
 
@@ -247,7 +111,6 @@ const WaveformPlayer = forwardRef<WaveformPlayerHandle, Props>(function Waveform
     let destroyed = false;
 
     (async () => {
-      // WaveSurfer 초기화
       const WaveSurfer = (await import("wavesurfer.js")).default;
       if (destroyed) return;
 
@@ -286,54 +149,13 @@ const WaveformPlayer = forwardRef<WaveformPlayerHandle, Props>(function Waveform
 
       ws.on("finish", () => {
         if (destroyed) return;
-        stopRaf();
+        stream.close();
         onStatusChange("paused");
       });
 
       const url = URL.createObjectURL(audioFile);
       ws.load(url);
       wavesurferRef.current = ws;
-
-      // PCM 디코딩 (AudioContext — 파일 선택 직후 실행)
-      try {
-        // 디코딩 시작 시점의 calibration 값으로 이번 세션의 프레임 설정을 고정한다
-        // (비동기 디코딩 도중 calibration이 또 바뀌어도 이미 만든 프레임과 어긋나지 않게).
-        const reqSampleRate   = Number(calibration.sampleRate) || DEFAULT_ENGINE_CONFIG.sampleRate;
-        const reqSamplesPerCh = Number(calibration.bufferSize) || DEFAULT_ENGINE_CONFIG.samplesPerCh;
-        const config: EngineRuntimeConfig = { sampleRate: reqSampleRate, samplesPerCh: reqSamplesPerCh };
-        engineConfigRef.current = config;
-        setDisplayConfig(config);
-
-        const arrayBuf   = await audioFile.arrayBuffer();
-        if (destroyed) return;
-
-        const audioCtx   = new AudioContext({ sampleRate: reqSampleRate });
-        const audioBuffer = await audioCtx.decodeAudioData(arrayBuf);
-        await audioCtx.close();
-        if (destroyed) return;
-
-        const ch0 = audioBuffer.getChannelData(0);
-        const ch1 = audioBuffer.numberOfChannels > 1
-          ? audioBuffer.getChannelData(1)
-          : audioBuffer.getChannelData(0);
-
-        const interleaved  = encodeToInt16(ch0, ch1);
-        // Int16Array.buffer는 ArrayBuffer | SharedArrayBuffer → 명시적 캐스트
-        const rawBytes     = interleaved.buffer as ArrayBuffer;
-        const chunkBytes   = frameBytes(config);
-        const totalFrames  = Math.floor(ch0.length / reqSamplesPerCh);
-        const frames: ArrayBuffer[] = [];
-
-        for (let i = 0; i < totalFrames; i++) {
-          frames.push(rawBytes.slice(i * chunkBytes, (i + 1) * chunkBytes));
-        }
-
-        pcmFramesRef.current = frames;
-        pcmReadyRef.current  = true;
-        console.log(`[WaveformPlayer] PCM 디코딩 완료: ${totalFrames} 프레임 (${reqSampleRate}Hz, ${reqSamplesPerCh}samples/ch)`);
-      } catch (err) {
-        console.error("[WaveformPlayer] PCM 디코딩 실패:", err);
-      }
     })();
 
     return () => {
@@ -357,130 +179,14 @@ const WaveformPlayer = forwardRef<WaveformPlayerHandle, Props>(function Waveform
     });
   }, [isReady, calibration.outputDeviceId]);
 
-  // ── WebSocket 연결 + 스트리밍 시작 ───────────────────────────────────────
-  const openWsAndStream = useCallback(() => {
-    // 이미 연결 중이면 재사용
-    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN && wsReadyRef.current) {
-      startRaf();
-      return;
-    }
-
-    // 이전 연결 정리
-    if (wsRef.current) {
-      wsRef.current.close();
-      wsRef.current = null;
-    }
-
-    lastSentFrameRef.current = 0;
-    wsReadyRef.current = false;
-    onStreamStart(); // 누적 프레임 초기화 신호
-
-    const ws = createAnalysisSocket();
-    wsRef.current = ws;
-
-    ws.onopen = () => {
-      ws.send(buildInitMessage());
-    };
-
-    ws.onmessage = (event) => {
-      const msg = JSON.parse(event.data as string);
-      if (msg.type === "ready") {
-        wsReadyRef.current = true;
-        startRaf();
-      } else if (msg.type === "frame") {
-        // ── RTT 계산 ──────────────────────────────────────────────────────
-        const recvAt    = performance.now();
-        const { sampleRate, samplesPerCh } = engineConfigRef.current;
-        const frameIdx  = Math.round((msg.time as number) * sampleRate / samplesPerCh);
-        const sentAt    = sendTimestampsRef.current.get(frameIdx);
-        if (sentAt !== undefined) {
-          const rtt = parseFloat((recvAt - sentAt).toFixed(2));
-          const samples = rttSamplesRef.current;
-          samples.push(rtt);
-          if (samples.length > 100) samples.shift();
-          sendTimestampsRef.current.delete(frameIdx);
-
-          // 콘솔 로그 (매 50프레임마다 출력)
-          if (framesReceivedRef.current % 50 === 0) {
-            const avg = samples.reduce((a, b) => a + b, 0) / samples.length;
-            console.debug(
-              `[Latency] frame#${frameIdx} | RTT: ${rtt}ms | avg: ${avg.toFixed(2)}ms | server: ${msg.processingMs}ms`
-            );
-          }
-        }
-        lastServerProcMsRef.current = msg.processingMs as number;
-        framesReceivedRef.current++;
-
-        const temperature = msg.temperature as [number, number];
-        const excursion   = msg.excursion   as [number, number];
-
-        // ── 수신 데이터 진단 로그 (첫 3프레임 + 100프레임마다) ────────────────
-        if (framesReceivedRef.current < 3 || framesReceivedRef.current % 100 === 0) {
-          const isArray = Array.isArray(msg.temperature);
-          console.debug(
-            `[WaveformPlayer] frame#${frameIdx}` +
-            `  isArray=${isArray}` +
-            `  T=[${temperature[0]}, ${temperature[1]}]` +
-            `  Exc=[${excursion[0]}, ${excursion[1]}]`
-          );
-          if (!isArray) {
-            console.warn("[WaveformPlayer] temperature/excursion이 배열이 아닙니다. WASM 엔진 버전을 확인하세요.");
-          }
-        }
-
-        // 로그 엔트리 생성 (render 타임은 page.tsx의 handleDebugLog에서 첨부)
-        // DebugLogEntry는 단일값 — ch0(L)을 대표값으로 사용
-        onDebugLog?.({
-          receivedAt:        recvAt,
-          audioTime:         msg.time        as number,
-          frameIdx,
-          rttMs:             sentAt !== undefined
-            ? parseFloat((recvAt - sentAt).toFixed(2))
-            : null,
-          serverProcMs:      msg.processingMs as number,
-          temperature:       temperature[0],
-          excursion:         excursion[0],
-          reactRenderMs:     null,
-          echartsRenderMs:   null,
-          totalRecvRenderMs: null,
-          freshnessLagMs:    null,
-        });
-
-        onFrameReceived({
-          time: msg.time as number,
-          temperature,
-          excursion,
-        });
-
-        flushDebug(true);
-      } else if (msg.type === "error") {
-        console.error("[WaveformPlayer] 분석 엔진 오류:", msg.message);
-        onStatusChange("error");
-      }
-    };
-
-    ws.onerror = () => {
-      console.error("[WaveformPlayer] WebSocket 연결 오류");
-      onStatusChange("error");
-    };
-
-    ws.onclose = () => {
-      wsReadyRef.current = false;
-      onDebugUpdate?.({ wsConnected: false });
-    };
-  }, [startRaf, onStreamStart, onFrameReceived, onStatusChange, buildInitMessage]);
-
   // ── 일시정지 (WebSocket 유지 → 재개 시 스트림/차트 보존) ──────────────────
   const pausePlayback = useCallback(() => {
     const wv = wavesurferRef.current;
     if (!wv || !wv.isPlaying()) return;
     wv.pause();
-    stopRaf();
-    if (wsRef.current?.readyState === WebSocket.OPEN) {
-      wsRef.current.send(JSON.stringify({ type: "pause" }));
-    }
+    stream.pauseStream();
     onStatusChange("paused");
-  }, [stopRaf, onStatusChange]);
+  }, [stream.pauseStream, onStatusChange]);
 
   // ── 재생/일시정지 ─────────────────────────────────────────────────────────
   const handlePlayPause = useCallback(() => {
@@ -493,120 +199,26 @@ const WaveformPlayer = forwardRef<WaveformPlayerHandle, Props>(function Waveform
       wavesurferRef.current.play();
       onStatusChange("playing");
       // 배치 모드: 실시간 스트리밍 없이 오디오 재생만 (차트는 이미 분석 완료 상태)
-      if (enableStreaming) openWsAndStream();
+      if (enableStreaming) stream.open();
     }
-  }, [isReady, pausePlayback, openWsAndStream, onStatusChange, enableStreaming]);
+  }, [isReady, pausePlayback, stream.open, onStatusChange, enableStreaming]);
 
   // ── 정지 ─────────────────────────────────────────────────────────────────
   const handleStop = useCallback(() => {
     if (!wavesurferRef.current) return;
     wavesurferRef.current.stop();
     setCurrentTime(0);
-    closeWs();
-    lastSentFrameRef.current = 0;
+    stream.close();
     onStatusChange("ready");
-  }, [closeWs, onStatusChange]);
-
-  // ── 배치 분석: 전체 PCM을 한 번에 분석 (재생 동기화 없음) ─────────────────
-  const runBatchAnalysis = useCallback(
-    (onProgress?: (done: number, total: number) => void): Promise<AnalysisFrame[]> => {
-      return new Promise<AnalysisFrame[]>((resolve, reject) => {
-        if (!pcmReadyRef.current || pcmFramesRef.current.length === 0) {
-          reject(new Error("PCM 디코딩이 아직 완료되지 않았습니다."));
-          return;
-        }
-
-        const frames     = pcmFramesRef.current;
-        const totalFrames = frames.length;
-        // frameIdx → AnalysisFrame (수신 순서로 time을 매기므로 idx로 정렬)
-        const collected   = new Map<number, AnalysisFrame>();
-
-        const batchWs = createAnalysisSocket();
-        let settled = false;
-
-        const finish = (fn: () => void) => {
-          if (settled) return;
-          settled = true;
-          try { batchWs.close(); } catch { /* noop */ }
-          fn();
-        };
-
-        // 백프레셔를 고려해 프레임을 순차 전송 (버퍼 과적 방지)
-        const BUFFER_LIMIT = 4 * 1024 * 1024; // 4MB
-        const sendAll = () => {
-          let i = 0;
-          const pump = () => {
-            if (settled) return;
-            while (i < totalFrames) {
-              if (batchWs.bufferedAmount > BUFFER_LIMIT) {
-                setTimeout(pump, 4);
-                return;
-              }
-              batchWs.send(frames[i]);
-              i++;
-            }
-          };
-          pump();
-        };
-
-        batchWs.onopen = () => {
-          batchWs.send(buildInitMessage());
-        };
-
-        batchWs.onmessage = (event) => {
-          const msg = JSON.parse(event.data as string);
-          if (msg.type === "ready") {
-            sendAll();
-          } else if (msg.type === "frame") {
-            const { sampleRate, samplesPerCh } = engineConfigRef.current;
-            const frameIdx = Math.round((msg.time as number) * sampleRate / samplesPerCh);
-            collected.set(frameIdx, {
-              time:        msg.time      as number,
-              temperature: msg.temperature as [number, number],
-              excursion:   msg.excursion   as [number, number],
-            });
-            if (onProgress && collected.size % 50 === 0) onProgress(collected.size, totalFrames);
-
-            if (collected.size >= totalFrames) {
-              onProgress?.(totalFrames, totalFrames);
-              const ordered = Array.from(collected.entries())
-                .sort((a, b) => a[0] - b[0])
-                .map(([, f]) => f);
-              finish(() => resolve(ordered));
-            }
-          } else if (msg.type === "error") {
-            finish(() => reject(new Error(msg.message ?? "WASM 분석 오류")));
-          }
-        };
-
-        batchWs.onerror = () => finish(() => reject(new Error("WebSocket 연결 오류")));
-        batchWs.onclose = () => {
-          // 모든 프레임 수신 전에 닫히면 부분 결과로 종료
-          if (!settled) {
-            const ordered = Array.from(collected.entries())
-              .sort((a, b) => a[0] - b[0])
-              .map(([, f]) => f);
-            if (ordered.length > 0) finish(() => resolve(ordered));
-            else finish(() => reject(new Error("분석 결과를 받지 못했습니다.")));
-          }
-        };
-      });
-    },
-    [buildInitMessage],
-  );
+  }, [stream.close, onStatusChange]);
 
   // page.tsx에서 ref.current.sendMessage()로 WS 전송
   useImperativeHandle(ref, () => ({
-    sendMessage: (msg: object) => {
-      const ws = wsRef.current;
-      if (ws?.readyState === WebSocket.OPEN) {
-        ws.send(JSON.stringify(msg));
-      }
-    },
+    sendMessage: stream.sendMessage,
     runBatchAnalysis,
-    stopStreaming: closeWs,
+    stopStreaming: stream.close,
     pause: pausePlayback,
-  }), [runBatchAnalysis, closeWs, pausePlayback]);
+  }), [stream.sendMessage, stream.close, runBatchAnalysis, pausePlayback]);
 
   const isPlaying = status === "playing";
   const progress  = duration > 0 ? (currentTime / duration) * 100 : 0;

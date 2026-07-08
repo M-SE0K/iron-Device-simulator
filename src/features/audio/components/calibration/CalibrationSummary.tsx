@@ -4,7 +4,7 @@
 // Calibration View(드로어)에서 선택·적용한 모델/파라미터가 현재 분석에 반영되었음을
 // 사용자에게 명시적으로 알린다. 값은 전역 CalibrationProvider(단일 소스)를 그대로 읽는다.
 import { SlidersHorizontal } from "lucide-react";
-import { useCalibration } from "./Calibration-context";
+import { useCalibration } from "./CalibrationContext";
 import { cn } from "@/shared/lib/utils";
 
 export default function CalibrationSummary({ className }: { className?: string }) {

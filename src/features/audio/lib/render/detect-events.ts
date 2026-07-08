@@ -1,7 +1,7 @@
 import type { QueuedFrame } from "./types";
 
 // Calibration에서 tempWarn/tempDanger를 지정하지 않았을 때(또는 파싱 실패 시)의 기본값 —
-// Calibration-context.tsx의 CALIBRATION_EMPTY와 TemperatureChart.tsx의 markLine이
+// CalibrationContext.tsx의 CALIBRATION_EMPTY와 TemperatureChart.tsx의 markLine이
 // 이 값을 공유한다(단일 진실원).
 export const DEFAULT_TEMP_WARN   = 65;
 export const DEFAULT_TEMP_DANGER = 75;

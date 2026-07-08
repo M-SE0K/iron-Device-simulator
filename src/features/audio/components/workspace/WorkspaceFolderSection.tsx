@@ -1,16 +1,12 @@
 "use client";
 
-// 폴더에서 파일 고르기 — 대시보드의 AudioUploader 를 대체하는 단일 진입점.
+// 폴더에서 파일 고르기 — 대시보드의 SelectedFilePanel 이 여는 Workspace 드로어의 단일 진입점.
 // Electron 빌드는 window.localFolder(네이티브 폴더 감시), 그 외 웹/모바일 빌드는
 // <input webkitdirectory> 로 폴더를 통째로 업로드해 같은 UX 를 제공한다.
 import { useCallback, useEffect, useState } from "react";
 import { FolderOpen, Music } from "lucide-react";
-import { useWorkspace } from "./Workspace-context";
-import { cn } from "@/shared/lib/utils";
-
-function formatFileSize(bytes: number): string {
-  return `${(bytes / 1024 / 1024).toFixed(1)}MB`;
-}
+import { useWorkspace } from "./WorkspaceContext";
+import { cn, formatFileSize } from "@/shared/lib/utils";
 
 // 폴더 안의 오디오 파일 목록 — 항목을 호버하면 강조되고 클릭하면 분석에 로드된다.
 // 현재 로드된 파일(activeName)은 파란색으로 선택 표시. Electron/브라우저 공용 렌더러.

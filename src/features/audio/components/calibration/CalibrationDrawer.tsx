@@ -11,22 +11,18 @@ import { useEffect, useState } from "react";
 import { RefreshCw, RotateCcw, SlidersHorizontal, X } from "lucide-react";
 import AnimatedSelect from "@/shared/components/AnimatedSelect";
 import DeviceSelectField from "./DeviceSelectField";
-import { useAnalysisMode } from "@/features/audio/components/AnalysisModeContext";
+import { useAnalysisMode } from "@/features/audio/components/dashboard/AnalysisModeContext";
 import {
   CALIBRATION_EMPTY,
   CHANNEL_OPTIONS,
   useCalibration,
   type CalibrationValues,
-} from "./Calibration-context";
-import {
-  loadDeviceActualCache,
-  saveDeviceActualCache,
-  type DeviceActualCache,
-} from "@/features/audio/lib/cache/calibration";
+} from "./CalibrationContext";
 import { useNativeAudioDevice } from "./hooks/useNativeAudioDevice";
 import { useMediaDevices } from "./hooks/useMediaDevices";
 import { useDeviceOptionAutoCorrect } from "./hooks/useDeviceOptionAutoCorrect";
 import { useCalibrationDraft } from "./hooks/useCalibrationDraft";
+import { useCalibrationApply } from "./hooks/useCalibrationApply";
 
 /** 드롭다운 선택 필드 */
 function SelectField({
@@ -159,8 +155,6 @@ interface Props {
   onApply?: (values: CalibrationValues) => void;
 }
 
-type DeviceApplyStatus = "idle" | "applying" | "applied" | "error";
-
 export default function CalibrationDrawer({ projectName, onApply }: Props) {
   const { values, setValues } = useCalibration();
   // 입력 소스(파일/마이크) · 분석 모드(실시간 추적/분석) — 대시보드가 제공하는 컨텍스트.
@@ -168,13 +162,6 @@ export default function CalibrationDrawer({ projectName, onApply }: Props) {
   const mode = useAnalysisMode();
   const [open, setOpen] = useState(false);
   const { draft, setDraft, set } = useCalibrationDraft(open, values);
-
-  const [deviceStatus, setDeviceStatus] = useState<DeviceApplyStatus>("idle");
-  const [deviceActual, setDeviceActual] = useState<{ sampleRate: number | null; bufferSize: number | null } | null>(null);
-  const [deviceError, setDeviceError] = useState<string | null>(null);
-  // "적용" 시 capture probe로 확인한 실제 런타임 값 — sessionStorage에 저장되어 새로고침(F5)
-  // 후에도 "연결된 장치" 패널에 마지막 적용값이 그대로 렌더링된다.
-  const [appliedRuntime, setAppliedRuntime] = useState<DeviceActualCache | null>(null);
 
   const {
     hasAudioDeviceBridge, deviceInfo, deviceInfoLoading, refreshDeviceInfo,
@@ -187,20 +174,16 @@ export default function CalibrationDrawer({ projectName, onApply }: Props) {
   const {
     sampleRateOptions, bufferSizeOptions, deviceOptionsLoading, adjustedNote, clearAdjustedNote,
   } = useDeviceOptionAutoCorrect({ deviceInfo, deviceInfoLoading, hasAudioDeviceBridge, draft, set });
+  const {
+    deviceStatus, deviceActual, deviceError, appliedRuntime, apply, resetStatus,
+  } = useCalibrationApply({ draft, setValues, setOpen, hasAudioDeviceBridge, refreshDeviceInfo, onApply });
 
-  useEffect(() => {
-    // 새로고침 후에도 마지막으로 적용된 런타임 값을 복원해 "연결된 장치" 패널에 표시
-    setAppliedRuntime(loadDeviceActualCache());
-  }, []);
-
-  // 열 때마다 deviceStatus/adjustedNote 리셋 + 장치 정보 새로고침 (draft 자체의 동기화는
+  // 열 때마다 적용상태/adjustedNote 리셋 + 장치 정보 새로고침 (draft 자체의 동기화는
   // useCalibrationDraft가 별도 [open] effect로 담당 — React는 같은 의존성의 effect 여러
   // 개를 선언 순서대로 전부 실행하므로 하나였을 때와 동작이 같다).
   useEffect(() => {
     if (!open) return;
-    setDeviceStatus("idle");
-    setDeviceActual(null);
-    setDeviceError(null);
+    resetStatus();
     clearAdjustedNote();
     refreshNativeDevices();
     refreshDeviceInfo(values.captureDeviceUID);
@@ -214,55 +197,6 @@ export default function CalibrationDrawer({ projectName, onApply }: Props) {
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [open]);
-
-  const apply = async () => {
-    setValues(draft);
-    onApply?.(draft);
-
-    if (!hasAudioDeviceBridge || !window.audioCapture) {
-      setOpen(false);
-      return;
-    }
-
-    // BufferFrameSize는 per-client 프로퍼티(TN2321)라 set만으로는 실제 반영 여부를 확인할
-    // 수 없다 — capture(IOProc)를 아주 잠깐 열었다가 즉시 닫아 그 순간의 진짜 적용값만
-    // 읽어온다(SampleRate는 capture 내부에서도 동일하게 설정됨). 결과를 보여줘야 하므로
-    // 드로어는 사용자가 직접 닫는다. 이미 녹음 중이면 실패(capture-already-running)한다.
-    setDeviceStatus("applying");
-    setDeviceError(null);
-    const requested = { sampleRate: Number(draft.sampleRate), bufferSize: Number(draft.bufferSize) };
-    const captureChannels = Math.max(2, Number(draft.channels) || 2);
-    const result = await window.audioCapture.start({
-      sampleRate: requested.sampleRate,
-      bufferSize: requested.bufferSize,
-      channels:   captureChannels,
-      deviceUID:  draft.captureDeviceUID || undefined,
-    });
-
-    if (result.success) {
-      await window.audioCapture.stop();
-      setDeviceActual(result.actual ?? null);
-      setDeviceStatus("applied");
-      // 실제 반영된 런타임 값을 저장 → 새로고침 후에도 "연결된 장치" 패널에 유지된다.
-      const runtime: DeviceActualCache = {
-        requested,
-        actual: result.actual ?? { sampleRate: null, bufferSize: null },
-      };
-      saveDeviceActualCache(runtime);
-      setAppliedRuntime(runtime);
-    } else {
-      setDeviceStatus("error");
-      setDeviceError(
-        result.error === "capture-already-running"
-          ? "마이크가 이미 사용 중입니다 — 녹음을 멈춘 뒤 다시 적용해주세요."
-          : result.error ?? "설정 적용 실패"
-      );
-    }
-
-    // capture probe(IOProc)가 닫힌 뒤 "연결된 장치" 패널의 CoreAudio query()도 새로고침해
-    // 적용 결과를 바로 확인할 수 있게 한다("새로고침" 버튼과 동일 동작).
-    await refreshDeviceInfo();
-  };
 
   // Input/Output Device 헤더의 새로고침 버튼 — 동작이 완전히 동일해 하나로 공유한다.
   const refreshDevicesButton = (

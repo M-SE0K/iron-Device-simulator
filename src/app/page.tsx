@@ -4,7 +4,7 @@
 // 배포에서 USE_QUEUE를 재빌드 없이 재정의하기 위한 것으로, 정적 export와 호환되지 않는다.
 export const dynamic = "force-dynamic";
 
-import DashboardPage from "@/features/audio/components/DashboardClient";
+import DashboardPage from "@/features/audio/components/dashboard/DashboardClient";
 
 export default function Page() {
   const useQueue = process.env.USE_QUEUE !== "false";

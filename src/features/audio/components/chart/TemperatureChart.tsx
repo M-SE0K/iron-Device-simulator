@@ -4,13 +4,14 @@ import dynamic from "next/dynamic";
 import { useMemo, useLayoutEffect, useRef, useCallback, useState, useEffect } from "react";
 import { Maximize2 } from "lucide-react";
 import { AnalysisFrame } from "@/features/audio/types";
-import { findFrameIndex } from "@/shared/lib/utils";
 import { cn } from "@/shared/lib/utils";
 import { DEFAULT_TEMP_WARN, DEFAULT_TEMP_DANGER } from "@/features/audio/lib/render/detect-events";
+import {
+  computeStreamWindow, computeTemperatureYRange, type ChannelMode,
+} from "@/features/audio/lib/render/chart-window";
+import { buildDataZoom, buildTimeAxis, buildValueTooltip, buildLegend } from "@/features/audio/lib/render/chart-option";
 
 const ReactECharts = dynamic(() => import("echarts-for-react"), { ssr: false });
-
-type ChannelMode = "L" | "R" | "Both";
 
 interface Props {
   frames: AnalysisFrame[];
@@ -80,24 +81,10 @@ export default function TemperatureChart({ frames, currentTime, isActive, stream
   };
 
   // ── 현재 값 & 윈도우 계산 ────────────────────────────────────────────────
-  const { currentTemp, windowFrames } = useMemo(() => {
-    if (!isActive || frames.length === 0) {
-      return { currentTemp: null as [number, number] | null, windowFrames: frames.slice(0, WINDOW_SIZE) };
-    }
-
-    if (streaming) {
-      // audioDuration이 설정된 경우(파일 모드): 전체 누적 프레임을 그대로 사용
-      // 설정되지 않은 경우(마이크 모드): 최근 WINDOW_SIZE 프레임만 유지
-      const windowFrames = audioDuration != null ? frames : frames.slice(-WINDOW_SIZE);
-      const lastFrame    = frames[frames.length - 1];
-      return { currentTemp: lastFrame?.temperature ?? null, windowFrames };
-    } else {
-      const frameIdx = findFrameIndex(frames.map((f) => f.time), currentTime);
-      const temp     = frameIdx >= 0 ? frames[frameIdx]?.temperature ?? null : null;
-      const start    = Math.max(0, frameIdx - (WINDOW_SIZE - 1));
-      return { currentTemp: temp, windowFrames: frames.slice(start, frameIdx + 1) };
-    }
-  }, [frames, currentTime, isActive, streaming]);
+  const { current: currentTemp, windowFrames } = useMemo(
+    () => computeStreamWindow(frames, currentTime, isActive, streaming, audioDuration, WINDOW_SIZE, (f) => f.temperature),
+    [frames, currentTime, isActive, streaming],
+  );
 
   // ── 헤더 표시값 & 색상 ───────────────────────────────────────────────────
   const displayTemp = useMemo(() => {
@@ -113,10 +100,15 @@ export default function TemperatureChart({ frames, currentTime, isActive, stream
     : displayTemp >= warnThreshold   ? "#F59E0B"
     : CH_COLOR[channelMode].ch0;
 
+  // ── Y축 동적 범위 ────────────────────────────────────────────────────────
+  const { yMin, yMax } = useMemo(
+    () => computeTemperatureYRange(windowFrames, channelMode),
+    [windowFrames, channelMode],
+  );
+
   // ── ECharts 옵션 ─────────────────────────────────────────────────────────
   const option = useMemo(() => {
     const colors = CH_COLOR[channelMode];
-    const { start, end } = zoomRef.current; // 현재 줌 상태 (ref → 렌더 유발 없음)
 
     // 다량 포인트 드로우 비용 상한: LTTB 다운샘플 + large 모드 (lttb=false면 미적용)
     const samplingOpts = lttb ? { sampling: "lttb", large: true, largeThreshold: 2000 } : {};
@@ -173,67 +165,12 @@ export default function TemperatureChart({ frames, currentTime, isActive, stream
       channelMode === "R"    ? [{ ...seriesR, markLine: seriesL.markLine }] :
       /* Both */               [seriesL, seriesR];
 
-    // ── Y축 동적 범위 ────────────────────────────────────────────────────────
-    // 기본은 0~100 고정(정상 범위에서 차트가 흔들리지 않도록).
-    // 표시 중인 채널 값이 범위를 벗어나면 헤드룸을 두고 '깔끔한' 단위로 확장한다.
-    // (windowFrames가 매우 클 수 있어 Math.max(...arr) 대신 루프로 계산 — 스택 초과 방지)
-    let dataMax = -Infinity;
-    let dataMin = Infinity;
-    for (const f of windowFrames) {
-      if (channelMode !== "R") { const v = f.temperature[0]; if (v > dataMax) dataMax = v; if (v < dataMin) dataMin = v; }
-      if (channelMode !== "L") { const v = f.temperature[1]; if (v > dataMax) dataMax = v; if (v < dataMin) dataMin = v; }
-    }
-    const niceStep = (v: number) => (v <= 200 ? 10 : v <= 500 ? 25 : v <= 1000 ? 50 : 100);
-    let yMax = 100;
-    if (isFinite(dataMax) && dataMax > 100) {
-      const withHeadroom = dataMax * 1.08;            // 8% 여유
-      const step = niceStep(withHeadroom);
-      yMax = Math.ceil(withHeadroom / step) * step;   // 10/25/50/100 단위로 올림
-    }
-    let yMin = 0;
-    if (isFinite(dataMin) && dataMin < 0) {
-      const withHeadroom = dataMin * 1.08;
-      const step = niceStep(Math.abs(withHeadroom));
-      yMin = Math.floor(withHeadroom / step) * step;
-    }
-
     return {
       animation: false,
       grid: { top: 8, right: 16, bottom: 52, left: 52 },
-      legend: channelMode === "Both"
-        ? { top: "auto", bottom: 56, textStyle: { color: "#A4AABA", fontSize: 10 } }
-        : { show: false },
-      dataZoom: [
-        {
-          type: "inside",
-          xAxisIndex: 0,
-          filterMode: "filter",
-          start, end,             // 저장된 줌 상태 유지
-          zoomOnMouseWheel: true,
-          moveOnMouseMove: true,
-          moveOnMouseWheel: false,
-        },
-        {
-          type: "slider", xAxisIndex: 0, height: 16, bottom: 4,
-          start, end,             // 슬라이더도 동기화
-          borderColor: "#E8EAF0", backgroundColor: "#F5F6F8",
-          fillerColor: "rgba(0,87,184,0.12)",
-          handleStyle: { color: "#0057B8", borderColor: "#0057B8" },
-          moveHandleStyle: { color: "#0057B8" },
-          textStyle: { color: "#A4AABA", fontSize: 9 },
-          labelFormatter: (v: number) => `${(v as number).toFixed(2)}s`,
-        },
-      ],
-      xAxis: {
-        type: "value",
-        // batch(followWindow=false)+audioDuration: [0, 총길이] 고정
-        // realtime(followWindow=true) 또는 마이크: 현재 윈도우 범위를 따라 스크롤
-        min: (audioDuration != null && !followWindow) ? 0 : (windowFrames[0]?.time ?? 0),
-        max: (audioDuration != null && !followWindow) ? audioDuration : (windowFrames[windowFrames.length - 1]?.time ?? 10),
-        axisLabel: { formatter: (v: number) => `${v.toFixed(2)}s`, color: "#A4AABA", fontSize: 10 },
-        axisLine: { lineStyle: { color: "#E8EAF0" } },
-        splitLine: { lineStyle: { color: "#F5F6F8" } },
-      },
+      legend: buildLegend(channelMode),
+      dataZoom: buildDataZoom(zoomRef.current, { filler: "rgba(0,87,184,0.12)", handle: "#0057B8" }),
+      xAxis: buildTimeAxis({ audioDuration, followWindow, windowFrames }),
       yAxis: {
         type: "value",
         name: "°C",
@@ -245,19 +182,9 @@ export default function TemperatureChart({ frames, currentTime, isActive, stream
         max: yMax,
       },
       series,
-      tooltip: {
-        trigger: "axis",
-        backgroundColor: "#1A1D23",
-        borderColor: "#2E3440",
-        textStyle: { color: "#E8EAF0", fontSize: 11, fontFamily: "JetBrains Mono" },
-        formatter: (params: { seriesName: string; data: [number, number] }[]) => {
-          const t = params[0].data[0];
-          const lines = params.map((p) => `${p.seriesName}: <b>${p.data[1].toFixed(1)} °C</b>`);
-          return `${t.toFixed(2)}s<br/>${lines.join("<br/>")}`;
-        },
-      },
+      tooltip: buildValueTooltip({ unit: "°C", decimals: 1 }),
     };
-  }, [windowFrames, channelMode, audioDuration, followWindow, lttb, warnThreshold, dangerThreshold]);
+  }, [windowFrames, channelMode, yMin, yMax, audioDuration, followWindow, lttb, warnThreshold, dangerThreshold]);
 
   const showChart = audioDuration != null || frames.length > 0;
 

@@ -3,7 +3,7 @@
 // 워크스페이스 항목 한 줄 — 더블클릭/연필 아이콘으로 이름 변경, JSON/CSV/오디오 원본 다운로드.
 import { useEffect, useRef, useState } from "react";
 import { Music, Pencil, Trash2 } from "lucide-react";
-import { useWorkspace } from "./Workspace-context";
+import { useWorkspace } from "./WorkspaceContext";
 import { formatTime } from "@/shared/lib/utils";
 import type { WorkspaceItemMeta } from "@/features/audio/lib/cache/workspace";
 

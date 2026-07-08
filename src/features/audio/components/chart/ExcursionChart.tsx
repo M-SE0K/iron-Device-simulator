@@ -4,12 +4,13 @@ import dynamic from "next/dynamic";
 import { useMemo, useState, useRef, useCallback, useEffect } from "react";
 import { Maximize2 } from "lucide-react";
 import { AnalysisFrame } from "@/features/audio/types";
-import { findFrameIndex } from "@/shared/lib/utils";
 import { cn } from "@/shared/lib/utils";
+import {
+  computeStreamWindow, computeExcursionYRange, type ChannelMode,
+} from "@/features/audio/lib/render/chart-window";
+import { buildDataZoom, buildTimeAxis, buildValueTooltip, buildLegend } from "@/features/audio/lib/render/chart-option";
 
 const ReactECharts = dynamic(() => import("echarts-for-react"), { ssr: false });
-
-type ChannelMode = "L" | "R" | "Both";
 
 interface Props {
   frames: AnalysisFrame[];
@@ -59,57 +60,16 @@ export default function ExcursionChart({ frames, currentTime, isActive, streamin
   };
 
   // ── 현재 값 & 윈도우 계산 ────────────────────────────────────────────────
-  const { currentExc, windowFrames } = useMemo(() => {
-    if (!isActive || frames.length === 0) {
-      return { currentExc: null as [number, number] | null, windowFrames: frames.slice(0, WINDOW_SIZE) };
-    }
-
-    if (streaming) {
-      // audioDuration이 설정된 경우(파일 모드): 전체 누적 프레임을 그대로 사용
-      // 설정되지 않은 경우(마이크 모드): 최근 WINDOW_SIZE 프레임만 유지
-      const windowFrames = audioDuration != null ? frames : frames.slice(-WINDOW_SIZE);
-      const lastFrame    = frames[frames.length - 1];
-      return { currentExc: lastFrame?.excursion ?? null, windowFrames };
-    } else {
-      const frameIdx = findFrameIndex(frames.map((f) => f.time), currentTime);
-      const exc      = frameIdx >= 0 ? frames[frameIdx]?.excursion ?? null : null;
-      const start    = Math.max(0, frameIdx - (WINDOW_SIZE - 1));
-      return { currentExc: exc, windowFrames: frames.slice(start, frameIdx + 1) };
-    }
-  }, [frames, currentTime, isActive, streaming]);
+  const { current: currentExc, windowFrames } = useMemo(
+    () => computeStreamWindow(frames, currentTime, isActive, streaming, audioDuration, WINDOW_SIZE, (f) => f.excursion),
+    [frames, currentTime, isActive, streaming],
+  );
 
   // ── 창 내 데이터 범위로 Y축 동적 계산 ─────────────────────────────────────
-  // 표시 중인 채널의 메인값 + envelope(min/max)을 모두 포함해 범위를 잡고 패딩을 둔다.
-  // (windowFrames가 매우 클 수 있어 Math.min/max(...arr) 대신 루프로 계산 — 스택 초과 방지)
-  const { yMin, yMax } = useMemo(() => {
-    if (windowFrames.length === 0) return { yMin: -0.01, yMax: 0.01 };
-
-    let rawMin = Infinity;
-    let rawMax = -Infinity;
-    const consider = (v: number) => { if (v < rawMin) rawMin = v; if (v > rawMax) rawMax = v; };
-    for (const f of windowFrames) {
-      if (channelMode !== "R") {
-        consider(f.excursion[0]);
-        if (f.excursionMin) consider(f.excursionMin[0]);
-        if (f.excursionMax) consider(f.excursionMax[0]);
-      }
-      if (channelMode !== "L") {
-        consider(f.excursion[1]);
-        if (f.excursionMin) consider(f.excursionMin[1]);
-        if (f.excursionMax) consider(f.excursionMax[1]);
-      }
-    }
-    if (!isFinite(rawMin) || !isFinite(rawMax)) return { yMin: -0.01, yMax: 0.01 };
-
-    const dataMin = toMm(rawMin);
-    const dataMax = toMm(rawMax);
-    const span    = Math.max(dataMax - dataMin, 0.001);
-    const pad     = span * (SCALE_PADDING - 1);
-    return {
-      yMin: dataMin - pad,
-      yMax: dataMax + pad,
-    };
-  }, [windowFrames, channelMode]);
+  const { yMin, yMax } = useMemo(
+    () => computeExcursionYRange(windowFrames, channelMode, toMm, SCALE_PADDING),
+    [windowFrames, channelMode],
+  );
 
   // ── 헤더 표시값 ──────────────────────────────────────────────────────────
   const displayExc = useMemo(() => {
@@ -128,7 +88,6 @@ export default function ExcursionChart({ frames, currentTime, isActive, streamin
   // ── ECharts 옵션 ─────────────────────────────────────────────────────────
   const option = useMemo(() => {
     const colors = CH_COLOR[channelMode];
-    const { start, end } = zoomRef.current;
 
     // 다량 포인트 드로우 비용 상한: LTTB 다운샘플 + large 모드 (lttb=false면 미적용)
     const samplingOpts = lttb ? { sampling: "lttb" as const, large: true, largeThreshold: 2000 } : {};
@@ -183,40 +142,9 @@ export default function ExcursionChart({ frames, currentTime, isActive, streamin
     return {
       animation: false,
       grid: { top: 8, right: 16, bottom: 52, left: 60 },
-      legend: channelMode === "Both"
-        ? { top: "auto", bottom: 56, textStyle: { color: "#A4AABA", fontSize: 10 } }
-        : { show: false },
-      dataZoom: [
-        {
-          type: "inside",
-          xAxisIndex: 0,
-          filterMode: "filter",
-          start, end,
-          zoomOnMouseWheel: true,
-          moveOnMouseMove: true,
-          moveOnMouseWheel: false,
-        },
-        {
-          type: "slider", xAxisIndex: 0, height: 16, bottom: 4,
-          start, end,
-          borderColor: "#E8EAF0", backgroundColor: "#F5F6F8",
-          fillerColor: "rgba(16,185,129,0.12)",
-          handleStyle: { color: "#10B981", borderColor: "#10B981" },
-          moveHandleStyle: { color: "#10B981" },
-          textStyle: { color: "#A4AABA", fontSize: 9 },
-          labelFormatter: (v: number) => `${(v as number).toFixed(2)}s`,
-        },
-      ],
-      xAxis: {
-        type: "value",
-        // batch(followWindow=false)+audioDuration: [0, 총길이] 고정
-        // realtime(followWindow=true) 또는 마이크: 현재 윈도우 범위를 따라 스크롤
-        min: (audioDuration != null && !followWindow) ? 0 : (windowFrames[0]?.time ?? 0),
-        max: (audioDuration != null && !followWindow) ? audioDuration : (windowFrames[windowFrames.length - 1]?.time ?? 10),
-        axisLabel: { formatter: (v: number) => `${v.toFixed(2)}s`, color: "#A4AABA", fontSize: 10 },
-        axisLine: { lineStyle: { color: "#E8EAF0" } },
-        splitLine: { lineStyle: { color: "#F5F6F8" } },
-      },
+      legend: buildLegend(channelMode),
+      dataZoom: buildDataZoom(zoomRef.current, { filler: "rgba(16,185,129,0.12)", handle: "#10B981" }),
+      xAxis: buildTimeAxis({ audioDuration, followWindow, windowFrames }),
       yAxis: {
         type: "value",
         name: "mm",
@@ -228,17 +156,7 @@ export default function ExcursionChart({ frames, currentTime, isActive, streamin
         max: yMax,
       },
       series,
-      tooltip: {
-        trigger: "axis",
-        backgroundColor: "#1A1D23",
-        borderColor: "#2E3440",
-        textStyle: { color: "#E8EAF0", fontSize: 11, fontFamily: "JetBrains Mono" },
-        formatter: (params: { seriesName: string; data: [number, number] }[]) => {
-          const t = params[0].data[0];
-          const lines = params.map((p) => `${p.seriesName}: <b>${p.data[1].toFixed(3)} mm</b>`);
-          return `${t.toFixed(2)}s<br/>${lines.join("<br/>")}`;
-        },
-      },
+      tooltip: buildValueTooltip({ unit: "mm", decimals: 3 }),
     };
   }, [windowFrames, channelMode, yMin, yMax, audioDuration, followWindow, lttb]);
 

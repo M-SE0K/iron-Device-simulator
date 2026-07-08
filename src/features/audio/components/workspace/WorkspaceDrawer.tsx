@@ -7,7 +7,7 @@
 // 폴더 연결 UI는 WorkspaceFolderSection이 맡는다.
 import { useEffect } from "react";
 import { Menu, Save, X } from "lucide-react";
-import { useWorkspace } from "./Workspace-context";
+import { useWorkspace } from "./WorkspaceContext";
 import WorkspaceFolderSection from "./WorkspaceFolderSection";
 import WorkspaceItemRow from "./WorkspaceItemRow";
 

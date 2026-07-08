@@ -2,25 +2,25 @@
 
 import { useState, useCallback, useRef, useEffect, useMemo } from "react";
 import Header from "@/shared/components/Header";
-import { AnalysisModeProvider } from "@/features/audio/components/AnalysisModeContext";
-import SelectedFilePanel from "@/features/audio/components/SelectedFilePanel";
+import { AnalysisModeProvider } from "@/features/audio/components/dashboard/AnalysisModeContext";
+import SelectedFilePanel from "@/features/audio/components/dashboard/SelectedFilePanel";
 import WaveformPlayer, { WaveformPlayerHandle } from "@/features/audio/components/player/WaveformPlayer";
 import MicrophonePlayer from "@/features/audio/components/player/MicrophonePlayer";
 import TemperatureChart from "@/features/audio/components/chart/TemperatureChart";
 import ExcursionChart from "@/features/audio/components/chart/ExcursionChart";
 import ChartDetailOverlay, { type DetailMetric } from "@/features/audio/components/chart/ChartDetailOverlay";
 import { AppStatus, AnalysisFrame, StreamDebugInfo, DebugLogEntry, MeasurementExport, InputParameterValues } from "@/features/audio/types";
-import { useCalibration } from "./calibration/Calibration-context";
-import { useWorkspace } from "./workspace/Workspace-context";
+import { useCalibration } from "../calibration/CalibrationContext";
+import { useWorkspace } from "../workspace/WorkspaceContext";
 import { cn } from "@/shared/lib/utils";
 import { clearFrameCache } from "@/features/audio/lib/cache/frame";
 import { putAudio, clearAudio } from "@/features/audio/lib/cache/audio-blob";
 import { coalesceFrames } from "@/features/audio/lib/render/coalesce";
 import { detectEvents, DEFAULT_TEMP_WARN, DEFAULT_TEMP_DANGER, type TempThresholds } from "@/features/audio/lib/render/detect-events";
 import type { QueuedFrame } from "@/features/audio/lib/render/types";
-import { useMeasurementCapture } from "@/features/audio/components/hooks/useMeasurementCapture";
-import { useRenderTelemetry } from "@/features/audio/components/hooks/useRenderTelemetry";
-import { useFrameCachePersistence } from "@/features/audio/components/hooks/useFrameCachePersistence";
+import { useMeasurementCapture } from "@/features/audio/components/dashboard/hooks/useMeasurementCapture";
+import { useRenderTelemetry } from "@/features/audio/components/dashboard/hooks/useRenderTelemetry";
+import { useFrameCachePersistence } from "@/features/audio/components/dashboard/hooks/useFrameCachePersistence";
 
 interface DashboardPageProps {
   useQueue: boolean;
@@ -224,7 +224,7 @@ export default function DashboardPage({ useQueue }: DashboardPageProps) {
     void putAudio(file); // 새로고침 후 파형 복원용으로 오디오 원본을 IndexedDB에 저장
   }, [resetAnalysisState]);
 
-  // 워크스페이스 드로어의 "로컬 폴더"에서 파일을 고르면 Workspace-context가
+  // 워크스페이스 드로어의 "로컬 폴더"에서 파일을 고르면 WorkspaceContext가
   // pendingLocalFile로 밀어준다 — 기존 업로드 파이프라인(handleFileSelected)에 그대로 흘려보낸다.
   useEffect(() => {
     if (!pendingLocalFile) return;
