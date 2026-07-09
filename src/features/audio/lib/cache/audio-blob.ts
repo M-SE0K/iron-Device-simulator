@@ -1,9 +1,7 @@
 // ── 오디오 원본 블롭 IndexedDB 캐시 ─────────────────────────────────────────
 // 새로고침(F5) 후에도 파형(WaveSurfer)을 복원하려면 오디오 원본이 필요하다.
 // File/Blob은 sessionStorage(문자열·~5MB)에 담기 부적합하므로 IndexedDB에 보관한다.
-//   · 수명 일치: IndexedDB 자체는 탭을 닫아도 남지만, "현재 세션에 캐시가 있다"는
-//     포인터를 sessionStorage에 둔다. 탭을 닫으면 포인터가 사라지고, 다음 마운트 시
-//     stale 블롭을 정리(clear)하므로 차트 캐시(sessionStorage)와 같은 수명이 된다.
+//   · 수명 일치: IndexedDB 자체는 탭을 닫아도 남지만, "현재 세션에 캐시가 있다"는 포인터를 sessionStorage에 둔다. 탭을 닫으면 포인터가 사라지고, 다음 마운트 시 stale 블롭을 정리(clear)하므로 차트 캐시(sessionStorage)와 같은 수명이 된다.
 //   · 비동기 + 대용량 OK → 직렬화/용량 초과(QuotaExceeded) 걱정이 없다.
 
 const DB_NAME     = "irondevice";

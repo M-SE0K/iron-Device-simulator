@@ -2,7 +2,8 @@
 
 // 캘리브레이션 파라미터 단일 소스 (앱 전역 Context).
 // 대시보드(InputParameters 대체)와 CalibrationDrawer 가 같은 값을 공유한다 — "캘리브레이션 단일 적용".
-// 엔진에 실제로 전달되는 값은 speakerModel·ampOutputPower 이며, 나머지(주변온도/프로파일 보정)는
+// 엔진에 실제로 전달되는 값은 speakerModel·ampOutputPower·ambientTemp이며(EngineParams,
+// buildInitMessage → parseEngineParams → ff_prot_start_exec), 나머지 프로파일 보정 필드는
 // 향후 ff_prot_set_param 연동을 위한 선행 필드다(현재 모델별 SPEAKER_PROFILES 로 후처리).
 import { createContext, useContext, useEffect, useMemo, useState, type Dispatch, type ReactNode, type SetStateAction } from "react";
 import { loadCalibrationCache, saveCalibrationCache } from "@/features/audio/lib/cache/calibration";
@@ -15,14 +16,16 @@ const DEFAULT_AMBIENT = 25;
 // 반영되며, 다음 세션 시작 시점(다음 재생/다음 녹음 시작)에 적용된다(engine/core.ts EngineRuntimeConfig).
 export const SAMPLE_RATE_OPTIONS = ["8000", "11025", "16000","32000", "44100", "44100", "48000", "96000", "176400", "192000", "352800", "384000"];
 export const BUFFER_SIZE_OPTIONS = ["8", "16", "32", "64", "128", "256", "480", "512", "1024", "2048"];
-// 캡처 시 열 채널 수 — 네이티브 캡처(Electron)에서만 의미 있음. MCHStreamer 같은 다채널
+// 캡처 시 열 채널 수(전체 후보) — 네이티브 캡처(Electron)에서만 의미 있음. MCHStreamer 같은 다채널
 // 장치의 V/I 센싱 채널을 받으려면 늘린다. 분석 파이프라인은 항상 ch0/ch1(L/R)만 사용.
+// 실제 드롭다운은 useDeviceOptionAutoCorrect가 이 목록을 선택된 장치의 inputChannels 이하로
+// 필터링한 channelOptions를 쓴다 — 장치가 지원하지 않는 채널 수는 애초에 고를 수 없다.
 export const CHANNEL_OPTIONS = ["2", "4", "6", "8"];
 
 export interface CalibrationValues {
   speakerModel: string; // "" = 미선택
   ampOutputPower: string; // W
-  ambientTemp: string; // °C
+  ambientTemp: string; // °C — ff_prot_start_exec에 그대로 전달되는 엔진 입력값(EngineParams.ambientTemp)
   sampleRate: string; // Hz (데모)
   bufferSize: string; // samples (데모)
   channels: string; // 캡처 채널 수 (네이티브 캡처 전용)

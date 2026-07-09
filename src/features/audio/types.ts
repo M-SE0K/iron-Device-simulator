@@ -60,6 +60,3 @@ export type WsServerMessage =
   | { type: "ready" }
   | { type: "frame"; time: number; temperature: [number, number]; excursion: [number, number]; processingMs: number }
   | { type: "error"; message: string };
-
-// 디버그 로그 / 스트리밍 디버그 정보 / 측정 세션 export 타입은
-// features/audio/lib/debug/types.ts 로 분리됨 (DebugLogEntry, StreamDebugInfo, MeasurementExport).

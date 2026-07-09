@@ -1,3 +1,4 @@
+// 온도 경고/위험 임계 교차와 익스커션 피크를 감지해 프레임에 이벤트 표시를 남기는 로직.
 import type { QueuedFrame } from "./types";
 
 // Calibration에서 tempWarn/tempDanger를 지정하지 않았을 때(또는 파싱 실패 시)의 기본값 —

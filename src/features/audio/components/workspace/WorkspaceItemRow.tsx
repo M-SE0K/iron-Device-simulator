@@ -1,16 +1,19 @@
 "use client";
 
-// 워크스페이스 항목 한 줄 — 더블클릭/연필 아이콘으로 이름 변경, JSON/CSV/오디오 원본 다운로드.
+// 워크스페이스 항목 한 줄 — 더블클릭/연필 아이콘으로 이름 변경, JSON/CSV/오디오 원본 다운로드,
+// "채널" 액션으로 저장된 N채널 WAV의 채널별 파형 뷰(ChannelViewerOverlay)를 연다.
 import { useEffect, useRef, useState } from "react";
 import { Music, Pencil, Trash2 } from "lucide-react";
 import { useWorkspace } from "./WorkspaceContext";
 import { formatTime } from "@/shared/lib/utils";
 import type { WorkspaceItemMeta } from "@/features/audio/lib/cache/workspace";
+import ChannelViewerOverlay from "./ChannelViewerOverlay";
 
 export default function WorkspaceItemRow({ item }: { item: WorkspaceItemMeta }) {
   const { rename, remove, exportJson, exportCsv, downloadAudio } = useWorkspace();
   const [editing, setEditing] = useState(false);
   const [draft, setDraft]     = useState(item.name);
+  const [channelView, setChannelView] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -24,11 +27,16 @@ export default function WorkspaceItemRow({ item }: { item: WorkspaceItemMeta }) 
     else setDraft(item.name);
   };
 
-  // 데이터 기반 export 버튼 — JSON/CSV는 항상, 오디오는 원본 파일명이 있을 때만.
+  // 데이터 기반 export 버튼 — JSON/CSV는 항상, 오디오/채널 뷰는 저장된 오디오가 있을 때만.
   const exportActions = [
     { key: "json", label: "JSON", onClick: () => exportJson(item) },
     { key: "csv",  label: "CSV",  onClick: () => exportCsv(item) },
-    ...(item.audioFileName ? [{ key: "audio", label: "오디오", onClick: () => downloadAudio(item) }] : []),
+    ...(item.audioFileName
+      ? [
+          { key: "audio",    label: "오디오", onClick: () => downloadAudio(item) },
+          { key: "channels", label: "채널",   onClick: () => setChannelView(true) },
+        ]
+      : []),
   ];
 
   return (
@@ -95,6 +103,11 @@ export default function WorkspaceItemRow({ item }: { item: WorkspaceItemMeta }) 
           </button>
         ))}
       </div>
+
+      {/* 채널별 파형 뷰 — 저장된 N채널 WAV를 디코딩해 채널마다 렌더링 (드로어 위 전체 화면) */}
+      {channelView && (
+        <ChannelViewerOverlay item={item} onClose={() => setChannelView(false)} />
+      )}
     </div>
   );
 }

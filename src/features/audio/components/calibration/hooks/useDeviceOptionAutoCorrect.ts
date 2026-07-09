@@ -1,10 +1,10 @@
 "use client";
 
-// 장치 능력(query)이 도착했을 때, 현재 draft의 SR/Buffer가 그 장치의 지원 목록 밖이면
+// 장치 능력(query)이 도착했을 때, 현재 draft의 SR/Buffer/Channels가 그 장치의 지원 범위 밖이면
 // 가장 가까운 지원값으로 자동 보정한다 — 무효값이 그대로 "적용"→capture로 넘어가는
 // 것을 막는다.
 import { useEffect, useState } from "react";
-import { SAMPLE_RATE_OPTIONS, BUFFER_SIZE_OPTIONS, type CalibrationValues } from "../CalibrationContext";
+import { SAMPLE_RATE_OPTIONS, BUFFER_SIZE_OPTIONS, CHANNEL_OPTIONS, type CalibrationValues } from "../CalibrationContext";
 import type { DeviceInfo } from "./useNativeAudioDevice";
 
 /** 문자열 옵션들 중 목표값과 수치상 가장 가까운 것을 고른다. 빈 목록이면 null. */
@@ -42,6 +42,14 @@ export function useDeviceOptionAutoCorrect(deps: DeviceOptionAutoCorrectDeps) {
     const inRange = BUFFER_SIZE_OPTIONS.filter((b) => Number(b) >= r.min && Number(b) <= r.max);
     return inRange.length ? inRange : BUFFER_SIZE_OPTIONS;
   })();
+  // CoreAudio는 SR/Buffer와 달리 "지원 채널 목록"을 따로 주지 않는다 — 장치의 총 입력 채널 수
+  // (inputChannels) 이하로만 캡처할 수 있다는 게 유일한 제약이라, 그 값 이하로 정적 목록을 자른다.
+  const channelOptions = (() => {
+    const max = deviceInfo?.inputChannels;
+    if (!max) return CHANNEL_OPTIONS;
+    const inRange = CHANNEL_OPTIONS.filter((c) => Number(c) <= max);
+    return inRange.length ? inRange : CHANNEL_OPTIONS;
+  })();
   // 장치 능력(query) 조회 중에는 아직 이전(또는 미필터) 옵션이 남아있으므로 DEVICE 섹션의
   // SampleRate/Buffer 선택을 잠근다 — 응답이 오면 그 장치가 지원하는 값만 렌더링된다.
   // 조회 API가 없는 브라우저/모바일에서는 deviceInfoLoading이 항상 false라 잠기지 않는다.
@@ -69,6 +77,13 @@ export function useDeviceOptionAutoCorrect(deps: DeviceOptionAutoCorrectDeps) {
         notes.push(`Buffer ${draft.bufferSize}→${nearest}`);
       }
     }
+    if (!channelOptions.includes(draft.channels)) {
+      const nearest = nearestOption(channelOptions, draft.channels);
+      if (nearest && nearest !== draft.channels) {
+        patch.channels = nearest;
+        notes.push(`Channels ${draft.channels}→${nearest}`);
+      }
+    }
     if (notes.length) {
       set(patch);
       setAdjustedNote(`이 장치가 지원하지 않아 자동 조정됨: ${notes.join(", ")}`);
@@ -77,7 +92,7 @@ export function useDeviceOptionAutoCorrect(deps: DeviceOptionAutoCorrectDeps) {
   }, [deviceInfo, deviceInfoLoading]);
 
   return {
-    sampleRateOptions, bufferSizeOptions, deviceOptionsLoading,
+    sampleRateOptions, bufferSizeOptions, channelOptions, deviceOptionsLoading,
     adjustedNote, clearAdjustedNote: () => setAdjustedNote(null),
   };
 }

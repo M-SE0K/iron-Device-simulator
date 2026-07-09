@@ -6,9 +6,7 @@ import { cn, formatTime } from "@/shared/lib/utils";
 import { AppStatus, AnalysisFrame, InputParameterValues } from "@/features/audio/types";
 import { StreamDebugInfo, DebugLogEntry } from "@/features/audio/lib/debug/types";
 import { useCalibration } from "@/features/audio/components/calibration/CalibrationContext";
-import { usePcmDecoder } from "./stream/usePcmDecoder";
-import { useAnalysisStream } from "./stream/useAnalysisStream";
-import { useBatchAnalysis } from "./stream/useBatchAnalysis";
+import { useCaptureSession } from "./capture/useCaptureSession";
 
 // ─── 카드 내부 비율 (%) — 자유롭게 조절 ──────────────────────────────────────
 // header(타이틀 영역) + body(파형 + 컨트롤) = 100
@@ -22,9 +20,9 @@ interface Props {
   status: AppStatus;
   onTimeUpdate: (currentTime: number) => void;
   onStatusChange: (status: AppStatus) => void;
-  /** WebSocket으로 수신된 분석 프레임 콜백 */
+  /** 캡처 세션(V/I)에서 분석된 프레임 콜백 */
   onFrameReceived: (frame: AnalysisFrame) => void;
-  /** 새 스트리밍 세션 시작 시 — 누적 프레임 초기화 신호 */
+  /** 새 캡처 세션 시작 시 — 누적 프레임 초기화 신호 */
   onStreamStart: () => void;
   /** 디버그 메트릭 업데이트 (10fps 스로틀) */
   onDebugUpdate?: (info: Partial<StreamDebugInfo>) => void;
@@ -34,8 +32,6 @@ interface Props {
   inputParams?: InputParameterValues;
   /** 오디오 총 길이 확정 시 콜백 (초 단위) */
   onDurationReady?: (duration: number) => void;
-  /** false면 재생 시 실시간 스트리밍(WS/rAF) 없이 오디오 재생만 (배치 모드) */
-  enableStreaming?: boolean;
 }
 
 /** page.tsx에서 ref로 접근할 수 있는 WaveformPlayer 핸들 */
@@ -43,18 +39,16 @@ export interface WaveformPlayerHandle {
   /** 분석 소켓이 열려 있을 때 JSON 메시지를 전송 */
   sendMessage: (msg: object) => void;
   /**
-   * 배치 분석: 디코딩된 전체 PCM frame을 한 번에 분석해
-   * 전체 output frame 시퀀스를 반환한다 (재생 동기화 없음).
-   * @param onProgress (done, total) 진행률 콜백
-   */
-  runBatchAnalysis: (onProgress?: (done: number, total: number) => void) => Promise<AnalysisFrame[]>;
-  /** 진행 중인 실시간 스트리밍 분석 소켓을 닫는다 (모드 전환 시 이전 세션 정리). */
-  stopStreaming: () => void;
-  /**
-   * 재생을 일시정지한다 (WebSocket은 닫지 않음 → 재개 시 스트림/차트 보존).
+   * 재생을 일시정지한다 (캡처 세션은 유지 → 재개 시 스트림/차트 보존).
    * 모드 전환 시 떠나는 플레이어의 오디오만 멈추는 용도.
    */
   pause: () => void;
+  /**
+   * 캡처 세션 버퍼(ch0=V/ch1=I + Calibration에서 확장한 채널)를 WAV로 인코딩해 반환한다.
+   * 원본 업로드 파일이 아니라, 재생 중 MCHStreamer 등에서 실제로 캡처된 신호를 담는다.
+   * 캡처 세션이 없었거나(재생한 적 없음) 데이터가 없으면 null.
+   */
+  exportRecordedAudio: () => Blob | null;
 }
 
 const WaveformPlayer = forwardRef<WaveformPlayerHandle, Props>(function WaveformPlayer({
@@ -68,7 +62,6 @@ const WaveformPlayer = forwardRef<WaveformPlayerHandle, Props>(function Waveform
   onDebugLog,
   inputParams,
   onDurationReady,
-  enableStreaming = true,
 }: Props, ref) {
   const { values: calibration } = useCalibration();
 
@@ -77,31 +70,23 @@ const WaveformPlayer = forwardRef<WaveformPlayerHandle, Props>(function Waveform
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration]       = useState(0);
   const [isReady, setIsReady]         = useState(false);
+  // 캡처 세션이 이미 열려 있는지 — 열려 있으면 재생 재개 시 세션을 다시 여는 대신
+  // 저장 버퍼만 재개한다(resumeRecording). 세션을 통째로 재시작하면 WASM 온도 누적
+  // 상태가 리셋되고 차트도 비워지기 때문.
+  const captureStartedRef = useRef(false);
 
-  // inputParams ref: prop 변경 시 최신값을 클로저에서 참조할 수 있게 유지
-  const inputParamsRef = useRef<InputParameterValues | undefined>(inputParams);
-  useEffect(() => { inputParamsRef.current = inputParams; }, [inputParams]);
-
-  // ── PCM 디코딩 파이프라인 (AudioContext 디코딩 → 프레임 청킹) ─────────────
-  const { pcmFramesRef, pcmReadyRef, engineConfigRef, displayConfig } = usePcmDecoder(
-    audioFile, calibration.sampleRate, calibration.bufferSize,
-  );
-
-  // ── 실시간 분석 스트림 (소켓 open/close, rAF 전송 루프, RTT/디버그) ────────
-  const stream = useAnalysisStream({
-    wavesurferRef, pcmFramesRef, engineConfigRef, inputParamsRef,
-    onStreamStart, onFrameReceived, onStatusChange, onDebugUpdate, onDebugLog,
+  // ── 캡처 세션 — 재생과 동시에 시작/종료된다. 파일 자체를 분석하지 않고, 재생을 통해
+  // 실제 하드웨어(MCHStreamer 등)에서 캡처되는 ch0(V)/ch1(I)를 분석한다(마이크 모드와 동일 파이프라인).
+  const captureSession = useCaptureSession({
+    status, onStatusChange, onFrameReceived, onStreamStart,
+    onDebugUpdate, onDebugLog, inputParams,
   });
 
-  // ── 배치 분석 (재생 동기화 없이 전체 PCM을 한 번에 분석) ───────────────────
-  const { runBatchAnalysis } = useBatchAnalysis({
-    pcmFramesRef, pcmReadyRef, engineConfigRef, inputParamsRef,
-  });
-
-  // ── 파일/엔진설정 변경 시: WaveSurfer 재초기화 (PCM 디코딩은 usePcmDecoder가 별도로 담당) ──
+  // ── 파일 변경 시: WaveSurfer 재초기화 + 이전 캡처 세션 정리 ────────────────
   useEffect(() => {
-    // 이전 세션 정리
-    stream.reset();
+    // 이전 세션 정리(파일이 바뀌면 이전 파일에 연결된 캡처는 의미 없음)
+    captureSession.cleanup();
+    captureStartedRef.current = false;
     setIsReady(false);
     setCurrentTime(0);
     setDuration(0);
@@ -150,7 +135,8 @@ const WaveformPlayer = forwardRef<WaveformPlayerHandle, Props>(function Waveform
 
       ws.on("finish", () => {
         if (destroyed) return;
-        stream.close();
+        captureSession.cleanup();
+        captureStartedRef.current = false;
         onStatusChange("paused");
       });
 
@@ -164,7 +150,7 @@ const WaveformPlayer = forwardRef<WaveformPlayerHandle, Props>(function Waveform
       ws?.destroy();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [audioFile, calibration.sampleRate, calibration.bufferSize]);
+  }, [audioFile]);
 
   // ── 재생 출력 라우팅 (setSinkId) ─────────────────────────────────────────
   // 캘리브레이션의 outputDeviceId로 재생을 특정 출력(예: 앰프/스피커가 물린 MCHStreamer 출력)에
@@ -180,14 +166,18 @@ const WaveformPlayer = forwardRef<WaveformPlayerHandle, Props>(function Waveform
     });
   }, [isReady, calibration.outputDeviceId]);
 
-  // ── 일시정지 (WebSocket 유지 → 재개 시 스트림/차트 보존) ──────────────────
+  // ── 일시정지 (캡처 세션 연결은 유지하되, 저장 버퍼 축적은 멈춘다) ────────────
+  // 세션(소켓/네이티브 캡처)까지 통째로 끊으면 재개 시 다시 열어야 하는데, 그러면 WASM의
+  // 온도 누적 상태가 리셋되고 차트도 비워진다. 그래서 분석은 계속 흘러가게 두고(파일이
+  // 멈추면 실제 앰프 출력도 줄어 V/I가 자연히 감쇠 → 실제 냉각을 그대로 반영), 저장 파일에만
+  // 이 무음 구간이 안 섞이도록 recordingActiveRef만 끈다.
   const pausePlayback = useCallback(() => {
     const wv = wavesurferRef.current;
     if (!wv || !wv.isPlaying()) return;
     wv.pause();
-    stream.pauseStream();
+    captureSession.pauseRecording();
     onStatusChange("paused");
-  }, [stream.pauseStream, onStatusChange]);
+  }, [onStatusChange, captureSession.pauseRecording]);
 
   // ── 재생/일시정지 ─────────────────────────────────────────────────────────
   const handlePlayPause = useCallback(() => {
@@ -196,30 +186,35 @@ const WaveformPlayer = forwardRef<WaveformPlayerHandle, Props>(function Waveform
     if (wavesurferRef.current.isPlaying()) {
       pausePlayback();
     } else {
-      // 재생
       wavesurferRef.current.play();
       onStatusChange("playing");
-      // 배치 모드: 실시간 스트리밍 없이 오디오 재생만 (차트는 이미 분석 완료 상태)
-      if (enableStreaming) stream.open();
+      if (captureStartedRef.current) {
+        // 일시정지에서 재개 — 이미 열린 세션의 저장 버퍼만 다시 켠다.
+        captureSession.resumeRecording();
+      } else {
+        // 최초 재생 — 파일 출력과 동시에 캡처 세션을 시작해 실제 하드웨어 응답(V/I)을 분석한다.
+        captureStartedRef.current = true;
+        void captureSession.start();
+      }
     }
-  }, [isReady, pausePlayback, stream.open, onStatusChange, enableStreaming]);
+  }, [isReady, pausePlayback, onStatusChange, captureSession.start, captureSession.resumeRecording]);
 
   // ── 정지 ─────────────────────────────────────────────────────────────────
   const handleStop = useCallback(() => {
     if (!wavesurferRef.current) return;
     wavesurferRef.current.stop();
     setCurrentTime(0);
-    stream.close();
+    captureSession.cleanup();
+    captureStartedRef.current = false;
     onStatusChange("ready");
-  }, [stream.close, onStatusChange]);
+  }, [captureSession.cleanup, onStatusChange]);
 
   // page.tsx에서 ref.current.sendMessage()로 WS 전송
   useImperativeHandle(ref, () => ({
-    sendMessage: stream.sendMessage,
-    runBatchAnalysis,
-    stopStreaming: stream.close,
+    sendMessage: captureSession.sendMessage,
     pause: pausePlayback,
-  }), [stream.sendMessage, stream.close, runBatchAnalysis, pausePlayback]);
+    exportRecordedAudio: captureSession.getRecordedBlob,
+  }), [captureSession.sendMessage, pausePlayback, captureSession.getRecordedBlob]);
 
   const isPlaying = status === "playing";
   const progress  = duration > 0 ? (currentTime / duration) * 100 : 0;
@@ -233,9 +228,10 @@ const WaveformPlayer = forwardRef<WaveformPlayerHandle, Props>(function Waveform
       >
         <span className="card-title">Waveform</span>
         <div className="flex items-center gap-3">
-          {displayConfig && (
+          {captureSession.sampleRate !== null && (
             <span id="waveform-engine-config" className="font-mono text-xs text-iron-400">
-              {displayConfig.sampleRate.toLocaleString()}Hz · buf {displayConfig.samplesPerCh}
+              {captureSession.sampleRate.toLocaleString()}Hz
+              {captureSession.actualBufferSize !== null && ` · buf ${captureSession.actualBufferSize}`}
             </span>
           )}
           {isReady && (

@@ -20,7 +20,7 @@ export default function CalibrationSummary({ className }: { className?: string }
       )}
       title={
         applied
-          ? `Calibration 적용됨 — 모델 ${values.speakerModel}, 출력 ${values.ampOutputPower || "—"}W (주변온도 ${values.ambientTemp || "—"}°C는 라이브러리 연동 예정), 샘플레이트 ${values.sampleRate || "—"}Hz, 버퍼 사이즈 ${values.bufferSize || "—"}`
+          ? `Calibration 적용됨 — 모델 ${values.speakerModel}, 출력 ${values.ampOutputPower || "—"}W, 주변온도 ${values.ambientTemp || "—"}°C, 샘플레이트 ${values.sampleRate || "—"}Hz, 버퍼 사이즈 ${values.bufferSize || "—"}`
           : "Calibration View에서 스피커 모델을 선택하지 않아 기본 프로파일로 분석됩니다"
       }
     >
@@ -32,7 +32,7 @@ export default function CalibrationSummary({ className }: { className?: string }
           {values.ampOutputPower || "—"}W
           <span className="text-iron-400"> 적용됨 · </span>
           {values.ambientTemp || "—"}°C
-          <span className="text-iron-400"> (예정) · </span>
+          <span className="text-iron-400"> · </span>
           {values.sampleRate || "—"}Hz
           <span className="text-iron-400">/</span>
           {values.bufferSize || "—"}

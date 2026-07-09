@@ -1,4 +1,4 @@
-// 분석 소켓 "init" 메시지 빌더 — 실시간 스트림(useAnalysisStream)과 배치 분석(useBatchAnalysis)이 공유한다.
+// 분석 소켓 "init" 메시지 빌더 — 캡처 세션(useCaptureSession)이 마이크/파일 두 입력 모드 공용으로 쓴다.
 import type { InputParameterValues } from "@/features/audio/types";
 import type { EngineRuntimeConfig } from "@/features/audio/lib/engine/core";
 
@@ -7,6 +7,7 @@ export function buildInitMessage(inputParams: InputParameterValues | undefined, 
     type:           "init",
     ampOutputPower: inputParams?.ampOutputPower ?? "",
     speakerModel:   inputParams?.speakerModel   ?? "",
+    ambientTemp:    inputParams?.ambientTemp    ?? "",
     sampleRate:     config.sampleRate,
     bufferSize:     config.samplesPerCh,
   });

@@ -1,16 +1,13 @@
 /**
- * engine/protocol/local-socket.ts — 브라우저 WebSocket API를 흉내 내는 로컬 WASM 소켓
+ * engine/protocol/local-socket.ts — 브라우저 WebSocket API를 흉내 내는 로컬 WASM 소켓 -> 기존 서버를 이용한 Web Socket 구조에서 큰 변환을 안주기 위함의로 의도함.
  *
  * WaveformPlayer.tsx / MicrophonePlayer.tsx는 서버가 있던 시절 WebSocket을 직접 다뤘다
- * (init → binary PCM 프레임 → frame 메시지). 이 모듈은 그 좁은 인터페이스(SocketLike)만
- * 흉내 내는 in-process 구현으로, 실제로는 adapters/wasm-client.ts(브라우저 WASM)를
- * 직접 호출한다 — 서버(백엔드)가 전혀 없는 환경(정적 배포/Capacitor 모바일 포함)에서
- * 기존 컴포넌트 코드를 거의 바꾸지 않고도 동작하게 해준다.
+ * (init → binary PCM 프레임 → frame 메시지). 이 모듈은 그 좁은 인터페이스(SocketLike)만 흉내 내는 in-process 구현으로, 실제로는 adapters/wasm-client.ts(브라우저 WASM)를 직접 호출한다 — 서버(백엔드)가 전혀 없는 환경(정적 배포/Capacitor 모바일 포함)에서 기존 컴포넌트 코드를 거의 바꾸지 않고도 동작하게 해준다.
  */
 
 import type { EngineParams } from "../../../types";
 import { openClientWasmSession } from "../adapters/wasm-client";
-import { DEFAULT_ENGINE_CONFIG, frameBytes, type AnalysisSession, type EngineRuntimeConfig } from "../core";
+import { DEFAULT_ENGINE_CONFIG, DEFAULT_AMBIENT_TEMP, frameBytes, type AnalysisSession, type EngineRuntimeConfig } from "../core";
 import {
   parseEngineParams, parseSampleRate, parseSamplesPerCh,
   createFrameMessage, createReadyMessage, createErrorMessage,
@@ -41,6 +38,7 @@ class LocalWasmSocket implements SocketLike {
 
   readyState = LocalWasmSocket.CONNECTING;
   binaryType = "arraybuffer";
+  
   // in-process 호출이라 전송 큐잉이 없음 — 항상 0(백프레셔 없음)
   readonly bufferedAmount = 0;
 
@@ -50,7 +48,7 @@ class LocalWasmSocket implements SocketLike {
   onclose:   ((ev: any) => void) | null = null;
 
   private session: AnalysisSession | null = null;
-  private engineParams: EngineParams = { ampOutputPower: null, speakerModel: "" };
+  private engineParams: EngineParams = { ampOutputPower: null, speakerModel: "", ambientTemp: DEFAULT_AMBIENT_TEMP };
   private connConfig: EngineRuntimeConfig = DEFAULT_ENGINE_CONFIG;
   private frameCount = 0;
   private initialized = false;
@@ -121,7 +119,7 @@ class LocalWasmSocket implements SocketLike {
     // pause: 서버와 동일하게 별도 처리 없음(스트림은 클라이언트가 멈춤)
   }
 
-  // ── Binary: PCM 프레임 1920 bytes ────────────────────────────────────────
+  // ── Binary: PCM 프레임 3840 bytes(기본 설정 기준) ──────────────────────────
   private handleFrame(data: ArrayBuffer): void {
     if (!this.initialized || !this.session) return;
     if (data.byteLength < frameBytes(this.connConfig)) return;

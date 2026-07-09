@@ -18,10 +18,8 @@ interface Props {
   isActive: boolean;
   /** true: 스트리밍 append 모드 — 마지막 N 프레임 슬라이딩 윈도우 */
   streaming?: boolean;
-  /** 오디오 총 길이(초) — 설정 시 X축을 [0, audioDuration]으로 고정 */
+  /** 오디오 총 길이(초) — 표시용(showChart 판단), X축 범위 계산에는 쓰이지 않는다 */
   audioDuration?: number | null;
-  /** true(realtime): X축이 슬라이딩 윈도우를 따라감 / false(batch): [0, audioDuration] 고정 */
-  followWindow?: boolean;
   /** LTTB 다운샘플링 on/off (측정 A/B용, 기본 on) */
   lttb?: boolean;
   /** 설정 시 헤더에 "자세히 보기" 확대 버튼을 렌더 → 클릭 시 상세 뷰 전환 */
@@ -41,7 +39,7 @@ const CH_COLOR: Record<ChannelMode, { ch0: string; ch1: string }> = {
   Both: { ch0: "#10B981", ch1: "#F97316" },
 };
 
-export default function ExcursionChart({ frames, currentTime, isActive, streaming = false, audioDuration, followWindow = false, lttb = true, onExpand }: Props) {
+export default function ExcursionChart({ frames, currentTime, isActive, streaming = false, audioDuration, lttb = true, onExpand }: Props) {
   const [channelMode, setChannelMode] = useState<ChannelMode>("Both");
 
   // ── 줌 상태 보존 ─────────────────────────────────────────────────────────
@@ -144,7 +142,7 @@ export default function ExcursionChart({ frames, currentTime, isActive, streamin
       grid: { top: 8, right: 16, bottom: 52, left: 60 },
       legend: buildLegend(channelMode),
       dataZoom: buildDataZoom(zoomRef.current, { filler: "rgba(16,185,129,0.12)", handle: "#10B981" }),
-      xAxis: buildTimeAxis({ audioDuration, followWindow, windowFrames }),
+      xAxis: buildTimeAxis({ windowFrames }),
       yAxis: {
         type: "value",
         name: "mm",
@@ -158,7 +156,7 @@ export default function ExcursionChart({ frames, currentTime, isActive, streamin
       series,
       tooltip: buildValueTooltip({ unit: "mm", decimals: 3 }),
     };
-  }, [windowFrames, channelMode, yMin, yMax, audioDuration, followWindow, lttb]);
+  }, [windowFrames, channelMode, yMin, yMax, lttb]);
 
   const showChart = audioDuration != null || frames.length > 0;
 

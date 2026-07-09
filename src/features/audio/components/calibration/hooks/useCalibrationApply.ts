@@ -8,6 +8,7 @@ import {
   loadDeviceActualCache, saveDeviceActualCache, type DeviceActualCache,
 } from "@/features/audio/lib/cache/calibration";
 import type { CalibrationValues } from "../CalibrationContext";
+import type { DeviceInfo } from "./useNativeAudioDevice";
 
 export type DeviceApplyStatus = "idle" | "applying" | "applied" | "error";
 
@@ -16,12 +17,13 @@ export interface UseCalibrationApplyDeps {
   setValues: Dispatch<SetStateAction<CalibrationValues>>;
   setOpen: (v: boolean) => void;
   hasAudioDeviceBridge: boolean;
+  deviceInfo: DeviceInfo | null;
   refreshDeviceInfo: (uid?: string) => Promise<void>;
   onApply?: (values: CalibrationValues) => void;
 }
 
 export function useCalibrationApply(deps: UseCalibrationApplyDeps) {
-  const { draft, setValues, setOpen, hasAudioDeviceBridge, refreshDeviceInfo, onApply } = deps;
+  const { draft, setValues, setOpen, hasAudioDeviceBridge, deviceInfo, refreshDeviceInfo, onApply } = deps;
 
   const [deviceStatus, setDeviceStatus] = useState<DeviceApplyStatus>("idle");
   const [deviceActual, setDeviceActual] = useState<{ sampleRate: number | null; bufferSize: number | null } | null>(null);
@@ -58,7 +60,12 @@ export function useCalibrationApply(deps: UseCalibrationApplyDeps) {
     setDeviceStatus("applying");
     setDeviceError(null);
     const requested = { sampleRate: Number(draft.sampleRate), bufferSize: Number(draft.bufferSize) };
-    const captureChannels = Math.max(2, Number(draft.channels) || 2);
+    // 드롭다운이 이미 장치의 inputChannels 이하로 제한돼 있지만, sessionStorage 복원 등으로
+    // draft가 그 제약 이전 값을 들고 있을 가능성에 대비해 여기서도 한 번 더 상한을 건다.
+    const requestedChannels = Math.max(2, Number(draft.channels) || 2);
+    const captureChannels = deviceInfo?.inputChannels
+      ? Math.min(requestedChannels, deviceInfo.inputChannels)
+      : requestedChannels;
     const result = await window.audioCapture.start({
       sampleRate: requested.sampleRate,
       bufferSize: requested.bufferSize,
@@ -89,7 +96,7 @@ export function useCalibrationApply(deps: UseCalibrationApplyDeps) {
     // capture probe(IOProc)가 닫힌 뒤 "연결된 장치" 패널의 CoreAudio query()도 새로고침해
     // 적용 결과를 바로 확인할 수 있게 한다("새로고침" 버튼과 동일 동작).
     await refreshDeviceInfo();
-  }, [draft, setValues, onApply, hasAudioDeviceBridge, setOpen, refreshDeviceInfo]);
+  }, [draft, setValues, onApply, hasAudioDeviceBridge, deviceInfo, setOpen, refreshDeviceInfo]);
 
   return { deviceStatus, deviceActual, deviceError, appliedRuntime, apply, resetStatus };
 }

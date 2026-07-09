@@ -14,7 +14,6 @@ import DeviceSelectField from "./DeviceSelectField";
 import { useAnalysisMode } from "@/features/audio/components/dashboard/AnalysisModeContext";
 import {
   CALIBRATION_EMPTY,
-  CHANNEL_OPTIONS,
   useCalibration,
   type CalibrationValues,
 } from "./CalibrationContext";
@@ -172,11 +171,11 @@ export default function CalibrationDrawer({ projectName, onApply }: Props) {
     refreshInputDevices, revealDeviceNames,
   } = useMediaDevices();
   const {
-    sampleRateOptions, bufferSizeOptions, deviceOptionsLoading, adjustedNote, clearAdjustedNote,
+    sampleRateOptions, bufferSizeOptions, channelOptions, deviceOptionsLoading, adjustedNote, clearAdjustedNote,
   } = useDeviceOptionAutoCorrect({ deviceInfo, deviceInfoLoading, hasAudioDeviceBridge, draft, set });
   const {
     deviceStatus, deviceActual, deviceError, appliedRuntime, apply, resetStatus,
-  } = useCalibrationApply({ draft, setValues, setOpen, hasAudioDeviceBridge, refreshDeviceInfo, onApply });
+  } = useCalibrationApply({ draft, setValues, setOpen, hasAudioDeviceBridge, deviceInfo, refreshDeviceInfo, onApply });
 
   // 열 때마다 적용상태/adjustedNote 리셋 + 장치 정보 새로고침 (draft 자체의 동기화는
   // useCalibrationDraft가 별도 [open] effect로 담당 — React는 같은 의존성의 effect 여러
@@ -264,7 +263,9 @@ export default function CalibrationDrawer({ projectName, onApply }: Props) {
             </div>
           )}
 
-          {/* 입력 소스 / 분석 모드 — 대시보드에서 이동한 토글 (컨텍스트 부재 시 숨김) */}
+          {/* 입력 소스 — 대시보드에서 이동한 토글 (컨텍스트 부재 시 숨김). 파일/마이크 모두 분석은
+              항상 캡처 파이프라인(useCaptureSession)으로 동일하게 동작하므로 별도의 분석 모드
+              토글은 없다 — 파일 모드는 재생(출력)이 추가로 붙을 뿐이다. */}
           {mode && (
             <section className="space-y-3">
               <Segmented
@@ -276,19 +277,6 @@ export default function CalibrationDrawer({ projectName, onApply }: Props) {
                   { value: "mic", label: "마이크" },
                 ]}
               />
-              {/* 분석 모드는 파일 입력에서만 의미가 있다(마이크는 항상 실시간) */}
-              {mode.inputMode === "file" && (
-                <Segmented
-                  label="Analysis Mode"
-                  value={mode.analysisMode}
-                  onChange={mode.setAnalysisMode}
-                  disabled={mode.isAnalyzing}
-                  options={[
-                    { value: "realtime", label: "실시간 추적" },
-                    { value: "batch", label: "분석" },
-                  ]}
-                />
-              )}
             </section>
           )}
 
@@ -349,7 +337,9 @@ export default function CalibrationDrawer({ projectName, onApply }: Props) {
           </section>
 
           {/* 온도 임계값 — TemperatureChart의 WARN/DANGER markLine과 렌더 이벤트 감지(detectEvents)가
-              공유한다. 값이 비어있거나 숫자가 아니면 기본값(65/75°C)으로 fallback. */}
+              공유한다. 값이 비어있거나 숫자가 아니면 기본값(65/75°C)으로 fallback.
+              Ambient Temp는 임계값이 아니라 ff_prot_start_exec에 그대로 전달되는 엔진 입력값이다
+              (미설정/숫자 아님 시 기본값 25°C로 fallback, engine/protocol/analysis.ts parseEngineParams). */}
           <section className="space-y-3">
             <h4 className="text-xs font-semibold text-iron-500">THRESHOLD</h4>
             <div className="grid grid-cols-2 gap-3">
@@ -365,7 +355,75 @@ export default function CalibrationDrawer({ projectName, onApply }: Props) {
                 value={draft.tempDanger}
                 onChange={(v) => set({ tempDanger: v })}
               />
+              <NumberField
+                label="Ambient Temp"
+                unit="°C"
+                value={draft.ambientTemp}
+                onChange={(v) => set({ ambientTemp: v })}
+              />
             </div>
+          </section>
+
+          {/* INPUT DEVICE — 네이티브(Swift/CoreAudio) 입력 장치에 적용할 캡처 설정.
+              query()로 받은 지원 SampleRate/Buffer 범위로 옵션을 구성하고, "적용" 시 capture
+              probe(짧게 열었다 닫기)로 실제 장치에 반영·확인한다(브라우저에서는 데모 목록).
+              Buffer는 per-client(TN2321)라 이 probe로만 실제 반영값을 확인할 수 있으며, 결과는
+              아래 상태 문구로 표시한다. */}
+          <section className="space-y-3">
+            <div className="flex items-center gap-2">
+              <h4 className="text-xs font-semibold text-iron-500">DEVICE</h4>
+              {deviceOptionsLoading && (
+                <span className="flex items-center gap-1 text-[10px] text-iron-400">
+                  <RefreshCw className="w-3 h-3 animate-spin" /> 지원 규격 확인 중…
+                </span>
+              )}
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <SelectField
+                label="Sample Rate"
+                unit="Hz"
+                value={draft.sampleRate}
+                options={sampleRateOptions}
+                onChange={(v) => { clearAdjustedNote(); set({ sampleRate: v }); }}
+                disabled={deviceOptionsLoading}
+              />
+              <SelectField
+                label="Buffer Size"
+                value={draft.bufferSize}
+                options={bufferSizeOptions}
+                onChange={(v) => { clearAdjustedNote(); set({ bufferSize: v }); }}
+                disabled={deviceOptionsLoading}
+              />
+            </div>
+            {/* 장치 미지원 값이 지원값으로 자동 보정됐을 때의 안내 — 사용자가 직접 다시 고르거나
+                드로어를 다시 열면 사라진다. */}
+            {adjustedNote && !deviceOptionsLoading && (
+              <p className="text-[11px] text-amber-600 leading-relaxed">⚠️ {adjustedNote}</p>
+            )}
+            {hasAudioDeviceBridge && (
+              <SelectField
+                label="Capture Channels (네이티브 캡처)"
+                unit="ch"
+                value={draft.channels}
+                options={channelOptions}
+                onChange={(v) => { clearAdjustedNote(); set({ channels: v }); }}
+                disabled={deviceOptionsLoading}
+              />
+            )}
+            {/* "적용" 시 capture probe(TN2321)로 확인한 실제 하드웨어 반영값 — CoreAudio가
+                돌려준 SampleRate/Buffer 를 요청값과 나란히 보여준다. */}
+            {hasAudioDeviceBridge && (
+              <div className="text-xs">
+                {deviceStatus === "applying" && <p className="text-iron-400">디바이스에 적용 중…</p>}
+                {deviceStatus === "applied" && (
+                  <p className="text-emerald-600">
+                    적용됨 — 요청 {draft.sampleRate}Hz/{draft.bufferSize} → 실제{" "}
+                    {deviceActual?.sampleRate ?? "?"}Hz/{deviceActual?.bufferSize ?? "?"}
+                  </p>
+                )}
+                {deviceStatus === "error" && <p className="text-red-500">디바이스 적용 실패: {deviceError}</p>}
+              </div>
+            )}
           </section>
 
           {/* 연결된 장치 정보 (Electron 전용) */}
@@ -445,67 +503,6 @@ export default function CalibrationDrawer({ projectName, onApply }: Props) {
               </p>
             </section>
           )}
-
-          {/* INPUT DEVICE — 네이티브(Swift/CoreAudio) 입력 장치에 적용할 캡처 설정.
-              query()로 받은 지원 SampleRate/Buffer 범위로 옵션을 구성하고, "적용" 시 capture
-              probe(짧게 열었다 닫기)로 실제 장치에 반영·확인한다(브라우저에서는 데모 목록).
-              Buffer는 per-client(TN2321)라 이 probe로만 실제 반영값을 확인할 수 있으며, 결과는
-              아래 상태 문구로 표시한다. */}
-          <section className="space-y-3">
-            <div className="flex items-center gap-2">
-              <h4 className="text-xs font-semibold text-iron-500">DEVICE</h4>
-              {deviceOptionsLoading && (
-                <span className="flex items-center gap-1 text-[10px] text-iron-400">
-                  <RefreshCw className="w-3 h-3 animate-spin" /> 지원 규격 확인 중…
-                </span>
-              )}
-            </div>
-            <div className="grid grid-cols-2 gap-3">
-              <SelectField
-                label="Sample Rate"
-                unit="Hz"
-                value={draft.sampleRate}
-                options={sampleRateOptions}
-                onChange={(v) => { clearAdjustedNote(); set({ sampleRate: v }); }}
-                disabled={deviceOptionsLoading}
-              />
-              <SelectField
-                label="Buffer Size"
-                value={draft.bufferSize}
-                options={bufferSizeOptions}
-                onChange={(v) => { clearAdjustedNote(); set({ bufferSize: v }); }}
-                disabled={deviceOptionsLoading}
-              />
-            </div>
-            {/* 장치 미지원 값이 지원값으로 자동 보정됐을 때의 안내 — 사용자가 직접 다시 고르거나
-                드로어를 다시 열면 사라진다. */}
-            {adjustedNote && !deviceOptionsLoading && (
-              <p className="text-[11px] text-amber-600 leading-relaxed">⚠️ {adjustedNote}</p>
-            )}
-            {hasAudioDeviceBridge && (
-              <SelectField
-                label="Capture Channels (네이티브 캡처)"
-                unit="ch"
-                value={draft.channels}
-                options={CHANNEL_OPTIONS}
-                onChange={(v) => set({ channels: v })}
-              />
-            )}
-            {/* "적용" 시 capture probe(TN2321)로 확인한 실제 하드웨어 반영값 — CoreAudio가
-                돌려준 SampleRate/Buffer 를 요청값과 나란히 보여준다. */}
-            {hasAudioDeviceBridge && (
-              <div className="text-xs">
-                {deviceStatus === "applying" && <p className="text-iron-400">디바이스에 적용 중…</p>}
-                {deviceStatus === "applied" && (
-                  <p className="text-emerald-600">
-                    적용됨 — 요청 {draft.sampleRate}Hz/{draft.bufferSize} → 실제{" "}
-                    {deviceActual?.sampleRate ?? "?"}Hz/{deviceActual?.bufferSize ?? "?"}
-                  </p>
-                )}
-                {deviceStatus === "error" && <p className="text-red-500">디바이스 적용 실패: {deviceError}</p>}
-              </div>
-            )}
-          </section>
         </div>
 
         <div className="p-3 border-t border-iron-100 shrink-0 flex items-center gap-2">

@@ -6,7 +6,7 @@
 import { useCallback, type MutableRefObject } from "react";
 import type { StreamDebugInfo } from "@/features/audio/lib/debug/types";
 import type { SocketLike } from "@/features/audio/lib/engine/protocol/local-socket";
-import { encodeToInt16 } from "@/features/audio/lib/engine/utils";
+import { encodeToInt32 } from "@/features/audio/lib/engine/utils";
 
 export interface WebCaptureParams {
   sampleRate: number;
@@ -96,7 +96,7 @@ export function useWebAudioWorkletCapture(deps: WebCaptureDeps) {
     worklet.port.onmessage = (e: MessageEvent<{ L: Float32Array; R: Float32Array }>) => {
       if (!isActiveRef.current || ws.readyState !== WebSocket.OPEN) return;
 
-      const interleaved = encodeToInt16(e.data.L, e.data.R);
+      const interleaved = encodeToInt32(e.data.L, e.data.R);
       lastSendAtRef.current = performance.now();
       ws.send(interleaved.buffer as ArrayBuffer);
 

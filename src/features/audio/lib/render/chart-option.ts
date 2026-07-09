@@ -1,6 +1,5 @@
-// TemperatureChart/ExcursionChart이 동일하게 구현하던 ECharts 옵션 조각(dataZoom/시간축/
-// 값 툴팁/범례)을 공유 빌더로 뽑아둔다. series·Y축(지표별로 알고리즘이 다름)·grid(좌측 여백만
-// 다름)는 각 차트가 직접 구성한다.
+// TemperatureChart/ExcursionChart이 동일하게 구현하던 ECharts 옵션 조각(dataZoom/시간축/값 툴팁/범례)을 공유 빌더로 뽑아둔다. series·Y축(지표별로 알고리즘이 다름)·grid(좌측 여백만 다름)는 각 차트가 직접 구성한다.
+
 import type { AnalysisFrame } from "@/features/audio/types";
 import type { ChannelMode } from "./chart-window";
 
@@ -40,17 +39,15 @@ export function buildDataZoom(zoom: ZoomState, colors: { filler: string; handle:
 }
 
 export function buildTimeAxis(opts: {
-  audioDuration?: number | null;
-  followWindow?: boolean;
   windowFrames: AnalysisFrame[];
 }) {
-  const { audioDuration, followWindow, windowFrames } = opts;
+  const { windowFrames } = opts;
   return {
     type: "value" as const,
-    // batch(followWindow=false)+audioDuration: [0, 총길이] 고정
-    // realtime(followWindow=true) 또는 마이크: 현재 윈도우 범위를 따라 스크롤
-    min: (audioDuration != null && !followWindow) ? 0 : (windowFrames[0]?.time ?? 0),
-    max: (audioDuration != null && !followWindow) ? audioDuration : (windowFrames[windowFrames.length - 1]?.time ?? 10),
+    // 항상 현재 윈도우 범위를 따라 스크롤한다(파일 재생/마이크 캡처 공통 — 분석은 항상
+    // 캡처 파이프라인의 실시간 스트림이라 "전체 곡선 고정 축"은 없다).
+    min: windowFrames[0]?.time ?? 0,
+    max: windowFrames[windowFrames.length - 1]?.time ?? 10,
     axisLabel: { formatter: (v: number) => `${v.toFixed(2)}s`, color: "#A4AABA", fontSize: 10 },
     axisLine: { lineStyle: { color: "#E8EAF0" } },
     splitLine: { lineStyle: { color: "#F5F6F8" } },

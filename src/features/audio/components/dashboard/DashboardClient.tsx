@@ -5,7 +5,7 @@ import Header from "@/shared/components/Header";
 import { AnalysisModeProvider } from "@/features/audio/components/dashboard/AnalysisModeContext";
 import SelectedFilePanel from "@/features/audio/components/dashboard/SelectedFilePanel";
 import WaveformPlayer, { WaveformPlayerHandle } from "@/features/audio/components/player/WaveformPlayer";
-import MicrophonePlayer from "@/features/audio/components/player/MicrophonePlayer";
+import MicrophonePlayer, { type MicRecordingExport } from "@/features/audio/components/player/MicrophonePlayer";
 import TemperatureChart from "@/features/audio/components/chart/TemperatureChart";
 import ExcursionChart from "@/features/audio/components/chart/ExcursionChart";
 import ChartDetailOverlay, { type DetailMetric } from "@/features/audio/components/chart/ChartDetailOverlay";
@@ -13,7 +13,6 @@ import { AppStatus, AnalysisFrame, InputParameterValues } from "@/features/audio
 import { StreamDebugInfo, DebugLogEntry, MeasurementExport } from "@/features/audio/lib/debug/types";
 import { useCalibration } from "../calibration/CalibrationContext";
 import { useWorkspace } from "../workspace/WorkspaceContext";
-import { cn } from "@/shared/lib/utils";
 import { clearFrameCache } from "@/features/audio/lib/cache/frame";
 import { putAudio, clearAudio } from "@/features/audio/lib/cache/audio-blob";
 import { coalesceFrames } from "@/features/audio/lib/render/coalesce";
@@ -28,17 +27,13 @@ interface DashboardPageProps {
 }
 
 export default function DashboardPage({ useQueue }: DashboardPageProps) {
-  // 모드별 독립 재생 상태 — realtime/batch 플레이어가 서로 간섭하지 않도록 분리
   const [realtimeStatus, setRealtimeStatus]   = useState<AppStatus>("idle");
-  const [batchStatus, setBatchStatus]         = useState<AppStatus>("idle");
   const [audioFile, setAudioFile]             = useState<File | null>(null);
   const [currentTime, setCurrentTime]         = useState(0);
   const [audioDuration, setAudioDuration]     = useState<number | null>(null);
   const [errorMsg, setErrorMsg]               = useState<string | null>(null);
-  // realtime(실시간 추적) 버퍼 — 슬라이딩 윈도우
+  // 실시간 분석 버퍼 — 슬라이딩 윈도우(RENDER_WINDOW로 상한). 파일/마이크 두 입력 모드가 공유한다.
   const [streamingFrames, setStreamingFrames] = useState<AnalysisFrame[]>([]);
-  // batch(분석) 버퍼 — 전체 곡선. 모드별로 버퍼를 분리해 탭 전환 시 서로 덮어쓰지 않는다.
-  const [batchFrames, setBatchFrames]         = useState<AnalysisFrame[]>([]);
 
   // 분석 파라미터는 캘리브레이션 단일 소스(Context)에서 가져온다 — 대시보드 내 InputParameters 카드 제거.
   const { values: calibration } = useCalibration();
@@ -70,25 +65,14 @@ export default function DashboardPage({ useQueue }: DashboardPageProps) {
   // ── 차트 상세(자세히 보기) 뷰 — 어느 차트를 전체화면으로 열었는지 (null = 대시보드) ──
   const [detailChart, setDetailChart] = useState<DetailMetric | null>(null);
 
-  // ── 분석 모드: realtime(실시간 추적) / batch(분석 후 렌더) ──────────────────
-  const [analysisMode, setAnalysisMode]   = useState<"realtime" | "batch">("realtime");
-  const [isAnalyzing, setIsAnalyzing]     = useState(false);
-  const [batchProgress, setBatchProgress] = useState<{ done: number; total: number }>({ done: 0, total: 0 });
-  // 배치 분석으로 산출한 전체 output frame 시퀀스 (Reference / fidelity ground-truth)
-  const referenceFramesRef = useRef<AnalysisFrame[]>([]);
-
   // ── sessionStorage 캐시용 최신값 미러 refs ────────────────────────────────
   // 이벤트 핸들러(pagehide 등)에서 stale closure 없이 최신 버퍼를 읽기 위함.
   const streamingFramesRef = useRef<AnalysisFrame[]>([]);
-  const batchFramesRef     = useRef<AnalysisFrame[]>([]);
   const audioDurationRef   = useRef<number | null>(null);
-  const analysisModeRef    = useRef<"realtime" | "batch">("realtime");
   const fileNameRef        = useRef<string | null>(null);
 
-  // ── WaveformPlayer ref (sendMessage 접근용) ──────────────────────────────
-  // 모드별 독립 WaveformPlayer 핸들 (각자 고유한 WaveSurfer/재생 위치)
+  // ── WaveformPlayer ref (sendMessage/exportRecordedAudio 접근용) ──────────
   const realtimeWaveRef = useRef<WaveformPlayerHandle>(null);
-  const batchWaveRef     = useRef<WaveformPlayerHandle>(null);
   // metrics 전송 간격 카운터 (10회에 1회 전송)
   const metricsCountRef    = useRef(0);
   const METRICS_INTERVAL   = 10;
@@ -172,53 +156,67 @@ export default function DashboardPage({ useQueue }: DashboardPageProps) {
 
   // ── 캐시 미러 refs 동기화 (이벤트 핸들러에서 최신값 읽기용) ───────────────
   useEffect(() => { streamingFramesRef.current = streamingFrames; }, [streamingFrames]);
-  useEffect(() => { batchFramesRef.current     = batchFrames;     }, [batchFrames]);
   useEffect(() => { audioDurationRef.current    = audioDuration;   }, [audioDuration]);
-  useEffect(() => { analysisModeRef.current     = analysisMode;    }, [analysisMode]);
 
   // ── sessionStorage 프레임 캐시 + IndexedDB 오디오 복원 (F5/탭 전환 대응) ──────
   const { persistCache } = useFrameCachePersistence({
-    audioFile, realtimeStatus, batchStatus,
-    streamingFramesRef, batchFramesRef, audioDurationRef, analysisModeRef, fileNameRef,
-    setStreamingFrames, setBatchFrames, setAudioDuration, setAnalysisMode, setAudioFile,
+    audioFile, realtimeStatus,
+    streamingFramesRef, audioDurationRef, fileNameRef,
+    setStreamingFrames, setAudioDuration, setAudioFile,
   });
 
-  // ── 작업 영역(Workspace) 저장 — 현재 음원 + 활성 모드의 분석 그래프를 영구 보존 ──────
+  // ── 작업 영역(Workspace) 저장 — 현재 음원 + 실시간 분석 그래프를 영구 보존 ──────
+  // 오디오는 원본 업로드 파일 전체가 아니라, 재생 중 캡처 세션이 실제로 분석한 신호(V/I)를
+  // WAV로 인코딩해 저장한다(exportRecordedAudio) — 캡처된 적 없으면 원본 파일로 폴백한다.
   const handleSaveToWorkspace = useCallback(async () => {
     if (!audioFile) return;
-    const mode   = analysisModeRef.current;
-    const frames = mode === "batch" ? batchFramesRef.current : streamingFramesRef.current;
+    const frames = streamingFramesRef.current;
     if (frames.length === 0) return;
     const name = audioFile.name.replace(/\.[^./]+$/, "") || "Untitled";
+    const recordedAudio = realtimeWaveRef.current?.exportRecordedAudio() ?? null;
     await saveCurrent({
       name,
-      audioFileName: audioFile.name,
+      audioFileName: recordedAudio ? `${name}.wav` : audioFile.name,
       audioDuration: audioDurationRef.current,
-      analysisMode:  mode,
+      analysisMode:  "realtime",
       frames,
-      audioBlob: audioFile,
-      audioType: audioFile.type,
+      audioBlob: recordedAudio ?? audioFile,
+      audioType: recordedAudio ? "audio/wav" : audioFile.type,
     });
   }, [audioFile, saveCurrent]);
+
+  // ── 마이크(네이티브 캡처) 녹음 저장 — 전 채널 WAV + 실시간 분석 그래프를 워크스페이스에 보존 ──
+  // 오디오는 엔진에 나간 ch0(V)/ch1(I)만이 아니라 Calibration에서 지정한 채널 수 전체가
+  // 담긴 N채널 WAV(캡처 세션 버퍼)다. 분석 프레임은 realtime 버퍼를 그대로 싣는다.
+  const handleSaveMicRecording = useCallback(async (rec: MicRecordingExport) => {
+    const stamp = new Date();
+    const pad = (n: number) => String(n).padStart(2, "0");
+    const name =
+      `capture-${stamp.getFullYear()}${pad(stamp.getMonth() + 1)}${pad(stamp.getDate())}` +
+      `-${pad(stamp.getHours())}${pad(stamp.getMinutes())}${pad(stamp.getSeconds())}-${rec.channels}ch`;
+    await saveCurrent({
+      name,
+      audioFileName: `${name}.wav`,
+      audioDuration: rec.durationSec,
+      analysisMode:  "realtime",
+      frames: streamingFramesRef.current,
+      audioBlob: rec.blob,
+      audioType: "audio/wav",
+    });
+  }, [saveCurrent]);
 
   // ── 파일 선택 / 초기화 ────────────────────────────────────────────────────
   // 모든 분석 버퍼/상태를 새 음원 기준으로 비우는 공통 루틴 (캐시 I/O 제외)
   const resetAnalysisState = useCallback(() => {
     setAudioDuration(null);
     setStreamingFrames([]);
-    setBatchFrames([]);
-    batchFramesRef.current = [];
     setCurrentTime(0);
     setRealtimeStatus("idle");
-    setBatchStatus("idle");
     setErrorMsg(null);
     isMeasuringRef.current = false;
     setIsMeasuring(false);
     measureLogsRef.current = [];
     setMeasureFrameCount(0);
-    referenceFramesRef.current = [];
-    setBatchProgress({ done: 0, total: 0 });
-    setIsAnalyzing(false);
   }, []);
 
   const handleFileSelected = useCallback((file: File) => {
@@ -249,13 +247,10 @@ export default function DashboardPage({ useQueue }: DashboardPageProps) {
     setInputMode(mode);
     setAudioDuration(null);
     setStreamingFrames([]);
-    setBatchFrames([]);
-    batchFramesRef.current = [];
     clearFrameCache();
     void clearAudio();
     setCurrentTime(0);
     setRealtimeStatus("idle");
-    setBatchStatus("idle");
     setErrorMsg(null);
     isMeasuringRef.current = false;
     setIsMeasuring(false);
@@ -274,80 +269,10 @@ export default function DashboardPage({ useQueue }: DashboardPageProps) {
     prevTempRef.current        = null;
   }, []);
 
-  // ── 분석 모드 전환 ────────────────────────────────────────────────────────
-  // 모드별 버퍼(streamingFrames / batchFrames)가 분리돼 있어 데이터를 비울 필요가 없다.
-  // 탭만 바꾸면 차트는 해당 모드의 마지막 상태를 그대로 보여준다(캐싱).
-  const handleAnalysisModeChange = useCallback((mode: "realtime" | "batch") => {
-    if (mode === analysisModeRef.current) return;
-    if (analysisModeRef.current === "realtime") realtimeWaveRef.current?.pause();
-    else                                        batchWaveRef.current?.pause();
-    setAnalysisMode(mode);
-    analysisModeRef.current = mode;
-    setErrorMsg(null);
-  }, []);
-
-  // ── 배치 분석 실행: 전체 PCM 분석 → 전체 곡선 한 번에 렌더 ──────────────────
-  const handleRunBatch = useCallback(async () => {
-    const player = batchWaveRef.current;
-    if (!player) return;
-    // 실시간 플레이어의 WS가 열려 있으면 닫아 네이티브 락을 먼저 해제 (배치 분석 충돌 방지).
-    // 모드 전환만으로는 실시간 WS를 닫지 않으므로, 실제로 락이 필요한 이 시점에 해제한다.
-    realtimeWaveRef.current?.stopStreaming();
-    setErrorMsg(null);
-    setIsAnalyzing(true);
-    setBatchStatus("analyzing");
-    setBatchFrames([]);
-    batchFramesRef.current = [];
-    setBatchProgress({ done: 0, total: 0 });
-    try {
-      const frames = await player.runBatchAnalysis((done, total) => setBatchProgress({ done, total }));
-      referenceFramesRef.current = frames;
-      setBatchFrames(frames);
-      batchFramesRef.current = frames;
-      setBatchStatus("ready");
-    } catch (err) {
-      console.error("[Dashboard] 배치 분석 실패:", err);
-      setErrorMsg(`배치 분석 실패: ${err instanceof Error ? err.message : String(err)}`);
-      setBatchStatus("error");
-    } finally {
-      setIsAnalyzing(false);
-    }
-  }, []);
-
-  // ── Reference(전체 output frame 시퀀스) JSON 저장 ──────────────────────────
-  const handleExportReference = useCallback(() => {
-    const frames = referenceFramesRef.current;
-    if (frames.length === 0) return;
-    const timestamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
-    downloadJson(
-      {
-        meta: {
-          recordedAt:  new Date().toISOString(),
-          audioFile:   audioFile?.name ?? null,
-          sampleRate:  48000,
-          frameCount:  frames.length,
-          durationSec: audioDuration ?? (frames.length > 0 ? frames[frames.length - 1].time : 0),
-          engineParams: {
-            ampOutputPower: inputParams.ampOutputPower,
-            speakerModel:   inputParams.speakerModel,
-          },
-        },
-        frames: frames.map((f) => ({
-          time:        f.time,
-          temperature: f.temperature,
-          excursion:   f.excursion,
-        })),
-      },
-      `iron-device-reference-${timestamp}.json`,
-    );
-  }, [audioFile, audioDuration, inputParams, downloadJson]);
-
   // ── 렌더 윈도우 (저장/렌더 분리) ─────────────────────────────────────────
   // 실시간 스트리밍 상태(streamingFrames)는 최근 RENDER_WINDOW 프레임만 유지한다.
   // 이렇게 하면 매 렌더 틱의 배열 복사·차트 map()·ECharts setOption 비용이
   // 곡 길이와 무관하게 상수로 묶이고, freshness 중심의 슬라이딩 윈도우 뷰가 된다.
-  // 전체 곡 곡선(overview)은 batch(분석 후 렌더) 모드가 담당한다
-  // (handleRunBatch는 setStreamingFrames에 전체 시퀀스를 직접 주입 → 여기서 안 잘림).
   // ~62Hz 코얼레싱 기준 3000 ≈ 약 48초의 최근 구간.
   // ── 실험 토글: URL 쿼리로 제어 (측정 A/B용, 재빌드 불필요) ───────────────
   //   ?win=200000 → RENDER_WINDOW(버퍼 상한), ?lttb=0 → 차트 LTTB 끔
@@ -357,7 +282,7 @@ export default function DashboardPage({ useQueue }: DashboardPageProps) {
   const LTTB_ENABLED  = expParams?.get("lttb") !== "0";
   // ── Step 3: Render Scheduler 주기 (ms) ──────────────────────────────────
   const RENDER_INTERVAL = 16;
-  // 출력 큐 스케줄러는 실시간 스트리밍 경로(파일 realtime + 마이크)에서만 동작
+  // 출력 큐 스케줄러는 실시간 스트리밍 경로(파일 재생+캡처 / 마이크)에서만 동작
   const isPlaying = realtimeStatus === "playing";
 
   // ── 프레임 수신 — useQueue 모드에 따라 큐 push 또는 FIFO append ────────
@@ -492,51 +417,27 @@ export default function DashboardPage({ useQueue }: DashboardPageProps) {
     isMeasuringRef, renderFreshnessLogsRef, measureLogsRef,
   });
 
-  // ── 상태 변경 (모드별) ────────────────────────────────────────────────────
+  // ── 상태 변경 ─────────────────────────────────────────────────────────────
   const handleRealtimeStatus = useCallback((s: AppStatus) => {
     setRealtimeStatus(s);
     if (s === "error") setErrorMsg("WebSocket 연결에 실패했습니다. 서버가 실행 중인지 확인해주세요.");
   }, []);
-  const handleBatchStatus = useCallback((s: AppStatus) => {
-    setBatchStatus(s);
-    if (s === "error") setErrorMsg("WebSocket 연결에 실패했습니다. 서버가 실행 중인지 확인해주세요.");
-  }, []);
 
-  // ── 모드별 재생 시각 갱신 (비활성 모드의 갱신은 무시) ─────────────────────
+  // ── 재생 시각 갱신 ────────────────────────────────────────────────────────
   const handleRealtimeTime = useCallback((t: number) => {
-    if (analysisModeRef.current !== "realtime") return;
-    currentTimeRef.current = t;
-    setCurrentTime(t);
-  }, []);
-  const handleBatchTime = useCallback((t: number) => {
-    if (analysisModeRef.current !== "batch") return;
     currentTimeRef.current = t;
     setCurrentTime(t);
   }, []);
 
-  const noop = useCallback(() => {}, []);
-
-  // 현재 모드에 맞는 버퍼를 차트에 공급 (realtime / batch 분리 → 탭 전환 시 캐싱 유지)
-  const chartFrames = analysisMode === "batch" ? batchFrames : streamingFrames;
-
-  // 활성 모드의 재생 상태 (마이크 입력은 realtime 경로로 스트리밍)
-  const activeStatus = inputMode === "mic"
-    ? realtimeStatus
-    : analysisMode === "batch" ? batchStatus : realtimeStatus;
-
-  // 재생 중이거나, 표시할 캐시 프레임이 있으면 active
-  // (배치 분석 완료 후, 또는 새로고침 후 캐시 복원 시에도 전체 곡선을 표시)
-  const isActive  = activeStatus === "playing" || activeStatus === "paused"
-    || chartFrames.length > 0;
+  // 재생 중이거나, 표시할 캐시 프레임이 있으면 active (새로고침 후 캐시 복원 시에도 표시)
+  const isActive = realtimeStatus === "playing" || realtimeStatus === "paused"
+    || streamingFrames.length > 0;
 
   return (
     <AnalysisModeProvider
       value={{
         inputMode,
-        analysisMode,
         setInputMode: handleInputModeChange,
-        setAnalysisMode: handleAnalysisModeChange,
-        isAnalyzing,
       }}
     >
     <div
@@ -550,50 +451,14 @@ export default function DashboardPage({ useQueue }: DashboardPageProps) {
           <div id="dashboard-grid" className="grid grid-cols-1 lg:grid-cols-2 gap-3 lg:flex-1 lg:min-h-[600px]">
             <div id="left-column" className="flex flex-col gap-3 min-h-0">
               <div id="upload-section" className="h-[220px] lg:h-auto lg:min-h-0 lg:flex-[2] flex flex-col gap-2">
-                {inputMode === "file" && analysisMode === "batch" && (
-                  <div className="flex items-center gap-1.5 text-xs font-mono shrink-0">
-                    <div className="ml-auto flex items-center gap-1.5">
-                        {isAnalyzing && batchProgress.total > 0 && (
-                          <div
-                            className="flex items-center gap-1.5"
-                            title={`${batchProgress.done} / ${batchProgress.total} 프레임`}
-                          >
-                            <div className="relative h-1.5 w-24 overflow-hidden rounded-full bg-iron-200">
-                              <div
-                                className="absolute inset-y-0 left-0 rounded-full bg-brand-blue transition-[width] duration-200 ease-out"
-                                style={{ width: `${Math.round((batchProgress.done / batchProgress.total) * 100)}%` }}
-                              />
-                            </div>
-                            <span className="w-8 text-right text-iron-500 tabular-nums">
-                              {Math.round((batchProgress.done / batchProgress.total) * 100)}%
-                            </span>
-                          </div>
-                        )}
-                        <button
-                          onClick={handleExportReference}
-                          disabled={referenceFramesRef.current.length === 0}
-                          className={cn(
-                            "px-2 py-1 rounded border transition-all",
-                            referenceFramesRef.current.length === 0
-                              ? "text-iron-300 border-iron-200 cursor-not-allowed"
-                              : "bg-iron-50 text-iron-500 border-iron-200 hover:border-iron-400",
-                          )}
-                          title="분석된 전체 output frame 시퀀스를 Reference JSON으로 저장"
-                        >
-                          JSON DOWNLOAD
-                        </button>
-                    </div>
-                  </div>
-                )}
-
                 <div className="flex-1 min-h-0 min-w-0">
                   {inputMode === "file" ? (
                     <SelectedFilePanel
-                      status={activeStatus}
+                      status={realtimeStatus}
                       selectedFile={audioFile}
                       onReset={handleReset}
                       onSave={handleSaveToWorkspace}
-                      canSave={!!audioFile && chartFrames.length > 0}
+                      canSave={!!audioFile && streamingFrames.length > 0}
                     />
                   ) : (
                     <MicrophonePlayer
@@ -603,6 +468,7 @@ export default function DashboardPage({ useQueue }: DashboardPageProps) {
                       onStreamStart={handleStreamStart}
                       onDebugUpdate={handleDebugUpdate}
                       onDebugLog={handleDebugLog}
+                      onSaveRecording={handleSaveMicRecording}
                       inputParams={inputParams}
                     />
                   )}
@@ -612,49 +478,31 @@ export default function DashboardPage({ useQueue }: DashboardPageProps) {
                 )}
               </div>
               {inputMode === "file" && (
-                <div className="relative h-[260px] lg:h-auto lg:min-h-0 lg:flex-[3]">
-                  <div className={cn("absolute inset-0", analysisMode !== "realtime" && "invisible pointer-events-none")}>
-                    <WaveformPlayer
-                      ref={realtimeWaveRef}
-                      audioFile={audioFile}
-                      status={realtimeStatus}
-                      onTimeUpdate={handleRealtimeTime}
-                      onStatusChange={handleRealtimeStatus}
-                      onFrameReceived={handleFrameReceived}
-                      onStreamStart={handleStreamStart}
-                      onDebugUpdate={handleDebugUpdate}
-                      onDebugLog={handleDebugLog}
-                      inputParams={inputParams}
-                      onDurationReady={setAudioDuration}
-                      enableStreaming
-                    />
-                  </div>
-                  <div className={cn("absolute inset-0", analysisMode !== "batch" && "invisible pointer-events-none")}>
-                    <WaveformPlayer
-                      ref={batchWaveRef}
-                      audioFile={audioFile}
-                      status={batchStatus}
-                      onTimeUpdate={handleBatchTime}
-                      onStatusChange={handleBatchStatus}
-                      onFrameReceived={noop}
-                      onStreamStart={noop}
-                      inputParams={inputParams}
-                      onDurationReady={setAudioDuration}
-                      enableStreaming={false}
-                    />
-                  </div>
+                <div className="h-[260px] lg:h-auto lg:min-h-0 lg:flex-[3]">
+                  <WaveformPlayer
+                    ref={realtimeWaveRef}
+                    audioFile={audioFile}
+                    status={realtimeStatus}
+                    onTimeUpdate={handleRealtimeTime}
+                    onStatusChange={handleRealtimeStatus}
+                    onFrameReceived={handleFrameReceived}
+                    onStreamStart={handleStreamStart}
+                    onDebugUpdate={handleDebugUpdate}
+                    onDebugLog={handleDebugLog}
+                    inputParams={inputParams}
+                    onDurationReady={setAudioDuration}
+                  />
                 </div>
               )}
             </div>
             <div id="charts-section" className="flex flex-col gap-3 min-h-0">
               <div className="h-[300px] lg:h-auto lg:min-h-0 lg:flex-1">
                 <TemperatureChart
-                  frames={chartFrames}
+                  frames={streamingFrames}
                   currentTime={currentTime}
                   isActive={isActive}
                   streaming
                   audioDuration={audioDuration}
-                  followWindow={analysisMode === "realtime"}
                   lttb={LTTB_ENABLED}
                   onReactRender={handleReactRender}
                   onEchartsRender={handleEchartsRender}
@@ -665,12 +513,11 @@ export default function DashboardPage({ useQueue }: DashboardPageProps) {
               </div>
               <div className="h-[300px] lg:h-auto lg:min-h-0 lg:flex-1">
                 <ExcursionChart
-                  frames={chartFrames}
+                  frames={streamingFrames}
                   currentTime={currentTime}
                   isActive={isActive}
                   streaming
                   audioDuration={audioDuration}
-                  followWindow={analysisMode === "realtime"}
                   lttb={LTTB_ENABLED}
                   onExpand={() => setDetailChart("excursion")}
                 />
@@ -686,11 +533,10 @@ export default function DashboardPage({ useQueue }: DashboardPageProps) {
       {detailChart && (
         <ChartDetailOverlay
           metric={detailChart}
-          frames={chartFrames}
+          frames={streamingFrames}
           currentTime={currentTime}
           isActive={isActive}
           audioDuration={audioDuration}
-          followWindow={analysisMode === "realtime"}
           lttb={LTTB_ENABLED}
           warnThreshold={tempThresholds.warn}
           dangerThreshold={tempThresholds.danger}

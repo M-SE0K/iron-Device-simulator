@@ -9,7 +9,7 @@ import { useWorkspace } from "./WorkspaceContext";
 import { cn, formatFileSize } from "@/shared/lib/utils";
 
 // 폴더 안의 오디오 파일 목록 — 항목을 호버하면 강조되고 클릭하면 분석에 로드된다.
-// 현재 로드된 파일(activeName)은 파란색으로 선택 표시. Electron/브라우저 공용 렌더러.
+// 현재 로드된 파일(activeName)은 파란색으로 선택 표시. Electron/브라우저 공용
 interface FolderFile { key: string; name: string; size: number }
 function FolderFileList({
   files, activeName, onSelect,
@@ -73,7 +73,10 @@ export default function WorkspaceFolderSection() {
 
   // webkitdirectory/directory 는 표준 타입에 없어 콜백 ref 로 속성을 직접 설정한다.
   const setDirInput = useCallback((el: HTMLInputElement | null) => {
-    if (el) { el.setAttribute("webkitdirectory", ""); el.setAttribute("directory", ""); }
+    if (el) { 
+      el.setAttribute("webkitdirectory", ""); 
+      el.setAttribute("directory", ""); 
+    }
   }, []);
 
   const header = (path: string | null, onDisconnect: () => void) => (

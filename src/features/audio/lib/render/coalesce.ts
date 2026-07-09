@@ -1,3 +1,4 @@
+// 출력 큐에 쌓인 여러 프레임을 하나의 요약 프레임으로 병합하는 coalesce 로직.
 import type { AnalysisFrame } from "../../types";
 import type { QueuedFrame } from "./types";
 

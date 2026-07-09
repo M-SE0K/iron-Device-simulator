@@ -19,7 +19,6 @@ interface Props {
   currentTime: number;
   isActive: boolean;
   audioDuration?: number | null;
-  followWindow?: boolean;
   lttb?: boolean;
   /** temperature 상세 뷰의 WARN/DANGER markLine — Calibration.tempWarn/tempDanger */
   warnThreshold?: number;
@@ -48,7 +47,6 @@ export default function ChartDetailOverlay({
   currentTime,
   isActive,
   audioDuration,
-  followWindow,
   lttb,
   warnThreshold,
   dangerThreshold,
@@ -167,7 +165,6 @@ export default function ChartDetailOverlay({
             isActive={isActive}
             streaming
             audioDuration={audioDuration}
-            followWindow={followWindow}
             lttb={lttb}
             warnThreshold={warnThreshold}
             dangerThreshold={dangerThreshold}
@@ -179,7 +176,6 @@ export default function ChartDetailOverlay({
             isActive={isActive}
             streaming
             audioDuration={audioDuration}
-            followWindow={followWindow}
             lttb={lttb}
           />
         )}

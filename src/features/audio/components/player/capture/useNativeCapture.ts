@@ -19,9 +19,29 @@ export interface NativeCaptureParams {
   captureDeviceUID: string;
 }
 
+/**
+ * 캡처 세션 동안 메모리에 보존하는 N채널 인터리브 int32 원본 PCM.
+ * 엔진에는 ch0(V)/ch1(I)만 나가지만, Calibration에서 확장한 나머지 채널도 여기 남아
+ * 사용자가 저장을 요청하면 전 채널이 WAV로 내보내진다. 다음 캡처 시작 시 교체된다.
+ * (메모리 사용: 8ch·48kHz 기준 약 1.5MB/s — 명시적 저장 전까지만 유지되는 세션 버퍼)
+ */
+export interface NativeRawCapture {
+  channels: number;
+  sampleRate: number;
+  frames: ArrayBuffer[]; // wireSamplesPerCh sample-frame × channels, int32 인터리브
+}
+
 export interface NativeCaptureDeps {
   nativeOffsRef: MutableRefObject<Array<() => void>>;
   nativeActiveRef: MutableRefObject<boolean>;
+  /** 전 채널 원본 PCM 보존 버퍼 — 캡처 시작 시 새로 초기화되고 세션 내내 축적된다. */
+  rawCaptureRef: MutableRefObject<NativeRawCapture | null>;
+  /**
+   * true인 동안만 rawCaptureRef에 프레임을 쌓는다 — 분석 소켓(WASM)에는 항상 보내지만
+   * 저장용 원본 버퍼 축적은 일시정지할 수 있게 분리한다(WaveformPlayer의 재생 일시정지 시
+   * "녹음도 함께 멈춤" 기대와 저장 파일에 무음 구간이 안 섞이게 하려는 목적).
+   */
+  recordingActiveRef: MutableRefObject<boolean>;
   isActiveRef: MutableRefObject<boolean>;
   frameCountRef: MutableRefObject<number>;
   lastSendAtRef: MutableRefObject<number>;
@@ -37,7 +57,7 @@ export interface NativeCaptureDeps {
 
 export function useNativeCapture(deps: NativeCaptureDeps) {
   const {
-    nativeOffsRef, nativeActiveRef, isActiveRef, frameCountRef, lastSendAtRef,
+    nativeOffsRef, nativeActiveRef, rawCaptureRef, recordingActiveRef, isActiveRef, frameCountRef, lastSendAtRef,
     onDebugUpdate, onStatusChange, setMicError, setSampleRate, setDeviceName,
     setActualBufferSize, openAnalysisSocket, cleanup,
   } = deps;
@@ -46,8 +66,8 @@ export function useNativeCapture(deps: NativeCaptureDeps) {
     const nativeCapture = window.audioCapture;
     if (!nativeCapture) throw new Error("네이티브 캡처 브리지를 사용할 수 없습니다.");
 
-    // 캡처 채널 수. MCHStreamer 등 다채널 장치의 V/I 센싱 채널을 받으려면 늘린다 —
-    // 단, 분석 파이프라인은 항상 ch0/ch1(L/R)만 사용한다.
+    // 캡처 채널 수 — Calibration에서 장치 스펙(inputChannels) 이하로 지정한다.
+    // 엔진 분석에는 ch0(V)/ch1(I)만 쓰이고, 나머지 채널은 rawCaptureRef에 보존된다.
     const captureChannels = Math.max(2, Number(params.channels) || 2);
     const res = await nativeCapture.start({
       sampleRate: params.sampleRate,
@@ -70,14 +90,29 @@ export function useNativeCapture(deps: NativeCaptureDeps) {
 
     const ws = openAnalysisSocket(actualRate, wireSamplesPerCh);
 
-    const reframe = createNativeFrameReframer(captureChannels, wireSamplesPerCh, (frame) => {
-      lastSendAtRef.current = performance.now();
-      // Int16Array.buffer는 ArrayBuffer | SharedArrayBuffer → 명시적 캐스트. outPcm은
-      // 재사용하므로 slice(0)로 복사본 전송.
-      ws.send((frame.buffer as ArrayBuffer).slice(0));
-      const sent = ++frameCountRef.current;
-      if (sent % 10 === 0) onDebugUpdate({ framesSent: sent });
-    });
+    // 새 캡처 세션 시작 — 이전 세션의 전 채널 버퍼를 교체한다(저장하지 않았다면 여기서 소멸).
+    rawCaptureRef.current = { channels: captureChannels, sampleRate: actualRate, frames: [] };
+    recordingActiveRef.current = true;
+
+    const reframe = createNativeFrameReframer(
+      captureChannels,
+      wireSamplesPerCh,
+      (frame) => {
+        lastSendAtRef.current = performance.now();
+        // Int32Array.buffer는 ArrayBuffer | SharedArrayBuffer → 명시적 캐스트. outPcm은
+        // 재사용하므로 slice(0)로 복사본 전송.
+        ws.send((frame.buffer as ArrayBuffer).slice(0));
+        const sent = ++frameCountRef.current;
+        if (sent % 10 === 0) onDebugUpdate({ framesSent: sent });
+      },
+      (rawFrame) => {
+        // 저장용 원본 버퍼는 recordingActiveRef가 꺼져 있으면(재생 일시정지 중) 쌓지 않는다 —
+        // 분석(onFrame/WASM)은 계속 흘러가되, 저장 파일에는 무음 구간이 섞이지 않게 한다.
+        if (!recordingActiveRef.current) return;
+        // outRaw도 재사용 버퍼 → 복사본을 세션 메모리에 축적 (전 채널, 프레임 순서 보존)
+        rawCaptureRef.current?.frames.push((rawFrame.buffer as ArrayBuffer).slice(0));
+      },
+    );
 
     const offData = nativeCapture.onData((chunk) => {
       if (!isActiveRef.current || ws.readyState !== WebSocket.OPEN) return;
@@ -91,7 +126,7 @@ export function useNativeCapture(deps: NativeCaptureDeps) {
     });
     nativeOffsRef.current = [offData, offEnded];
   }, [
-    nativeOffsRef, nativeActiveRef, isActiveRef, frameCountRef, lastSendAtRef,
+    nativeOffsRef, nativeActiveRef, rawCaptureRef, recordingActiveRef, isActiveRef, frameCountRef, lastSendAtRef,
     onDebugUpdate, onStatusChange, setMicError, setSampleRate, setDeviceName,
     setActualBufferSize, openAnalysisSocket, cleanup,
   ]);

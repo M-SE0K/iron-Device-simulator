@@ -29,9 +29,7 @@ export function loadCalibrationCache(): Partial<CalibrationValues> | null {
 }
 
 // ── 캡처 probe로 확인한 "실제 적용 런타임 값" sessionStorage 캐시 ─────────────
-// BufferFrameSize는 per-client(TN2321)라 query()로는 장치 기본값만 보인다. "적용" 시
-// capture(IOProc)를 잠깐 열었다 닫아 얻은 실제 반영값(actual)을 여기 저장해, 새로고침(F5)
-// 후에도 "연결된 장치" 패널에서 마지막으로 적용된 런타임 버퍼/샘플레이트를 확인할 수 있게 한다.
+// BufferFrameSize는 per-client(TN2321)라 query()로는 장치 기본값만 보인다. "적용" 시 capture(IOProc)를 잠깐 열었다 닫아 얻은 실제 반영값(actual)을 여기 저장해, 새로고침(F5) 후에도 "연결된 장치" 패널에서 마지막으로 적용된 런타임 버퍼/샘플레이트를 확인할 수 있게 한다.
 //   · 수명: 탭이 살아있는 동안(새로고침 포함). 탭을 닫으면 사라진다.
 const DEVICE_ACTUAL_KEY = "irondevice:device-actual:v1";
 

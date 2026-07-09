@@ -19,10 +19,8 @@ interface Props {
   isActive: boolean;
   /** true: 스트리밍 append 모드 — 마지막 N 프레임 슬라이딩 윈도우 */
   streaming?: boolean;
-  /** 오디오 총 길이(초) — 설정 시 X축을 [0, audioDuration]으로 고정 */
+  /** 오디오 총 길이(초) — 표시용(헤더/showChart 판단), X축 범위 계산에는 쓰이지 않는다 */
   audioDuration?: number | null;
-  /** true(realtime): X축이 슬라이딩 윈도우를 따라감 / false(batch): [0, audioDuration] 고정 */
-  followWindow?: boolean;
   /** LTTB 다운샘플링 on/off (측정 A/B용, 기본 on) */
   lttb?: boolean;
   /** React 렌더 완료 시각 콜백 (useLayoutEffect) */
@@ -46,7 +44,7 @@ const CH_COLOR: Record<ChannelMode, { ch0: string; ch1: string }> = {
   Both: { ch0: "#0057B8", ch1: "#7C3AED" },
 };
 
-export default function TemperatureChart({ frames, currentTime, isActive, streaming = false, audioDuration, followWindow = false, lttb = true, onReactRender, onEchartsRender, onExpand, warnThreshold = DEFAULT_TEMP_WARN, dangerThreshold = DEFAULT_TEMP_DANGER }: Props) {
+export default function TemperatureChart({ frames, currentTime, isActive, streaming = false, audioDuration, lttb = true, onReactRender, onEchartsRender, onExpand, warnThreshold = DEFAULT_TEMP_WARN, dangerThreshold = DEFAULT_TEMP_DANGER }: Props) {
   const [channelMode, setChannelMode] = useState<ChannelMode>("Both");
 
   // ── 줌 상태 보존 — ref로 관리해서 렌더 유발 없이 option에 반영 ────────────
@@ -170,7 +168,7 @@ export default function TemperatureChart({ frames, currentTime, isActive, stream
       grid: { top: 8, right: 16, bottom: 52, left: 52 },
       legend: buildLegend(channelMode),
       dataZoom: buildDataZoom(zoomRef.current, { filler: "rgba(0,87,184,0.12)", handle: "#0057B8" }),
-      xAxis: buildTimeAxis({ audioDuration, followWindow, windowFrames }),
+      xAxis: buildTimeAxis({ windowFrames }),
       yAxis: {
         type: "value",
         name: "°C",
@@ -184,7 +182,7 @@ export default function TemperatureChart({ frames, currentTime, isActive, stream
       series,
       tooltip: buildValueTooltip({ unit: "°C", decimals: 1 }),
     };
-  }, [windowFrames, channelMode, yMin, yMax, audioDuration, followWindow, lttb, warnThreshold, dangerThreshold]);
+  }, [windowFrames, channelMode, yMin, yMax, lttb, warnThreshold, dangerThreshold]);
 
   const showChart = audioDuration != null || frames.length > 0;
 

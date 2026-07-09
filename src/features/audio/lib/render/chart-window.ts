@@ -1,6 +1,4 @@
-// TemperatureChart/ExcursionChart이 각자 구현하던 "표시 윈도우 계산"·"Y축 동적 범위 계산"을
-// 공유 순수 함수로 뽑아둔다. 두 차트의 실제 알고리즘(Y축 범위)은 지표별로 다르므로 하나로
-// 합치지 않고, 각 차트가 자신에게 맞는 함수를 골라 쓴다.
+// TemperatureChart/ExcursionChart이 각자 구현하던 "표시 윈도우 계산"·"Y축 동적 범위 계산"을 공유 순수 함수로 뽑아둔다. 두 차트의 실제 알고리즘(Y축 범위)은 지표별로 다르므로 하나로 합치지 않고, 각 차트가 자신에게 맞는 함수를 골라 쓴다.
 import type { AnalysisFrame } from "@/features/audio/types";
 import { findFrameIndex } from "@/shared/lib/utils";
 
@@ -17,7 +15,9 @@ export interface StreamWindowResult {
  * 실시간(streaming)/비실시간(seek) 공용 표시 윈도우 계산.
  *   - streaming + audioDuration 있음(파일 모드): 전체 누적 프레임
  *   - streaming + audioDuration 없음(마이크): 최근 windowSize 프레임만
- *   - 비streaming(배치 seek): currentTime 위치까지 최대 windowSize 프레임
+ *   - 비streaming(seek): currentTime 위치까지 최대 windowSize 프레임 — 배치 분석 제거로
+ *     현재 앱에서는 이 분기를 호출하는 곳이 없다(항상 streaming=true). 함수는 재사용
+ *     가능성을 위해 남겨둔다.
  */
 export function computeStreamWindow(
   frames: AnalysisFrame[],

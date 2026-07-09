@@ -1,6 +1,4 @@
-// electron-bridge.d.ts — electron/preload.js가 contextBridge로 노출하는 window.audioDevice /
-// window.audioCapture / window.localFolder 타입. 브라우저/개발서버에서는 모두 undefined이며
-// Electron 데스크톱 빌드에서만 존재한다.
+// electron-bridge.d.ts — electron/preload.js가 contextBridge로 노출하는 window.audioDevice / window.audioCapture / window.localFolder 타입. 브라우저/개발서버에서는 모두 undefined이며 Electron 데스크톱 빌드에서만 존재한다.
 export {};
 
 interface AudioDeviceActual {

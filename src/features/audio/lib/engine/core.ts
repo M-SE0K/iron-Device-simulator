@@ -13,12 +13,10 @@
 import type { EngineParams } from "../../types";
 
 // ─── 프레임 포맷 ────────────────────────────────────────────────────────────
-// CHANNELS/BYTES_PER_SAMPLE은 ABI 레벨 고정값(항상 스테레오 int16). SAMPLE_RATE/SAMPLES_PER_CH는
-// 기본값일 뿐 고정이 아니다 — 세션마다 EngineRuntimeConfig로 재정의되어 ff_prot_start_exec의
-// dt 계산과 와이어 프레임 크기에 그대로 반영된다(Calibration UI → 다음 세션 시작 시 적용).
+// CHANNELS/BYTES_PER_SAMPLE은 ABI 레벨 고정값(항상 스테레오 int32). SAMPLE_RATE/SAMPLES_PER_CH는 기본값일 뿐 고정이 아니다 — 세션마다 EngineRuntimeConfig로 재정의되어 ff_prot_start_exec의 dt 계산과 와이어 프레임 크기에 그대로 반영된다(Calibration UI → 다음 세션 시작 시 적용).
 export const SAMPLE_RATE      = 48000;
 export const CHANNELS         = 2;
-export const BYTES_PER_SAMPLE = 2;
+export const BYTES_PER_SAMPLE = 4;
 export const SAMPLES_PER_CH   = 480;
 
 /** 세션 단위 런타임 프레임 설정 — Calibration UI의 sampleRate/bufferSize로 채워진다 */
@@ -34,12 +32,15 @@ export const DEFAULT_ENGINE_CONFIG: EngineRuntimeConfig = {
   samplesPerCh: SAMPLES_PER_CH,
 };
 
+/** 주변 온도(°C) 기본값 — Calibration UI에서 미설정/파싱 실패 시 ff_prot_start_exec에 전달 */
+export const DEFAULT_AMBIENT_TEMP = 25;
+
 /** config 기준 프레임 바이트 크기 (samplesPerCh × CHANNELS × BYTES_PER_SAMPLE) */
 export function frameBytes(config: EngineRuntimeConfig): number {
   return config.samplesPerCh * CHANNELS * BYTES_PER_SAMPLE;
 }
 
-// ─── 스피커 프로파일 (so_report.md 기반 물리 모델) ───────────────────────────
+// ─── 스피커 프로파일 ───
 export interface SpeakerProfile {
   tempMult: number;  // 온도 승수 (1.0 = 기준)
   excMult:  number;  // 익스커션 승수
@@ -77,9 +78,7 @@ export interface FrameResult {
 // ─── 메모리 접근 추상화 ────────────────────────────────────────────────────────
 /**
  * 엔진 메모리 접근 방식을 추상화하는 인터페이스
- *
  * wasm-client 엔진: planar를 WASM 힙에 쓰고, bufPtr을 fnStartExec에 전달, 결과는 HEAP32에서 읽음
- *
  * MemoryLayout은 이 접근 방식을 흡수하여 공통 분석 루프를 제공한다.
  */
 export interface MemoryLayout {
@@ -88,9 +87,9 @@ export interface MemoryLayout {
   /** PCM 버퍼 할당 (malloc 결과) */
   allocBuf(): number;
   /** 플래너 포맷 PCM을 메모리(HEAP)에 쓰기 */
-  writePlanar(bufPtr: number, planar: Int16Array): void;
+  writePlanar(bufPtr: number, planar: Int32Array): void;
   /** ff_prot_start_exec 호출 (메모리 주소 또는 planar는 writePlanar에서 저장됨) */
-  execAnalysis(bufPtr: number, tempPtr: number, excPtr: number): void;
+  execAnalysis(bufPtr: number, tempPtr: number, excPtr: number, ambientTemp: number): void;
   /** 결과 버퍼(온도·익스커션)에서 값 읽기 → [T0, T1, E0, E1] */
   readResults(tempPtr: number, excPtr: number): [number, number, number, number];
   /** 할당된 메모리 해제 (free 호출) */
