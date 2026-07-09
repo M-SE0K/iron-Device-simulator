@@ -47,7 +47,7 @@ CalibrationContext.tsx ───────────── save/loadCalibrat
 hooks/useCalibrationApply.ts ─────── save/loadDeviceActualCache ⇄ calibration.ts
 
 [workspace]
-WorkspaceContext.tsx / MeasurementRecordsDrawer.tsx ── WorkspaceItemMeta·SaveWorkspaceInput 타입만 사용
+WorkspaceContext.tsx / RecordsDrawer.tsx ── WorkspaceItemMeta·SaveWorkspaceInput 타입만 사용
 hooks/useWorkspaceItems.ts ──────── list/save/rename/delete/getWorkspacePayload,
                                     framesToCsv, sanitizeFileName ⇄ workspace.ts
 ChannelViewerOverlay.tsx ◀───────── getWorkspacePayload               (저장 항목 열람)
@@ -88,3 +88,4 @@ ChannelViewerOverlay.tsx ◀───────── getWorkspacePayload     
 ## 6. 변경 이력(요약)
 - 2026-07-09: 최초 작성 (기준 커밋: 1fbbf44, 커밋되지 않은 워크트리 변경 반영)
 - 2026-07-09: 교차참조 정정 — `WorkspaceItemMeta`/`SaveWorkspaceInput` 타입 소비처를 삭제된 `WorkspaceItemRow.tsx` → `MeasurementRecordsDrawer.tsx`로 수정(섹션 4). 이 도메인의 캐시 모듈 자체는 변경 없음
+- 2026-07-09: 교차참조 재정정 — `MeasurementRecordsDrawer.tsx`가 `RecordsDrawer.tsx`로 리네임됨에 따라 섹션 4의 소비처 표기를 갱신. `workspace.ts`가 노출하는 `SessionStatus`(구 `MeasurementStatus`) 타입 자체는 이 도메인 소유라 이름만 바뀌었을 뿐 내용은 그대로(섹션 3·5는 값 불변이라 손대지 않음)

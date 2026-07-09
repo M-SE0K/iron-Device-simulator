@@ -11,11 +11,11 @@ import TemperatureChart from "@/features/audio/components/chart/TemperatureChart
 import ExcursionChart from "@/features/audio/components/chart/ExcursionChart";
 import ChartDetailOverlay, { type DetailMetric } from "@/features/audio/components/chart/ChartDetailOverlay";
 import WorkspaceDrawer from "@/features/audio/components/workspace/WorkspaceDrawer";
-import MeasurementRecordsDrawer from "@/features/audio/components/workspace/MeasurementRecordsDrawer";
+import RecordsDrawer from "@/features/audio/components/workspace/RecordsDrawer";
 import CalibrationDrawer from "@/features/audio/components/calibration/CalibrationDrawer";
 import { AppStatus, AnalysisFrame, InputParameterValues } from "@/features/audio/types";
 import { StreamDebugInfo, DebugLogEntry, MeasurementExport } from "@/features/audio/lib/debug/types";
-import type { MeasurementStatus } from "@/features/audio/lib/cache/workspace";
+import type { SessionStatus } from "@/features/audio/lib/cache/workspace";
 import { useCalibration } from "../calibration/CalibrationContext";
 import { useWorkspace } from "../workspace/WorkspaceContext";
 import { clearFrameCache } from "@/features/audio/lib/cache/frame";
@@ -37,7 +37,7 @@ interface DashboardPageProps {
 function computeMeasurementSummary(
   frames: AnalysisFrame[],
   thresholds: TempThresholds,
-): { peakTemp: number | null; peakExcursion: number | null; status: MeasurementStatus | null } {
+): { peakTemp: number | null; peakExcursion: number | null; status: SessionStatus | null } {
   if (frames.length === 0) return { peakTemp: null, peakExcursion: null, status: null };
   let peakTemp = -Infinity;
   let peakExcursion = 0;
@@ -45,7 +45,7 @@ function computeMeasurementSummary(
     peakTemp = Math.max(peakTemp, f.temperature[0], f.temperature[1]);
     peakExcursion = Math.max(peakExcursion, Math.abs(f.excursion[0]), Math.abs(f.excursion[1]));
   }
-  const status: MeasurementStatus =
+  const status: SessionStatus =
     peakTemp >= thresholds.danger ? "danger" : peakTemp >= thresholds.warn ? "warning" : "normal";
   return { peakTemp, peakExcursion, status };
 }
@@ -561,7 +561,7 @@ export default function DashboardPage({ useQueue }: DashboardPageProps) {
 
         {/* 우측 드로어 3개 — content-column 기준 absolute, ActiveDrawerContext로 배타 전환 */}
         <WorkspaceDrawer />
-        <MeasurementRecordsDrawer />
+        <RecordsDrawer />
         <CalibrationDrawer />
 
         {/* 플로팅 플레이어 독 — 파일 모드는 재생/파형/저장, 마이크 모드는 녹음/저장 */}

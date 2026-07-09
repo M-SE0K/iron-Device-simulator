@@ -1,18 +1,18 @@
 "use client";
 
-// 우측 슬라이딩 드로어(사이드바 "Workspace" 내비) — 저장된 세션(음원 + 분석 그래프) 작업 영역.
-// 대시보드 "저장" 버튼(DashboardClient.handleSaveToWorkspace)이 세션을 추가하면 이 드로어가
-// 자동으로 열린다(workspace-context.saveCurrent). 목록 항목(WorkspaceItemRow)은 더블클릭 또는
-// 연필 아이콘으로 이름을 바로 수정할 수 있고, JSON/CSV/오디오 원본을 각각 다운로드할 수 있다.
-// 폴더 연결 UI는 WorkspaceFolderSection이 맡는다. 트리거는 Sidebar가 담당(여기는 패널만).
+// 우측 슬라이딩 드로어(사이드바 "Workspace" 내비) — 연결된 폴더의 오디오 파일을
+// "폴더 → 파일" 트리로 보여주는 파일 브라우저다(파일 선택 → 분석 로드). 저장된 측정
+// 세션의 CRUD/export 는 "측정 기록"(RecordsDrawer)으로 이전됐다.
+// 트리거는 Sidebar 가 담당(여기는 패널만).
 import { useEffect } from "react";
-import { FolderOpen, Save, X } from "lucide-react";
+import { X } from "lucide-react";
 import { useWorkspace } from "./WorkspaceContext";
 import WorkspaceFolderSection from "./WorkspaceFolderSection";
-import WorkspaceItemRow from "./WorkspaceItemRow";
 
 export default function WorkspaceDrawer() {
-  const { items, open, setOpen } = useWorkspace();
+  const { open, setOpen, localFolderFiles, browserFolderFiles } = useWorkspace();
+  // 활성 폴더 소스는 빌드당 하나(Electron localFolder ↔ 브라우저 업로드)라 합계 = 현재 파일 수.
+  const fileCount = localFolderFiles.length + browserFolderFiles.length;
 
   useEffect(() => {
     if (!open) return;
@@ -34,20 +34,19 @@ export default function WorkspaceDrawer() {
 
       {/* 우측 슬라이딩 패널 */}
       <aside
-        className={`absolute top-0 right-0 z-50 h-full w-[420px] max-w-[92vw] bg-white border-l border-iron-100 shadow-[-12px_0_40px_rgba(15,23,42,0.16)] flex flex-col transition-transform duration-[240ms] ease-out ${
+        className={`absolute top-0 right-0 z-50 h-full w-[320px] max-w-[82vw] bg-white border-l border-iron-100 shadow-[-12px_0_40px_rgba(15,23,42,0.16)] flex flex-col transition-transform duration-[240ms] ease-out ${
           open ? "translate-x-0" : "translate-x-full"
         }`}
         role="dialog"
         aria-label="작업 영역"
         aria-hidden={!open}
       >
-        <div className="h-14 px-4 shrink-0 flex items-center justify-between border-b border-iron-100">
+        <div className="px-5 pt-5 pb-4 shrink-0 flex items-center justify-between border-b border-iron-100">
           <div className="flex items-center gap-2 min-w-0">
-            <FolderOpen className="w-4 h-4 text-brand-blue shrink-0" />
-            <span className="text-sm font-semibold text-iron-900">Workspace</span>
-            {items.length > 0 && (
-              <span className="px-1.5 py-0.5 rounded-full bg-iron-100 text-[11px] text-iron-500 font-semibold tabular-nums">
-                {items.length}
+            <h2 className="m-0 text-lg font-bold text-iron-900">Workspace</h2>
+            {fileCount > 0 && (
+              <span className="px-2 py-0.5 rounded-full bg-iron-100 text-xs text-iron-500 font-semibold tabular-nums">
+                {fileCount}
               </span>
             )}
           </div>
@@ -61,24 +60,8 @@ export default function WorkspaceDrawer() {
           </button>
         </div>
 
-        <div className="flex-1 min-h-0 overflow-auto p-2">
+        <div className="flex-1 min-h-0 overflow-auto p-4">
           <WorkspaceFolderSection />
-          {items.length === 0 ? (
-            <div className="flex flex-col items-center justify-center h-full gap-2 text-center px-6">
-              <Save className="w-6 h-6 text-iron-200" />
-              <p className="text-xs text-iron-400 leading-relaxed">
-                대시보드의 저장 버튼을 누르면
-                <br />
-                음원과 분석 결과가 여기에 보존됩니다.
-              </p>
-            </div>
-          ) : (
-            <div className="flex flex-col gap-0.5">
-              {items.map((item) => (
-                <WorkspaceItemRow key={item.id} item={item} />
-              ))}
-            </div>
-          )}
         </div>
       </aside>
     </>

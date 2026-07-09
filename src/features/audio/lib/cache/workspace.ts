@@ -11,7 +11,7 @@ const DB_VERSION    = 1;
 const META_STORE    = "meta";
 const PAYLOAD_STORE = "payload";
 
-export type MeasurementStatus = "normal" | "warning" | "danger";
+export type SessionStatus = "normal" | "warning" | "danger";
 
 export interface WorkspaceItemMeta {
   id: string;
@@ -25,7 +25,7 @@ export interface WorkspaceItemMeta {
   // 측정 기록(사이드바 "측정 기록" 드로어)용 — 과거(이 필드 도입 이전) 레코드는 undefined일 수 있다.
   peakTemp: number | null;
   peakExcursion: number | null;
-  status: MeasurementStatus | null;
+  status: SessionStatus | null;
 }
 
 export interface WorkspacePayload {
@@ -44,7 +44,7 @@ export interface SaveWorkspaceInput {
   audioType: string | null;
   peakTemp: number | null;
   peakExcursion: number | null;
-  status: MeasurementStatus | null;
+  status: SessionStatus | null;
 }
 
 function hasIdb(): boolean {
