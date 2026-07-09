@@ -4,7 +4,6 @@ import { useState, useCallback, useRef, useEffect, useMemo } from "react";
 import { Menu } from "lucide-react";
 import Sidebar from "@/shared/components/Sidebar";
 import SegmentedControl from "@/shared/components/SegmentedControl";
-import { AnalysisModeProvider } from "@/features/audio/components/dashboard/AnalysisModeContext";
 import SelectedFilePanel from "@/features/audio/components/dashboard/SelectedFilePanel";
 import WaveformPlayer, { WaveformPlayerHandle } from "@/features/audio/components/player/WaveformPlayer";
 import MicrophonePlayer, { type MicRecordingExport } from "@/features/audio/components/player/MicrophonePlayer";
@@ -467,12 +466,6 @@ export default function DashboardPage({ useQueue }: DashboardPageProps) {
     || streamingFrames.length > 0;
 
   return (
-    <AnalysisModeProvider
-      value={{
-        inputMode,
-        setInputMode: handleInputModeChange,
-      }}
-    >
     <div
       id="dashboard-root"
       className="flex flex-col lg:flex-row min-h-screen lg:h-screen lg:overflow-hidden"
@@ -522,7 +515,7 @@ export default function DashboardPage({ useQueue }: DashboardPageProps) {
                   { value: "file", label: "파일" },
                   { value: "mic", label: "마이크" },
                 ]}
-                className="w-[236px]"
+                className="w-[208px]"
                 aria-label="입력 소스"
               />
             </div>
@@ -533,9 +526,9 @@ export default function DashboardPage({ useQueue }: DashboardPageProps) {
               <p id="error-message" className="error-message text-xs text-red-500 px-1 shrink-0">오류: {errorMsg}</p>
             )}
 
-            <div id="dashboard-grid" className="flex flex-col gap-4 lg:flex-1 lg:min-h-[600px]">
+            <div id="dashboard-grid" className="flex flex-col gap-4 lg:flex-1 lg:min-h-[528px]">
               <div id="charts-section" className="flex flex-col gap-4 min-h-0 lg:flex-1">
-                <div className="h-[300px] lg:h-auto lg:min-h-0 lg:flex-1">
+                <div className="h-[264px] lg:h-auto lg:min-h-0 lg:flex-1">
                   <TemperatureChart
                     frames={streamingFrames}
                     currentTime={currentTime}
@@ -550,7 +543,7 @@ export default function DashboardPage({ useQueue }: DashboardPageProps) {
                     dangerThreshold={tempThresholds.danger}
                   />
                 </div>
-                <div className="h-[300px] lg:h-auto lg:min-h-0 lg:flex-1">
+                <div className="h-[264px] lg:h-auto lg:min-h-0 lg:flex-1">
                   <ExcursionChart
                     frames={streamingFrames}
                     currentTime={currentTime}
@@ -618,6 +611,5 @@ export default function DashboardPage({ useQueue }: DashboardPageProps) {
         />
       )}
     </div>
-    </AnalysisModeProvider>
   );
 }
