@@ -47,7 +47,7 @@ CalibrationContext.tsx ───────────── save/loadCalibrat
 hooks/useCalibrationApply.ts ─────── save/loadDeviceActualCache ⇄ calibration.ts
 
 [workspace]
-WorkspaceContext.tsx / WorkspaceItemRow.tsx ── WorkspaceItemMeta·SaveWorkspaceInput 타입만 사용
+WorkspaceContext.tsx / MeasurementRecordsDrawer.tsx ── WorkspaceItemMeta·SaveWorkspaceInput 타입만 사용
 hooks/useWorkspaceItems.ts ──────── list/save/rename/delete/getWorkspacePayload,
                                     framesToCsv, sanitizeFileName ⇄ workspace.ts
 ChannelViewerOverlay.tsx ◀───────── getWorkspacePayload               (저장 항목 열람)
@@ -87,3 +87,4 @@ ChannelViewerOverlay.tsx ◀───────── getWorkspacePayload     
 
 ## 6. 변경 이력(요약)
 - 2026-07-09: 최초 작성 (기준 커밋: 1fbbf44, 커밋되지 않은 워크트리 변경 반영)
+- 2026-07-09: 교차참조 정정 — `WorkspaceItemMeta`/`SaveWorkspaceInput` 타입 소비처를 삭제된 `WorkspaceItemRow.tsx` → `MeasurementRecordsDrawer.tsx`로 수정(섹션 4). 이 도메인의 캐시 모듈 자체는 변경 없음

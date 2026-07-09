@@ -10,7 +10,7 @@
 
 이 프로젝트는 서버·WebSocket·DB가 전혀 없는 브라우저 단독(single-page) 대시보드다. 그 전제를 성립시키는 곳이 이 도메인이다: 예전에 Next.js WS 서버가 하던 "init → binary PCM 프레임 → frame 메시지" 분석 프로토콜을 `LocalWasmSocket`이 페이지 안에서 그대로 재현하므로, `WaveformPlayer.tsx`(파일 재생)와 `MicrophonePlayer.tsx`(마이크/네이티브 캡처)는 서버 시절 코드 형태를 거의 유지한 채 동작한다.
 
-소비자는 전부 `components/player/` 아래에 있다. `stream/useAnalysisStream.ts`(실시간 스트림)·`stream/useBatchAnalysis.ts`(배치 분석)·`MicrophonePlayer.tsx`(마이크)가 각자 `createAnalysisSocket()`으로 자기 소켓을 열고 `stream/usePcmDecoder.ts`와 `capture/useWebAudioWorkletCapture.ts`는 `encodeToInt32()`/`frameBytes()`로 전송용 프레임을 만든다. Calibration UI의 `sampleRate`/`bufferSize`/`ambientTemp`/`speakerModel`/`ampOutputPower`는 init 메시지에 실려 이 도메인으로 들어와 WASM 세션 설정과 후처리 보정에 반영된다.
+소비자는 전부 `components/player/` 아래에 있다. 파일·마이크 공용 캡처 세션 `capture/useCaptureSession.ts`가 `createAnalysisSocket()`으로 소켓을 열고, `capture/useWebAudioWorkletCapture.ts`는 `encodeToInt32()`로 전송용 프레임을 만든다. Calibration UI의 `sampleRate`/`bufferSize`/`ambientTemp`/`speakerModel`/`ampOutputPower`는 init 메시지에 실려 이 도메인으로 들어와 WASM 세션 설정과 후처리 보정에 반영된다.
 
 ## 3. 파일별 역할
 
@@ -36,9 +36,9 @@ core.ts (leaf)
 
 외부와의 데이터 교환:
 
-- **들어옴** — `features/audio/types.ts`에서 `EngineParams`/`WsServerMessage` 타입을 가져온다. 런타임 입력은 플레이어가 `SocketLike.send()`로 넣는 JSON init 메시지(Calibration 값)와 binary PCM 프레임(인터리브 Int32, L R L R) 두 가지다.
+- **들어옴** — `features/audio/types.ts`에서 `EngineParams`/`WsServerMessage` 타입을 가져온다. 런타임 입력은 플레이어가 `SocketLike.send()`로 넣는 JSON init 메시지(Calibration 값)와 binary PCM 프레임(인터리브 Int32, ch0=V/ch1=I) 두 가지다.
 - **나감** — `emit()`이 `onmessage`로 `WsServerMessage`(`ready`/`frame`/`error`)를 JSON 문자열로 돌려준다. `frame` 메시지는 `{type, time, temperature:[ch0,ch1], excursion:[ch0,ch1], processingMs}`.
-- **소비자(플레이어 → engine 방향)** — `stream/useAnalysisStream.ts`, `stream/useBatchAnalysis.ts`, `MicrophonePlayer.tsx`가 `createAnalysisSocket`을; `capture/useNativeCapture.ts`, `capture/useWebAudioWorkletCapture.ts`가 `SocketLike` 타입을; `stream/usePcmDecoder.ts`, `stream/buildInitMessage.ts`가 `EngineRuntimeConfig`/`frameBytes`/`DEFAULT_ENGINE_CONFIG`/`encodeToInt32`를 가져다 쓴다.
+- **소비자(플레이어 → engine 방향)** — `capture/useCaptureSession.ts`가 `createAnalysisSocket`과 `BYTES_PER_SAMPLE`을; `capture/useNativeCapture.ts`·`capture/useWebAudioWorkletCapture.ts`가 `SocketLike` 타입을(웹 캡처는 `encodeToInt32`도); `stream/buildInitMessage.ts`가 `EngineRuntimeConfig`를 가져다 쓴다. `lib/wav-encoder.ts`는 `CHANNELS`/`BYTES_PER_SAMPLE`을 WAV 헤더 계산에 쓴다.
 - **WASM 산출물** — `adapters/wasm-client.ts`가 `public/wasm/ff_prot.{js,wasm}`(`native/build-wasm.sh` 산출물, 원본은 참조 스텁 `native/ff_prot.c`)를 로드한다.
 
 프레임 1개의 내부 처리 흐름:
@@ -72,3 +72,4 @@ Calibration `sampleRate`/`bufferSize`는 init 메시지 → `connConfig`(`Engine
 
 ## 6. 변경 이력(요약)
 - 2026-07-09: 최초 작성 (기준 커밋: 1fbbf44, 커밋되지 않은 워크트리 변경 반영)
+- 2026-07-09: 플레이어 캡처 세션 통합에 따른 소비자 목록 정정 — 삭제된 `stream/{useAnalysisStream,useBatchAnalysis,usePcmDecoder}` 대신 `capture/useCaptureSession`이 `createAnalysisSocket`을 여는 유일한 소비자로 변경, `wav-encoder` 소비 추가. 와이어 프레임 채널 표기 L R L R → ch0=V/ch1=I로 정정. 섹션 2·4 부분 갱신 (엔진 로직 자체의 int32/DEFAULT_AMBIENT_TEMP 변경은 최초 작성본에 이미 반영됨) (커밋 범위: e0add14..HEAD)
