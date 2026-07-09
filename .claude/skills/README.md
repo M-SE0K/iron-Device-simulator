@@ -1,11 +1,11 @@
 # Custom Claude Code Skills
 
-This project uses three custom Claude Code skills developed during the Iron Device project.
+This project uses four custom Claude Code skills developed during the Iron Device project.
 Each skill is a specialized assistant for a specific code-maintenance task.
 
 ## Overview
 
-All three skills follow a **PROPOSE-ONLY** policy: they analyze the codebase, report findings
+All four skills follow a **PROPOSE-ONLY** policy: they analyze the codebase, report findings
 with evidence and confidence levels, and **wait for explicit user approval** before making
 changes. No skill automatically edits code or pushes to git.
 
@@ -73,6 +73,30 @@ When to use:
 - `SKILL.md` — full skill definition and workflow
 - `reference.md` — structural smell catalog + refactoring recipes
 
+### 4. **mse0k-domain-tw**
+
+**Trigger:** `/mse0k-domain-tw`
+
+Write and maintain a **Korean README.md per domain folder** (technical writing per domain).
+
+- **Ground truth:** actual source code read in the run — speculation is prefixed "Claude의 생각은"
+- **Update policy:** partial updates only on meaningful changes (interface / file add·delete / dependency),
+  judged via `git log`/`git diff` since the last README-update commit; typo/formatting churn is skipped
+- **Preservation:** human-authored notes (특이 케이스 메모, 팀 합의, 배경 설명) survive updates;
+  deletion requires user approval
+- **Pipeline:** AI 초안 → `/humanize-korean` 윤문 → 저장
+- **Wiring:** the maintenance rule lives in the root `CLAUDE.md` ("Domain README 유지 규칙")
+- **Sources:** Toss 기술 문서 작성 가이드 (<https://technical-writing.dev/>, CC BY-NC-SA 4.0) ·
+  AI 윤문 im-not-ai (<https://github.com/epoko77-ai/im-not-ai.git>)
+
+When to use:
+- User asks to write or update domain READMEs
+- Need to document a domain folder in Korean
+- Sync per-domain docs after meaningful code changes
+
+**Files:**
+- `SKILL.md` — full skill definition and workflow (includes the 6-section README skeleton)
+
 ---
 
 ## Installation
@@ -85,11 +109,12 @@ To use a skill in Claude Code, invoke it directly by name:
 /mse0k-swagger-docs
 /mse0k-prune-dead-code
 /mse0k-refactor-project
+/mse0k-domain-tw
 ```
 
 ## Policy
 
-**All three skills follow these hard rules:**
+**All four skills follow these hard rules:**
 
 1. **PROPOSE-ONLY** — analyze, report, and wait for explicit approval before editing
 2. **Never auto-run** — only triggered manually by the user
