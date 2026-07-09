@@ -2,6 +2,7 @@
 
 import { useEffect } from "react";
 import { Mic, Save, Square } from "lucide-react";
+import { cn } from "@/shared/lib/utils";
 import { AppStatus, AnalysisFrame, InputParameterValues } from "@/features/audio/types";
 import { StreamDebugInfo, DebugLogEntry } from "@/features/audio/lib/debug/types";
 import { useCaptureSession, type CaptureRecordingExport } from "./capture/useCaptureSession";
@@ -43,87 +44,62 @@ export default function MicrophonePlayer({
   // 언마운트 시 정리
   useEffect(() => () => { cleanup(); }, [cleanup]);
 
+  // 플로팅 필 독 — WaveformPlayer(파일 모드)와 같은 위치/폭. 파형 스크러버 대신 녹음
+  // 상태/장치 정보(대기) 또는 송수신 프레임 카운터(녹음 중)를 보여준다.
   return (
-    <div className="card p-4 flex flex-col gap-3">
-      {/* 헤더 */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <div
-            className={`w-2 h-2 rounded-full transition-all ${
-              isRecording ? "bg-red-500 animate-pulse" : "bg-iron-300"
-            }`}
-          />
-          <span className="text-sm font-medium text-iron-700">
-            {isRecording ? "녹음 중" : "마이크 대기"}
-          </span>
-          {deviceName !== null && (
-            <span className="text-xs text-iron-400 font-mono">{deviceName}</span>
-          )}
-          {sampleRate !== null && (
-            <span className="text-xs text-iron-400 font-mono">
-              {sampleRate.toLocaleString()} Hz
-            </span>
-          )}
-          {actualBufferSize !== null && (
-            <span className="text-xs text-iron-400 font-mono">
-              buf {actualBufferSize}
-            </span>
-          )}
-          {actualLatency !== null && (
-            <span className="text-xs text-iron-400 font-mono">
-              latency {(actualLatency * 1000).toFixed(1)}ms
-            </span>
-          )}
-        </div>
+    <div
+      className="absolute left-1/2 -translate-x-1/2 z-30 flex items-center gap-3 bg-white rounded-full shadow-[0_12px_40px_rgba(15,23,42,0.16)] py-2 pl-2 pr-4 sm:pr-7 w-[calc(100%-1.5rem)] sm:w-[720px] max-w-[720px]"
+      style={{ bottom: "calc(28px + env(safe-area-inset-bottom))" }}
+    >
+      <button
+        onClick={isRecording ? stop : start}
+        aria-label={isRecording ? "녹음 중지" : "녹음 시작"}
+        className={cn(
+          "flex items-center justify-center w-12 h-12 rounded-full shrink-0 transition-colors text-white",
+          isRecording ? "bg-red-500 hover:bg-red-600" : "bg-brand-blue hover:bg-brand-blue-dark",
+        )}
+      >
+        {isRecording ? <Square size={16} /> : <Mic size={16} />}
+      </button>
 
-        <div className="flex items-center gap-1.5">
-          {/* 전 채널 저장 — 정지 후 세션 버퍼(ch0=V, ch1=I + 확장 채널)를 WAV로 워크스페이스에 보존 */}
-          {hasRecording && onSaveRecording && (
-            <button
-              onClick={saveRecording}
-              disabled={saving}
-              title={`캡처된 ${recordingChannels ?? 2}채널 전체를 WAV로 저장`}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-all bg-iron-100 hover:bg-iron-200 text-iron-600 disabled:opacity-50"
-            >
-              <Save size={13} /> {saving ? "저장 중…" : `저장 (${recordingChannels ?? 2}ch)`}
-            </button>
-          )}
-          <button
-            onClick={isRecording ? stop : start}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-all ${
-              isRecording
-                ? "bg-red-500 hover:bg-red-600 text-white"
-                : "bg-brand-blue hover:bg-blue-700 text-white"
-            }`}
-          >
-            {isRecording ? (
-              <><Square size={13} /> 중지</>
-            ) : (
-              <><Mic size={13} /> 녹음 시작</>
+      <div className="flex-1 min-w-0 flex items-center gap-3">
+        <span className="shrink-0 flex items-center gap-1.5 text-sm font-semibold text-iron-900">
+          <span
+            className={cn(
+              "inline-block w-[7px] h-[7px] rounded-full",
+              isRecording ? "bg-red-500 animate-pulse" : "bg-iron-300",
             )}
-          </button>
-        </div>
+          />
+          {isRecording ? "녹음 중" : "마이크 대기"}
+        </span>
+
+        {micError ? (
+          <span className="hidden sm:inline text-xs text-red-500 truncate">{micError}</span>
+        ) : isRecording ? (
+          <span className="hidden sm:inline text-xs text-iron-400 font-mono truncate tabular-nums">
+            송신 {frameCountRef.current}fr · 수신 {framesRcvdRef.current}fr
+          </span>
+        ) : (
+          <span className="hidden sm:inline text-xs text-iron-400 truncate tabular-nums">
+            {deviceName ?? "장치 미확인"}
+            {sampleRate !== null && ` · ${sampleRate.toLocaleString()}Hz`}
+            {actualBufferSize !== null && ` · buf ${actualBufferSize}`}
+            {actualLatency !== null && ` · ${(actualLatency * 1000).toFixed(1)}ms`}
+          </span>
+        )}
       </div>
 
-      {/* 오류 메시지 */}
-      {micError && (
-        <p className="text-xs text-red-500 px-1">{micError}</p>
-      )}
-
-      {/* 안내 */}
-      {!isRecording && !micError && (
-        <p className="text-xs text-iron-300 text-center py-2">
-          녹음을 시작하면 마이크 오디오가 실시간으로 분석됩니다
-        </p>
-      )}
-
-      {/* 녹음 중 프레임 카운터 */}
-      {isRecording && (
-        <div className="flex items-center justify-center gap-4 text-xs font-mono text-iron-400">
-          <span>송신 {frameCountRef.current} fr</span>
-          <span className="text-iron-200">|</span>
-          <span>수신 {framesRcvdRef.current} fr</span>
-        </div>
+      {/* 전 채널 저장 — 정지 후 세션 버퍼(ch0=V, ch1=I + 확장 채널)를 WAV로 워크스페이스에 보존 */}
+      {hasRecording && onSaveRecording && (
+        <button
+          onClick={saveRecording}
+          disabled={saving}
+          title={`캡처된 ${recordingChannels ?? 2}채널 전체를 WAV로 저장`}
+          aria-label="작업 영역에 저장"
+          className="shrink-0 p-1.5 rounded-full text-iron-400 hover:bg-iron-100 hover:text-brand-blue transition-colors disabled:opacity-50"
+        >
+          <Save size={14} />
+        </button>
       )}
     </div>
   );

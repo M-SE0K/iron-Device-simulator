@@ -27,12 +27,12 @@ export function buildDataZoom(zoom: ZoomState, colors: { filler: string; handle:
       bottom: 4,
       start: zoom.start,
       end: zoom.end,
-      borderColor: "#E8EAF0",
-      backgroundColor: "#F5F6F8",
+      borderColor: "#E2E8F0",
+      backgroundColor: "#F1F5F9",
       fillerColor: colors.filler,
       handleStyle: { color: colors.handle, borderColor: colors.handle },
       moveHandleStyle: { color: colors.handle },
-      textStyle: { color: "#A4AABA", fontSize: 9 },
+      textStyle: { color: "#94A3B8", fontSize: 9 },
       labelFormatter: (v: number) => `${v.toFixed(2)}s`,
     },
   ];
@@ -48,9 +48,9 @@ export function buildTimeAxis(opts: {
     // 캡처 파이프라인의 실시간 스트림이라 "전체 곡선 고정 축"은 없다).
     min: windowFrames[0]?.time ?? 0,
     max: windowFrames[windowFrames.length - 1]?.time ?? 10,
-    axisLabel: { formatter: (v: number) => `${v.toFixed(2)}s`, color: "#A4AABA", fontSize: 10 },
-    axisLine: { lineStyle: { color: "#E8EAF0" } },
-    splitLine: { lineStyle: { color: "#F5F6F8" } },
+    axisLabel: { formatter: (v: number) => `${v.toFixed(2)}s`, color: "#94A3B8", fontSize: 10 },
+    axisLine: { lineStyle: { color: "#E2E8F0" } },
+    splitLine: { lineStyle: { color: "#F1F5F9" } },
   };
 }
 
@@ -58,9 +58,9 @@ export function buildValueTooltip(opts: { unit: string; decimals: number }) {
   const { unit, decimals } = opts;
   return {
     trigger: "axis" as const,
-    backgroundColor: "#1A1D23",
-    borderColor: "#2E3440",
-    textStyle: { color: "#E8EAF0", fontSize: 11, fontFamily: "JetBrains Mono" },
+    backgroundColor: "#0F172A",
+    borderColor: "#1E293B",
+    textStyle: { color: "#F1F5F9", fontSize: 11, fontFamily: "JetBrains Mono" },
     formatter: (params: { seriesName: string; data: [number, number] }[]) => {
       const t = params[0].data[0];
       const lines = params.map((p) => `${p.seriesName}: <b>${p.data[1].toFixed(decimals)} ${unit}</b>`);
@@ -71,6 +71,6 @@ export function buildValueTooltip(opts: { unit: string; decimals: number }) {
 
 export function buildLegend(channelMode: ChannelMode) {
   return channelMode === "Both"
-    ? { top: "auto" as const, bottom: 56, textStyle: { color: "#A4AABA", fontSize: 10 } }
+    ? { top: "auto" as const, bottom: 56, textStyle: { color: "#94A3B8", fontSize: 10 } }
     : { show: false as const };
 }

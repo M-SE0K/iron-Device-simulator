@@ -8,6 +8,7 @@ import { createContext, useCallback, useContext, useMemo, useState, type ReactNo
 import { useWorkspaceItems } from "./hooks/useWorkspaceItems";
 import { useLocalFolderConnection } from "./hooks/useLocalFolderConnection";
 import { useBrowserFolderUpload } from "./hooks/useBrowserFolderUpload";
+import { useActiveDrawer } from "@/features/audio/components/dashboard/ActiveDrawerContext";
 import type { WorkspaceItemMeta, SaveWorkspaceInput } from "@/features/audio/lib/cache/workspace";
 import type { LocalAudioFileEntry } from "@/features/audio/lib/local-folder";
 
@@ -48,7 +49,15 @@ interface WorkspaceCtx {
 const Ctx = createContext<WorkspaceCtx | null>(null);
 
 export function WorkspaceProvider({ children }: { children: ReactNode }) {
-  const [open, setOpen] = useState(false);
+  // 우측 드로어 슬롯(Workspace/측정 기록/Calibration)은 ActiveDrawerContext가 배타적으로 관리한다 —
+  // open/setOpen은 그 위의 파생값일 뿐이다. 외부 호출부(SelectedFilePanel 등)는 이전과 동일하게
+  // setOpen(true|false) 리터럴만 호출하므로 시그니처는 그대로 유지된다.
+  const activeDrawer = useActiveDrawer();
+  const open = activeDrawer.active === "workspace";
+  const setOpen = useCallback(
+    (v: boolean) => (v ? activeDrawer.openDrawer("workspace") : activeDrawer.closeDrawer()),
+    [activeDrawer],
+  );
 
   const { items, saveCurrent, rename, remove, exportJson, exportCsv, downloadAudio } =
     useWorkspaceItems(() => setOpen(true));

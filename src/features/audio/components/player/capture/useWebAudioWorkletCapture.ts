@@ -21,6 +21,11 @@ export interface WebCaptureDeps {
   audioCtxRef: MutableRefObject<AudioContext | null>;
   streamRef: MutableRefObject<MediaStream | null>;
   workletRef: MutableRefObject<AudioWorkletNode | null>;
+  /**
+   * true인 동안만 분석 소켓(WASM)에 프레임을 보낸다 — 재생 일시정지 중에는 꺼서 소켓
+   * frameCount(= 차트 시간축)와 WASM 온도 누적을 정지 지점에 고정한다(재개 시 끊김 없이 이어짐).
+   */
+  analysisActiveRef: MutableRefObject<boolean>;
   isActiveRef: MutableRefObject<boolean>;
   frameCountRef: MutableRefObject<number>;
   lastSendAtRef: MutableRefObject<number>;
@@ -34,7 +39,7 @@ export interface WebCaptureDeps {
 
 export function useWebAudioWorkletCapture(deps: WebCaptureDeps) {
   const {
-    audioCtxRef, streamRef, workletRef, isActiveRef, frameCountRef, lastSendAtRef,
+    audioCtxRef, streamRef, workletRef, analysisActiveRef, isActiveRef, frameCountRef, lastSendAtRef,
     onDebugUpdate, setSampleRate, setDeviceName, setActualBufferSize, setActualLatency,
     openAnalysisSocket,
   } = deps;
@@ -95,6 +100,9 @@ export function useWebAudioWorkletCapture(deps: WebCaptureDeps) {
     // 6) Worklet 프레임 → WebSocket 전송
     worklet.port.onmessage = (e: MessageEvent<{ L: Float32Array; R: Float32Array }>) => {
       if (!isActiveRef.current || ws.readyState !== WebSocket.OPEN) return;
+      // 재생 일시정지 중에는 분석 프레임을 보내지 않는다 — 소켓 frameCount(차트 시간축)와
+      // WASM 온도 누적을 정지 지점에 고정해, 재개 시 시간축이 튀지 않고 그대로 이어지게 한다.
+      if (!analysisActiveRef.current) return;
 
       const interleaved = encodeToInt32(e.data.L, e.data.R);
       lastSendAtRef.current = performance.now();
@@ -104,7 +112,7 @@ export function useWebAudioWorkletCapture(deps: WebCaptureDeps) {
       if (sent % 10 === 0) onDebugUpdate({ framesSent: sent });
     };
   }, [
-    audioCtxRef, streamRef, workletRef, isActiveRef, frameCountRef, lastSendAtRef,
+    audioCtxRef, streamRef, workletRef, analysisActiveRef, isActiveRef, frameCountRef, lastSendAtRef,
     onDebugUpdate, setSampleRate, setDeviceName, setActualBufferSize, setActualLatency,
     openAnalysisSocket,
   ]);

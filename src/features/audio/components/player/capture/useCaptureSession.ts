@@ -58,9 +58,13 @@ export function useCaptureSession(deps: UseCaptureSessionDeps) {
   // 전 채널 원본 PCM 세션 버퍼 — 정지 후에도 유지되어 "저장" 시 전 채널 WAV로 내보낸다.
   // 다음 세션 시작 시 useNativeCapture가 새 버퍼로 교체한다.
   const rawCaptureRef  = useRef<NativeRawCapture | null>(null);
-  // 저장용 원본 버퍼 축적 on/off — 분석(WASM)은 계속 흘러가되, 재생 일시정지 중에는 이걸
-  // 꺼서 저장 파일에 무음 구간이 섞이지 않게 한다(pauseRecording/resumeRecording).
+  // 저장용 원본 버퍼 축적 on/off — 재생 일시정지 중에는 이걸 꺼서 저장 파일에 무음 구간이
+  // 섞이지 않게 한다(pauseRecording/resumeRecording).
   const recordingActiveRef = useRef(true);
+  // 분석(WASM) 프레임 전송 on/off — 재생 일시정지 중에는 꺼서 소켓 frameCount(= 차트 시간축)와
+  // WASM 온도 누적을 그 자리에 고정한다. 세션(소켓/캡처) 자체는 유지되므로 재개 시 끊김 없이
+  // 이어진다(정지 지점 10s → 재개 시 10s부터). 새 세션 시작(ready) 시 true로 복구된다.
+  const analysisActiveRef = useRef(true);
   const isActiveRef    = useRef(false);
   const frameCountRef  = useRef(0);
   const lastSendAtRef  = useRef(0);
@@ -133,6 +137,7 @@ export function useCaptureSession(deps: UseCaptureSessionDeps) {
 
       if (msg.type === "ready") {
         isActiveRef.current = true;
+        analysisActiveRef.current = true;
         frameCountRef.current = 0;
         framesRcvdRef.current = 0;
         onStatusChange("playing");
@@ -194,12 +199,12 @@ export function useCaptureSession(deps: UseCaptureSessionDeps) {
 
   // ── 캡처 경로 (네이티브 CoreAudio / 웹 getUserMedia 폴백) ────────────────────
   const { start: startNativeCapture } = useNativeCapture({
-    nativeOffsRef, nativeActiveRef, rawCaptureRef, recordingActiveRef, isActiveRef, frameCountRef, lastSendAtRef,
+    nativeOffsRef, nativeActiveRef, rawCaptureRef, recordingActiveRef, analysisActiveRef, isActiveRef, frameCountRef, lastSendAtRef,
     onDebugUpdate: emitDebugUpdate, onStatusChange, setMicError, setSampleRate, setDeviceName,
     setActualBufferSize, openAnalysisSocket, cleanup,
   });
   const { start: startWebCapture } = useWebAudioWorkletCapture({
-    audioCtxRef, streamRef, workletRef, isActiveRef, frameCountRef, lastSendAtRef,
+    audioCtxRef, streamRef, workletRef, analysisActiveRef, isActiveRef, frameCountRef, lastSendAtRef,
     onDebugUpdate: emitDebugUpdate, setSampleRate, setDeviceName, setActualBufferSize, setActualLatency,
     openAnalysisSocket,
   });
@@ -289,14 +294,17 @@ export function useCaptureSession(deps: UseCaptureSessionDeps) {
     }
   }, []);
 
-  // ── 저장 버퍼 일시정지/재개 — 세션(소켓/캡처 연결) 자체는 유지한 채 rawCaptureRef 축적만
-  // on/off 한다. WaveformPlayer의 재생 일시정지에 연결해 쓴다: 세션을 통째로 끊고 재생 재개 시
-  // 다시 열면 WASM 온도 누적 상태가 리셋되고 차트도 지워지므로, 그 대신 저장 버퍼만 멈춘다.
+  // ── 재생 일시정지/재개 — 세션(소켓/캡처 연결) 자체는 유지한 채 분석 프레임 전송과 저장 버퍼
+  // 축적만 함께 멈춘다. 세션을 통째로 끊고 재개 시 다시 열면 WASM 온도 누적 상태가 리셋되고
+  // 차트도 지워지므로, 대신 데이터 흐름만 멈춘다. 분석을 멈추면 소켓 frameCount(= 차트 시간축)와
+  // WASM 온도가 정지 지점에 고정되어, 재개 시 시간축이 튀지 않고 그 지점부터 이어진다.
   const pauseRecording = useCallback(() => {
     recordingActiveRef.current = false;
+    analysisActiveRef.current = false;
   }, []);
   const resumeRecording = useCallback(() => {
     recordingActiveRef.current = true;
+    analysisActiveRef.current = true;
   }, []);
 
   // 언마운트 시 정리

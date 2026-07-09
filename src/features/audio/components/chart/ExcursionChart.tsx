@@ -4,7 +4,7 @@ import dynamic from "next/dynamic";
 import { useMemo, useState, useRef, useCallback, useEffect } from "react";
 import { Maximize2 } from "lucide-react";
 import { AnalysisFrame } from "@/features/audio/types";
-import { cn } from "@/shared/lib/utils";
+import SegmentedControl from "@/shared/components/SegmentedControl";
 import {
   computeStreamWindow, computeExcursionYRange, type ChannelMode,
 } from "@/features/audio/lib/render/chart-window";
@@ -35,8 +35,8 @@ const toMm = (v: number) => v * MM_SCALE;
 // 채널별 색상
 const CH_COLOR: Record<ChannelMode, { ch0: string; ch1: string }> = {
   L:    { ch0: "#10B981", ch1: "#10B981" },
-  R:    { ch0: "#F97316", ch1: "#F97316" },
-  Both: { ch0: "#10B981", ch1: "#F97316" },
+  R:    { ch0: "#F59E0B", ch1: "#F59E0B" },
+  Both: { ch0: "#10B981", ch1: "#F59E0B" },
 };
 
 export default function ExcursionChart({ frames, currentTime, isActive, streaming = false, audioDuration, lttb = true, onExpand }: Props) {
@@ -121,8 +121,8 @@ export default function ExcursionChart({ frames, currentTime, isActive, streamin
         color: {
           type: "linear", x: 0, y: 0, x2: 0, y2: 1,
           colorStops: [
-            { offset: 0, color: "rgba(249,115,22,0.15)" },
-            { offset: 1, color: "rgba(249,115,22,0)" },
+            { offset: 0, color: "rgba(245,158,11,0.15)" },
+            { offset: 1, color: "rgba(245,158,11,0)" },
           ],
         },
       } : undefined,
@@ -146,10 +146,10 @@ export default function ExcursionChart({ frames, currentTime, isActive, streamin
       yAxis: {
         type: "value",
         name: "mm",
-        nameTextStyle: { color: "#A4AABA", fontSize: 10 },
-        axisLabel: { color: "#A4AABA", fontSize: 10, formatter: (v: number) => v.toFixed(3) },
+        nameTextStyle: { color: "#94A3B8", fontSize: 10 },
+        axisLabel: { color: "#94A3B8", fontSize: 10, formatter: (v: number) => v.toFixed(3) },
         axisLine: { show: false },
-        splitLine: { lineStyle: { color: "#F5F6F8" } },
+        splitLine: { lineStyle: { color: "#F1F5F9" } },
         min: yMin,
         max: yMax,
       },
@@ -180,22 +180,18 @@ export default function ExcursionChart({ frames, currentTime, isActive, streamin
 
         <div className="flex items-center gap-2">
           {/* 채널 모드 토글 */}
-          <div className="flex gap-0.5 text-xs font-mono">
-            {(["L", "R", "Both"] as ChannelMode[]).map((m) => (
-              <button
-                key={m}
-                onClick={() => setChannelMode(m)}
-                className={cn(
-                  "px-1.5 py-0.5 rounded border transition-all",
-                  channelMode === m
-                    ? "bg-emerald-600 text-white border-emerald-600"
-                    : "text-iron-400 border-iron-200 hover:border-iron-400"
-                )}
-              >
-                {m}
-              </button>
-            ))}
-          </div>
+          <SegmentedControl
+            size="sm"
+            value={channelMode}
+            onChange={setChannelMode}
+            options={[
+              { value: "L", label: "L" },
+              { value: "R", label: "R" },
+              { value: "Both", label: "Both" },
+            ]}
+            className="w-[132px]"
+            aria-label="익스커션 채널"
+          />
 
           {/* 현재값 표시 */}
           {currentExc !== null && channelMode === "Both" ? (

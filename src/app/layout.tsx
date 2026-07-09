@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import "./globals.css"
+import { ActiveDrawerProvider } from "@/features/audio/components/dashboard/ActiveDrawerContext";
 import { CalibrationProvider } from "@/features/audio/components/calibration/CalibrationContext";
 import { WorkspaceProvider } from "@/features/audio/components/workspace/WorkspaceContext";
 
@@ -23,13 +24,16 @@ export default function RootLayout({
   return (
     <html lang="ko">
       <body>
-        {/* 캘리브레이션 파라미터를 앱 전역에서 단일 공유 (대시보드 ↔ 캘리브레이션 드로어) */}
-        <CalibrationProvider>
-          {/* 저장된 작업 영역(음원+분석 그래프) 목록을 앱 전역에서 단일 공유 (대시보드 ↔ 워크스페이스 드로어) */}
-          <WorkspaceProvider>
-            {children}
-          </WorkspaceProvider>
-        </CalibrationProvider>
+        {/* 우측 드로어(Workspace/측정 기록/Calibration) 배타 전환 상태 — 최상위 단일 소스 */}
+        <ActiveDrawerProvider>
+          {/* 캘리브레이션 파라미터를 앱 전역에서 단일 공유 (대시보드 ↔ 캘리브레이션 드로어) */}
+          <CalibrationProvider>
+            {/* 저장된 작업 영역(음원+분석 그래프) 목록을 앱 전역에서 단일 공유 (대시보드 ↔ 워크스페이스 드로어) */}
+            <WorkspaceProvider>
+              {children}
+            </WorkspaceProvider>
+          </CalibrationProvider>
+        </ActiveDrawerProvider>
       </body>
     </html>
   );

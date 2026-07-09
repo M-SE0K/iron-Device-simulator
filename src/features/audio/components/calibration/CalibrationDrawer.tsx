@@ -7,11 +7,11 @@
 //   · Sample Rate / Buffer Size / Capture Channels (+ 연결된 장치 능력 패널)
 // 좌측 WorkspaceDrawer와 동일하게 항상 마운트된 순수 DOM(비Radix)로 구현 — open 불리언으로
 // 클래스만 토글해 열기/닫기 양방향 슬라이드·페이드 애니메이션을 대칭적으로 재생한다.
-import { useEffect, useState } from "react";
+import { useCallback, useEffect } from "react";
 import { RefreshCw, RotateCcw, SlidersHorizontal, X } from "lucide-react";
 import AnimatedSelect from "@/shared/components/AnimatedSelect";
 import DeviceSelectField from "./DeviceSelectField";
-import { useAnalysisMode } from "@/features/audio/components/dashboard/AnalysisModeContext";
+import { useActiveDrawer } from "@/features/audio/components/dashboard/ActiveDrawerContext";
 import {
   CALIBRATION_EMPTY,
   useCalibration,
@@ -84,59 +84,6 @@ function NumberField({
   );
 }
 
-/** 세그먼트 토글 — 활성 항목 아래로 흰색 하이라이트가 미끄러지는 애니메이션 컨트롤 */
-function Segmented<T extends string>({
-  label,
-  value,
-  options,
-  onChange,
-  disabled,
-}: {
-  label: string;
-  value: T;
-  options: { value: T; label: string }[];
-  onChange: (v: T) => void;
-  disabled?: boolean;
-}) {
-  const idx = Math.max(0, options.findIndex((o) => o.value === value));
-  return (
-    <div className="flex flex-col gap-1.5">
-      <label className="text-[10px] uppercase tracking-wider font-medium text-iron-400">{label}</label>
-      <div
-        className={`relative grid p-1 rounded-lg bg-iron-100 ${disabled ? "opacity-50" : ""}`}
-        style={{ gridTemplateColumns: `repeat(${options.length}, minmax(0, 1fr))` }}
-      >
-        {/* 미끄러지는 활성 하이라이트 */}
-        <span
-          aria-hidden
-          className="absolute top-1 bottom-1 rounded-md bg-white shadow-sm transition-transform duration-300 ease-[cubic-bezier(0.34,1.56,0.64,1)]"
-          style={{
-            left: "0.25rem",
-            width: `calc((100% - 0.5rem) / ${options.length})`,
-            transform: `translateX(${idx * 100}%)`,
-          }}
-        />
-        {options.map((o) => {
-          const active = o.value === value;
-          return (
-            <button
-              key={o.value}
-              type="button"
-              disabled={disabled}
-              onClick={() => onChange(o.value)}
-              className={`relative z-10 py-1.5 text-xs font-medium rounded-md transition-colors duration-200 disabled:cursor-not-allowed ${
-                active ? "text-iron-900" : "text-iron-400 hover:text-iron-600"
-              }`}
-            >
-              {o.label}
-            </button>
-          );
-        })}
-      </div>
-    </div>
-  );
-}
-
 /** 장치 정보 한 줄 (label · value) */
 function DeviceRow({ label, value }: { label: string; value: string }) {
   return (
@@ -156,10 +103,14 @@ interface Props {
 
 export default function CalibrationDrawer({ projectName, onApply }: Props) {
   const { values, setValues } = useCalibration();
-  // 입력 소스(파일/마이크) · 분석 모드(실시간 추적/분석) — 대시보드가 제공하는 컨텍스트.
-  // 대시보드 밖(Provider 부재)에서는 null 이므로 해당 섹션을 숨긴다.
-  const mode = useAnalysisMode();
-  const [open, setOpen] = useState(false);
+  // 우측 드로어 슬롯은 ActiveDrawerContext가 배타적으로 관리한다 — open은 그 파생값.
+  // (입력 소스(파일/마이크) 토글은 대시보드 상단 세그먼트 컨트롤로 이동했다.)
+  const activeDrawer = useActiveDrawer();
+  const open = activeDrawer.active === "calibration";
+  const setOpen = useCallback(
+    (v: boolean) => (v ? activeDrawer.openDrawer("calibration") : activeDrawer.closeDrawer()),
+    [activeDrawer],
+  );
   const { draft, setDraft, set } = useCalibrationDraft(open, values);
 
   const {
@@ -177,9 +128,7 @@ export default function CalibrationDrawer({ projectName, onApply }: Props) {
     deviceStatus, deviceActual, deviceError, appliedRuntime, apply, resetStatus,
   } = useCalibrationApply({ draft, setValues, setOpen, hasAudioDeviceBridge, deviceInfo, refreshDeviceInfo, onApply });
 
-  // 열 때마다 적용상태/adjustedNote 리셋 + 장치 정보 새로고침 (draft 자체의 동기화는
-  // useCalibrationDraft가 별도 [open] effect로 담당 — React는 같은 의존성의 effect 여러
-  // 개를 선언 순서대로 전부 실행하므로 하나였을 때와 동작이 같다).
+  // 열 때마다 적용상태/adjustedNote 리셋 + 장치 정보 새로고침 (draft 자체의 동기화는 useCalibrationDraft가 별도 [open] effect로 담당 — React는 같은 의존성의 effect 여러 개를 선언 순서대로 전부 실행하므로 하나였을 때와 동작이 같다).
   useEffect(() => {
     if (!open) return;
     resetStatus();
@@ -187,9 +136,7 @@ export default function CalibrationDrawer({ projectName, onApply }: Props) {
     refreshNativeDevices();
     refreshDeviceInfo(values.captureDeviceUID);
     refreshInputDevices();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
-
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => e.key === "Escape" && setOpen(false);
@@ -212,29 +159,18 @@ export default function CalibrationDrawer({ projectName, onApply }: Props) {
 
   return (
     <>
-      {/* 트리거 (우측) */}
-      <button
-        type="button"
-        onClick={() => setOpen(true)}
-        aria-label="캘리브레이션 열기"
-        aria-expanded={open}
-        className="flex items-center gap-1.5 px-3 h-9 rounded-lg text-sm text-iron-600 hover:bg-iron-100 hover:text-iron-900 transition"
-      >
-        <SlidersHorizontal className="w-4 h-4" />
-      </button>
-
-      {/* 배경 오버레이 */}
+      {/* 배경 오버레이 — content-column 기준(사이드바는 백드롭 아래에서도 클릭 가능) */}
       <div
         onClick={() => setOpen(false)}
         aria-hidden
-        className={`fixed inset-0 z-40 bg-iron-900/30 backdrop-blur-[1px] transition-opacity duration-300 ${
+        className={`absolute inset-0 z-40 bg-iron-900/30 backdrop-blur-[1px] transition-opacity duration-300 ${
           open ? "opacity-100" : "opacity-0 pointer-events-none"
         }`}
       />
 
       {/* 우측 슬라이딩 패널 */}
       <aside
-        className={`fixed top-0 right-0 z-50 h-full w-96 max-w-[92vw] bg-white border-l border-iron-100 shadow-xl flex flex-col transition-transform duration-300 ease-out ${
+        className={`absolute top-0 right-0 z-50 h-full w-[420px] max-w-[92vw] bg-white border-l border-iron-100 shadow-[-12px_0_40px_rgba(15,23,42,0.16)] flex flex-col transition-transform duration-[240ms] ease-out ${
           open ? "translate-x-0" : "translate-x-full"
         }`}
         role="dialog"
@@ -263,22 +199,7 @@ export default function CalibrationDrawer({ projectName, onApply }: Props) {
             </div>
           )}
 
-          {/* 입력 소스 — 대시보드에서 이동한 토글 (컨텍스트 부재 시 숨김). 파일/마이크 모두 분석은
-              항상 캡처 파이프라인(useCaptureSession)으로 동일하게 동작하므로 별도의 분석 모드
-              토글은 없다 — 파일 모드는 재생(출력)이 추가로 붙을 뿐이다. */}
-          {mode && (
-            <section className="space-y-3">
-              <Segmented
-                label="Input Source"
-                value={mode.inputMode}
-                onChange={mode.setInputMode}
-                options={[
-                  { value: "file", label: "파일" },
-                  { value: "mic", label: "마이크" },
-                ]}
-              />
-            </section>
-          )}
+          {/* 입력 소스(파일/마이크) 토글은 대시보드 상단 세그먼트 컨트롤로 이동했다 — 여기서는 제거. */}
 
           {/* 기본 입력 */}
           <section className="space-y-3">

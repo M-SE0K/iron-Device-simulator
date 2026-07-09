@@ -42,6 +42,11 @@ export interface NativeCaptureDeps {
    * "녹음도 함께 멈춤" 기대와 저장 파일에 무음 구간이 안 섞이게 하려는 목적).
    */
   recordingActiveRef: MutableRefObject<boolean>;
+  /**
+   * true인 동안만 분석 소켓(WASM)에 프레임을 보낸다 — 재생 일시정지 중에는 꺼서 소켓
+   * frameCount(= 차트 시간축)와 WASM 온도 누적을 정지 지점에 고정한다(재개 시 끊김 없이 이어짐).
+   */
+  analysisActiveRef: MutableRefObject<boolean>;
   isActiveRef: MutableRefObject<boolean>;
   frameCountRef: MutableRefObject<number>;
   lastSendAtRef: MutableRefObject<number>;
@@ -57,7 +62,7 @@ export interface NativeCaptureDeps {
 
 export function useNativeCapture(deps: NativeCaptureDeps) {
   const {
-    nativeOffsRef, nativeActiveRef, rawCaptureRef, recordingActiveRef, isActiveRef, frameCountRef, lastSendAtRef,
+    nativeOffsRef, nativeActiveRef, rawCaptureRef, recordingActiveRef, analysisActiveRef, isActiveRef, frameCountRef, lastSendAtRef,
     onDebugUpdate, onStatusChange, setMicError, setSampleRate, setDeviceName,
     setActualBufferSize, openAnalysisSocket, cleanup,
   } = deps;
@@ -98,6 +103,9 @@ export function useNativeCapture(deps: NativeCaptureDeps) {
       captureChannels,
       wireSamplesPerCh,
       (frame) => {
+        // 재생 일시정지 중에는 분석 프레임을 보내지 않는다 — 소켓 frameCount(차트 시간축)와
+        // WASM 온도 누적을 정지 지점에 고정해, 재개 시 시간축이 튀지 않고 그대로 이어지게 한다.
+        if (!analysisActiveRef.current) return;
         lastSendAtRef.current = performance.now();
         // Int32Array.buffer는 ArrayBuffer | SharedArrayBuffer → 명시적 캐스트. outPcm은
         // 재사용하므로 slice(0)로 복사본 전송.
@@ -126,7 +134,7 @@ export function useNativeCapture(deps: NativeCaptureDeps) {
     });
     nativeOffsRef.current = [offData, offEnded];
   }, [
-    nativeOffsRef, nativeActiveRef, rawCaptureRef, recordingActiveRef, isActiveRef, frameCountRef, lastSendAtRef,
+    nativeOffsRef, nativeActiveRef, rawCaptureRef, recordingActiveRef, analysisActiveRef, isActiveRef, frameCountRef, lastSendAtRef,
     onDebugUpdate, onStatusChange, setMicError, setSampleRate, setDeviceName,
     setActualBufferSize, openAnalysisSocket, cleanup,
   ]);

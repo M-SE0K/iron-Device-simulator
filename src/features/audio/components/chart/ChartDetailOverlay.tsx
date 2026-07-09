@@ -57,8 +57,8 @@ export default function ChartDetailOverlay({
   const title = isTemp ? "Speaker Temperature" : "Cone Excursion";
   const subtitle = isTemp ? "스피커 온도 상세" : "콘 변위(익스커션) 상세";
   const Icon = isTemp ? Thermometer : Activity;
-  const accent = isTemp ? "#0057B8" : "#10B981";
-  const accentR = isTemp ? "#7C3AED" : "#F97316";
+  const accent = isTemp ? "#0B4171" : "#10B981";
+  const accentR = isTemp ? "#6B9BD1" : "#F59E0B";
 
   // 진입/이탈 애니메이션 (페이지 전환 느낌) — 마운트 후 show=true, 닫을 때 트랜지션 후 언마운트
   const [show, setShow] = useState(false);

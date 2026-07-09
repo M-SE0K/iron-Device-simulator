@@ -11,6 +11,8 @@ const DB_VERSION    = 1;
 const META_STORE    = "meta";
 const PAYLOAD_STORE = "payload";
 
+export type MeasurementStatus = "normal" | "warning" | "danger";
+
 export interface WorkspaceItemMeta {
   id: string;
   name: string;
@@ -20,6 +22,10 @@ export interface WorkspaceItemMeta {
   audioDuration: number | null;
   analysisMode: "realtime" | "batch";
   frameCount: number;
+  // 측정 기록(사이드바 "측정 기록" 드로어)용 — 과거(이 필드 도입 이전) 레코드는 undefined일 수 있다.
+  peakTemp: number | null;
+  peakExcursion: number | null;
+  status: MeasurementStatus | null;
 }
 
 export interface WorkspacePayload {
@@ -36,6 +42,9 @@ export interface SaveWorkspaceInput {
   frames: AnalysisFrame[];
   audioBlob: Blob | null;
   audioType: string | null;
+  peakTemp: number | null;
+  peakExcursion: number | null;
+  status: MeasurementStatus | null;
 }
 
 function hasIdb(): boolean {
@@ -90,6 +99,9 @@ export async function saveWorkspaceItem(input: SaveWorkspaceInput): Promise<Work
     audioDuration: input.audioDuration,
     analysisMode: input.analysisMode,
     frameCount: frames.length,
+    peakTemp: input.peakTemp,
+    peakExcursion: input.peakExcursion,
+    status: input.status,
   };
   const payload: WorkspacePayload = {
     frames,

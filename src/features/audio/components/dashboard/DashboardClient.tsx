@@ -1,7 +1,9 @@
 "use client";
 
 import { useState, useCallback, useRef, useEffect, useMemo } from "react";
-import Header from "@/shared/components/Header";
+import { Menu } from "lucide-react";
+import Sidebar from "@/shared/components/Sidebar";
+import SegmentedControl from "@/shared/components/SegmentedControl";
 import { AnalysisModeProvider } from "@/features/audio/components/dashboard/AnalysisModeContext";
 import SelectedFilePanel from "@/features/audio/components/dashboard/SelectedFilePanel";
 import WaveformPlayer, { WaveformPlayerHandle } from "@/features/audio/components/player/WaveformPlayer";
@@ -9,11 +11,16 @@ import MicrophonePlayer, { type MicRecordingExport } from "@/features/audio/comp
 import TemperatureChart from "@/features/audio/components/chart/TemperatureChart";
 import ExcursionChart from "@/features/audio/components/chart/ExcursionChart";
 import ChartDetailOverlay, { type DetailMetric } from "@/features/audio/components/chart/ChartDetailOverlay";
+import WorkspaceDrawer from "@/features/audio/components/workspace/WorkspaceDrawer";
+import MeasurementRecordsDrawer from "@/features/audio/components/workspace/MeasurementRecordsDrawer";
+import CalibrationDrawer from "@/features/audio/components/calibration/CalibrationDrawer";
 import { AppStatus, AnalysisFrame, InputParameterValues } from "@/features/audio/types";
 import { StreamDebugInfo, DebugLogEntry, MeasurementExport } from "@/features/audio/lib/debug/types";
+import type { MeasurementStatus } from "@/features/audio/lib/cache/workspace";
 import { useCalibration } from "../calibration/CalibrationContext";
 import { useWorkspace } from "../workspace/WorkspaceContext";
 import { clearFrameCache } from "@/features/audio/lib/cache/frame";
+import { formatTime } from "@/shared/lib/utils";
 import { putAudio, clearAudio } from "@/features/audio/lib/cache/audio-blob";
 import { coalesceFrames } from "@/features/audio/lib/render/coalesce";
 import { detectEvents, DEFAULT_TEMP_WARN, DEFAULT_TEMP_DANGER, type TempThresholds } from "@/features/audio/lib/render/detect-events";
@@ -24,6 +31,24 @@ import { useFrameCachePersistence } from "@/features/audio/components/dashboard/
 
 interface DashboardPageProps {
   useQueue: boolean;
+}
+
+// 측정 기록(사이드바 "측정 기록" 드로어)용 — 저장 시점에 프레임 버퍼에서 Peak 온도/진폭과
+// WARN/DANGER 임계값 기준 상태를 한 번만 계산해 워크스페이스 아이템에 함께 저장한다.
+function computeMeasurementSummary(
+  frames: AnalysisFrame[],
+  thresholds: TempThresholds,
+): { peakTemp: number | null; peakExcursion: number | null; status: MeasurementStatus | null } {
+  if (frames.length === 0) return { peakTemp: null, peakExcursion: null, status: null };
+  let peakTemp = -Infinity;
+  let peakExcursion = 0;
+  for (const f of frames) {
+    peakTemp = Math.max(peakTemp, f.temperature[0], f.temperature[1]);
+    peakExcursion = Math.max(peakExcursion, Math.abs(f.excursion[0]), Math.abs(f.excursion[1]));
+  }
+  const status: MeasurementStatus =
+    peakTemp >= thresholds.danger ? "danger" : peakTemp >= thresholds.warn ? "warning" : "normal";
+  return { peakTemp, peakExcursion, status };
 }
 
 export default function DashboardPage({ useQueue }: DashboardPageProps) {
@@ -64,6 +89,9 @@ export default function DashboardPage({ useQueue }: DashboardPageProps) {
 
   // ── 차트 상세(자세히 보기) 뷰 — 어느 차트를 전체화면으로 열었는지 (null = 대시보드) ──
   const [detailChart, setDetailChart] = useState<DetailMetric | null>(null);
+
+  // ── 모바일(lg 미만) 사이드바 슬라이드 오버레이 토글 ─────────────────────────
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
 
   // ── sessionStorage 캐시용 최신값 미러 refs ────────────────────────────────
   // 이벤트 핸들러(pagehide 등)에서 stale closure 없이 최신 버퍼를 읽기 위함.
@@ -174,6 +202,7 @@ export default function DashboardPage({ useQueue }: DashboardPageProps) {
     if (frames.length === 0) return;
     const name = audioFile.name.replace(/\.[^./]+$/, "") || "Untitled";
     const recordedAudio = realtimeWaveRef.current?.exportRecordedAudio() ?? null;
+    const { peakTemp, peakExcursion, status } = computeMeasurementSummary(frames, tempThresholds);
     await saveCurrent({
       name,
       audioFileName: recordedAudio ? `${name}.wav` : audioFile.name,
@@ -182,8 +211,9 @@ export default function DashboardPage({ useQueue }: DashboardPageProps) {
       frames,
       audioBlob: recordedAudio ?? audioFile,
       audioType: recordedAudio ? "audio/wav" : audioFile.type,
+      peakTemp, peakExcursion, status,
     });
-  }, [audioFile, saveCurrent]);
+  }, [audioFile, saveCurrent, tempThresholds]);
 
   // ── 마이크(네이티브 캡처) 녹음 저장 — 전 채널 WAV + 실시간 분석 그래프를 워크스페이스에 보존 ──
   // 오디오는 엔진에 나간 ch0(V)/ch1(I)만이 아니라 Calibration에서 지정한 채널 수 전체가
@@ -194,16 +224,19 @@ export default function DashboardPage({ useQueue }: DashboardPageProps) {
     const name =
       `capture-${stamp.getFullYear()}${pad(stamp.getMonth() + 1)}${pad(stamp.getDate())}` +
       `-${pad(stamp.getHours())}${pad(stamp.getMinutes())}${pad(stamp.getSeconds())}-${rec.channels}ch`;
+    const frames = streamingFramesRef.current;
+    const { peakTemp, peakExcursion, status } = computeMeasurementSummary(frames, tempThresholds);
     await saveCurrent({
       name,
       audioFileName: `${name}.wav`,
       audioDuration: rec.durationSec,
       analysisMode:  "realtime",
-      frames: streamingFramesRef.current,
+      frames,
       audioBlob: rec.blob,
       audioType: "audio/wav",
+      peakTemp, peakExcursion, status,
     });
-  }, [saveCurrent]);
+  }, [saveCurrent, tempThresholds]);
 
   // ── 파일 선택 / 초기화 ────────────────────────────────────────────────────
   // 모든 분석 버퍼/상태를 새 음원 기준으로 비우는 공통 루틴 (캐시 I/O 제외)
@@ -442,92 +475,133 @@ export default function DashboardPage({ useQueue }: DashboardPageProps) {
     >
     <div
       id="dashboard-root"
-      className="flex flex-col min-h-screen lg:h-screen lg:overflow-hidden"
+      className="flex flex-col lg:flex-row min-h-screen lg:h-screen lg:overflow-hidden"
     >
-      <Header />
+      <Sidebar mobileOpen={mobileNavOpen} onMobileClose={() => setMobileNavOpen(false)} />
 
-      <main id="dashboard-main" className="flex-1 min-h-0 overflow-y-auto p-3">
-        <div id="dashboard-content" className="lg:h-full w-full flex flex-col gap-3">
-          <div id="dashboard-grid" className="grid grid-cols-1 lg:grid-cols-2 gap-3 lg:flex-1 lg:min-h-[600px]">
-            <div id="left-column" className="flex flex-col gap-3 min-h-0">
-              <div id="upload-section" className="h-[220px] lg:h-auto lg:min-h-0 lg:flex-[2] flex flex-col gap-2">
-                <div className="flex-1 min-h-0 min-w-0">
-                  {inputMode === "file" ? (
-                    <SelectedFilePanel
-                      status={realtimeStatus}
-                      selectedFile={audioFile}
-                      onReset={handleReset}
-                      onSave={handleSaveToWorkspace}
-                      canSave={!!audioFile && streamingFrames.length > 0}
-                    />
-                  ) : (
-                    <MicrophonePlayer
-                      status={realtimeStatus}
-                      onStatusChange={handleRealtimeStatus}
-                      onFrameReceived={handleFrameReceived}
-                      onStreamStart={handleStreamStart}
-                      onDebugUpdate={handleDebugUpdate}
-                      onDebugLog={handleDebugLog}
-                      onSaveRecording={handleSaveMicRecording}
-                      inputParams={inputParams}
-                    />
-                  )}
-                </div>
-                {errorMsg && (
-                  <p id="error-message" className="error-message text-xs text-red-500 px-1 shrink-0">오류: {errorMsg}</p>
-                )}
+      <div id="content-column" className="relative flex-1 min-w-0 flex flex-col lg:h-screen lg:overflow-hidden">
+        {/* 모바일(lg 미만) 전용 상단 바 — 햄버거로 사이드바를 슬라이드 오버레이로 연다 */}
+        <div
+          className="lg:hidden flex items-center gap-3 px-4 border-b border-iron-100 bg-white shrink-0"
+          style={{ paddingTop: "env(safe-area-inset-top)", height: "calc(3.5rem + env(safe-area-inset-top))" }}
+        >
+          <button
+            type="button"
+            onClick={() => setMobileNavOpen(true)}
+            aria-label="메뉴 열기"
+            className="flex items-center justify-center w-9 h-9 rounded-lg text-iron-600 hover:bg-iron-100"
+          >
+            <Menu className="w-5 h-5" />
+          </button>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src="/logo_header.jpeg" alt="IRON DEVICE" className="h-6 w-auto object-contain" />
+        </div>
+
+        <main id="dashboard-main" className="flex-1 min-h-0 overflow-y-auto p-3 lg:p-7 pb-28 lg:pb-32">
+          <div id="dashboard-content" className="lg:h-full w-full flex flex-col gap-4">
+            {/* 상단: 타이틀/서브타이틀 + 입력 소스(파일/마이크) 세그먼트 토글 */}
+            <div className="flex items-center gap-4 flex-wrap">
+              <div className="mr-auto min-w-0">
+                <h2 className="m-0 text-xl font-bold text-iron-900">
+                  {inputMode === "file" ? "실시간 추적" : "마이크 입력"}
+                </h2>
+                <p className="m-0 mt-1 text-[13px] text-iron-500 truncate">
+                  {inputMode === "file"
+                    ? audioFile
+                      ? `${audioFile.name} · ${formatTime(audioDuration ?? 0)}`
+                      : "작업 영역에서 오디오 파일을 선택하세요"
+                    : realtimeStatus === "playing"
+                      ? "마이크 캡처 중"
+                      : "마이크 대기"}
+                </p>
               </div>
-              {inputMode === "file" && (
-                <div className="h-[260px] lg:h-auto lg:min-h-0 lg:flex-[3]">
-                  <WaveformPlayer
-                    ref={realtimeWaveRef}
-                    audioFile={audioFile}
-                    status={realtimeStatus}
-                    onTimeUpdate={handleRealtimeTime}
-                    onStatusChange={handleRealtimeStatus}
-                    onFrameReceived={handleFrameReceived}
-                    onStreamStart={handleStreamStart}
-                    onDebugUpdate={handleDebugUpdate}
-                    onDebugLog={handleDebugLog}
-                    inputParams={inputParams}
-                    onDurationReady={setAudioDuration}
+              <SegmentedControl
+                value={inputMode}
+                onChange={handleInputModeChange}
+                options={[
+                  { value: "file", label: "파일" },
+                  { value: "mic", label: "마이크" },
+                ]}
+                className="w-[236px]"
+                aria-label="입력 소스"
+              />
+            </div>
+
+            {inputMode === "file" && !audioFile && <SelectedFilePanel />}
+
+            {errorMsg && (
+              <p id="error-message" className="error-message text-xs text-red-500 px-1 shrink-0">오류: {errorMsg}</p>
+            )}
+
+            <div id="dashboard-grid" className="flex flex-col gap-4 lg:flex-1 lg:min-h-[600px]">
+              <div id="charts-section" className="flex flex-col gap-4 min-h-0 lg:flex-1">
+                <div className="h-[300px] lg:h-auto lg:min-h-0 lg:flex-1">
+                  <TemperatureChart
+                    frames={streamingFrames}
+                    currentTime={currentTime}
+                    isActive={isActive}
+                    streaming
+                    audioDuration={audioDuration}
+                    lttb={LTTB_ENABLED}
+                    onReactRender={handleReactRender}
+                    onEchartsRender={handleEchartsRender}
+                    onExpand={() => setDetailChart("temperature")}
+                    warnThreshold={tempThresholds.warn}
+                    dangerThreshold={tempThresholds.danger}
                   />
                 </div>
-              )}
-            </div>
-            <div id="charts-section" className="flex flex-col gap-3 min-h-0">
-              <div className="h-[300px] lg:h-auto lg:min-h-0 lg:flex-1">
-                <TemperatureChart
-                  frames={streamingFrames}
-                  currentTime={currentTime}
-                  isActive={isActive}
-                  streaming
-                  audioDuration={audioDuration}
-                  lttb={LTTB_ENABLED}
-                  onReactRender={handleReactRender}
-                  onEchartsRender={handleEchartsRender}
-                  onExpand={() => setDetailChart("temperature")}
-                  warnThreshold={tempThresholds.warn}
-                  dangerThreshold={tempThresholds.danger}
-                />
-              </div>
-              <div className="h-[300px] lg:h-auto lg:min-h-0 lg:flex-1">
-                <ExcursionChart
-                  frames={streamingFrames}
-                  currentTime={currentTime}
-                  isActive={isActive}
-                  streaming
-                  audioDuration={audioDuration}
-                  lttb={LTTB_ENABLED}
-                  onExpand={() => setDetailChart("excursion")}
-                />
+                <div className="h-[300px] lg:h-auto lg:min-h-0 lg:flex-1">
+                  <ExcursionChart
+                    frames={streamingFrames}
+                    currentTime={currentTime}
+                    isActive={isActive}
+                    streaming
+                    audioDuration={audioDuration}
+                    lttb={LTTB_ENABLED}
+                    onExpand={() => setDetailChart("excursion")}
+                  />
+                </div>
               </div>
             </div>
-
           </div>
+        </main>
 
-        </div>
-      </main>
+        {/* 우측 드로어 3개 — content-column 기준 absolute, ActiveDrawerContext로 배타 전환 */}
+        <WorkspaceDrawer />
+        <MeasurementRecordsDrawer />
+        <CalibrationDrawer />
+
+        {/* 플로팅 플레이어 독 — 파일 모드는 재생/파형/저장, 마이크 모드는 녹음/저장 */}
+        {inputMode === "file" ? (
+          <WaveformPlayer
+            ref={realtimeWaveRef}
+            audioFile={audioFile}
+            status={realtimeStatus}
+            onTimeUpdate={handleRealtimeTime}
+            onStatusChange={handleRealtimeStatus}
+            onFrameReceived={handleFrameReceived}
+            onStreamStart={handleStreamStart}
+            onDebugUpdate={handleDebugUpdate}
+            onDebugLog={handleDebugLog}
+            inputParams={inputParams}
+            onDurationReady={setAudioDuration}
+            onSave={handleSaveToWorkspace}
+            canSave={!!audioFile && streamingFrames.length > 0}
+            onReset={handleReset}
+          />
+        ) : (
+          <MicrophonePlayer
+            status={realtimeStatus}
+            onStatusChange={handleRealtimeStatus}
+            onFrameReceived={handleFrameReceived}
+            onStreamStart={handleStreamStart}
+            onDebugUpdate={handleDebugUpdate}
+            onDebugLog={handleDebugLog}
+            onSaveRecording={handleSaveMicRecording}
+            inputParams={inputParams}
+          />
+        )}
+      </div>
 
       {/* 차트 상세(자세히 보기) 오버레이 — 라이브 데이터를 그대로 재사용해 재생 중에도 갱신 */}
       {detailChart && (

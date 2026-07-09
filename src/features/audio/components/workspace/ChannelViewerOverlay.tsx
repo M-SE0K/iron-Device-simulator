@@ -16,7 +16,7 @@ function channelLabel(ch: number): { name: string; role: string } {
   if (ch === 1) return { name: "CH1", role: "I (전류)" };
   return { name: `CH${ch}`, role: "확장" };
 }
-const CHANNEL_COLORS = ["#0057B8", "#7C3AED", "#10B981", "#F97316", "#0EA5E9", "#EC4899", "#84CC16", "#F43F5E"];
+const CHANNEL_COLORS = ["#0B4171", "#6B9BD1", "#10B981", "#F97316", "#0EA5E9", "#EC4899", "#84CC16", "#F43F5E"];
 
 /** 한 채널의 min/max 엔벨로프를 캔버스에 그린다 (컨테이너 리사이즈 추적, DPR 스케일) */
 function ChannelWaveform({ data, color }: { data: Float32Array; color: string }) {

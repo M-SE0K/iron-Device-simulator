@@ -4,7 +4,7 @@ import dynamic from "next/dynamic";
 import { useMemo, useLayoutEffect, useRef, useCallback, useState, useEffect } from "react";
 import { Maximize2 } from "lucide-react";
 import { AnalysisFrame } from "@/features/audio/types";
-import { cn } from "@/shared/lib/utils";
+import SegmentedControl from "@/shared/components/SegmentedControl";
 import { DEFAULT_TEMP_WARN, DEFAULT_TEMP_DANGER } from "@/features/audio/lib/render/detect-events";
 import {
   computeStreamWindow, computeTemperatureYRange, type ChannelMode,
@@ -39,9 +39,9 @@ const WINDOW_SIZE = 1000;
 
 // 채널별 색상
 const CH_COLOR: Record<ChannelMode, { ch0: string; ch1: string }> = {
-  L:    { ch0: "#0057B8", ch1: "#0057B8" },
-  R:    { ch0: "#7C3AED", ch1: "#7C3AED" },
-  Both: { ch0: "#0057B8", ch1: "#7C3AED" },
+  L:    { ch0: "#0B4171", ch1: "#0B4171" },
+  R:    { ch0: "#6B9BD1", ch1: "#6B9BD1" },
+  Both: { ch0: "#0B4171", ch1: "#6B9BD1" },
 };
 
 export default function TemperatureChart({ frames, currentTime, isActive, streaming = false, audioDuration, lttb = true, onReactRender, onEchartsRender, onExpand, warnThreshold = DEFAULT_TEMP_WARN, dangerThreshold = DEFAULT_TEMP_DANGER }: Props) {
@@ -93,7 +93,7 @@ export default function TemperatureChart({ frames, currentTime, isActive, stream
   }, [currentTemp, channelMode]);
 
   const tempColor =
-    displayTemp === null ? "#7D8699"
+    displayTemp === null ? "#94A3B8"
     : displayTemp >= dangerThreshold ? "#EF4444"
     : displayTemp >= warnThreshold   ? "#F59E0B"
     : CH_COLOR[channelMode].ch0;
@@ -123,8 +123,8 @@ export default function TemperatureChart({ frames, currentTime, isActive, stream
         color: {
           type: "linear", x: 0, y: 0, x2: 0, y2: 1,
           colorStops: [
-            { offset: 0, color: "rgba(0,87,184,0.18)" },
-            { offset: 1, color: "rgba(0,87,184,0)" },
+            { offset: 0, color: "rgba(11,65,113,0.18)" },
+            { offset: 1, color: "rgba(11,65,113,0)" },
           ],
         },
       } : undefined,
@@ -151,8 +151,8 @@ export default function TemperatureChart({ frames, currentTime, isActive, stream
           type: "linear",
           x: 0, y: 0, x2: 0, y2: 1,
           colorStops: [
-            { offset: 0, color: "rgba(124,58,237,0.18)" },
-            { offset: 1, color: "rgba(124,58,237,0)" },
+            { offset: 0, color: "rgba(107,155,209,0.18)" },
+            { offset: 1, color: "rgba(107,155,209,0)" },
           ],
         },
       } : undefined,
@@ -167,15 +167,15 @@ export default function TemperatureChart({ frames, currentTime, isActive, stream
       animation: false,
       grid: { top: 8, right: 16, bottom: 52, left: 52 },
       legend: buildLegend(channelMode),
-      dataZoom: buildDataZoom(zoomRef.current, { filler: "rgba(0,87,184,0.12)", handle: "#0057B8" }),
+      dataZoom: buildDataZoom(zoomRef.current, { filler: "rgba(11,65,113,0.12)", handle: "#0B4171" }),
       xAxis: buildTimeAxis({ windowFrames }),
       yAxis: {
         type: "value",
         name: "°C",
-        nameTextStyle: { color: "#A4AABA", fontSize: 10 },
-        axisLabel: { color: "#A4AABA", fontSize: 10 },
+        nameTextStyle: { color: "#94A3B8", fontSize: 10 },
+        axisLabel: { color: "#94A3B8", fontSize: 10 },
         axisLine: { show: false },
-        splitLine: { lineStyle: { color: "#F5F6F8" } },
+        splitLine: { lineStyle: { color: "#F1F5F9" } },
         min: yMin,
         max: yMax,
       },
@@ -206,22 +206,18 @@ export default function TemperatureChart({ frames, currentTime, isActive, stream
 
         <div className="flex items-center gap-2">
           {/* 채널 모드 토글 */}
-          <div className="flex gap-0.5 text-xs font-mono">
-            {(["L", "R", "Both"] as ChannelMode[]).map((m) => (
-              <button
-                key={m}
-                onClick={() => setChannelMode(m)}
-                className={cn(
-                  "px-1.5 py-0.5 rounded border transition-all",
-                  channelMode === m
-                    ? "bg-brand-blue text-white border-brand-blue"
-                    : "text-iron-400 border-iron-200 hover:border-iron-400"
-                )}
-              >
-                {m}
-              </button>
-            ))}
-          </div>
+          <SegmentedControl
+            size="sm"
+            value={channelMode}
+            onChange={setChannelMode}
+            options={[
+              { value: "L", label: "L" },
+              { value: "R", label: "R" },
+              { value: "Both", label: "Both" },
+            ]}
+            className="w-[132px]"
+            aria-label="온도 채널"
+          />
 
           {/* 현재값 표시 */}
           {currentTemp !== null && channelMode === "Both" ? (

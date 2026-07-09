@@ -5,32 +5,32 @@ const config: Config = {
   theme: {
     extend: {
       colors: {
-        // Iron Device brand palette
+        // Iron Device brand palette — Split Studio / Navy Shell
         brand: {
-          blue: "#0057B8",
-          "blue-light": "#1A73E8",
-          "blue-dark": "#003F8A",
+          blue: "#0B4171",
+          "blue-light": "#6B9BD1",
+          "blue-dark": "#08314F",
         },
         surface: {
           DEFAULT: "#FFFFFF",
-          secondary: "#F5F6F8",
-          tertiary: "#ECEEF1",
+          secondary: "#F1F5F9",
+          tertiary: "#EEF2F7",
         },
         iron: {
-          900: "#1A1D23",
-          800: "#232830",
-          700: "#2E3440",
-          600: "#3D4455",
-          500: "#5A6278",
-          400: "#7D8699",
-          300: "#A4AABA",
-          200: "#CDD1DA",
-          100: "#E8EAF0",
-          50:  "#F5F6F8",
+          900: "#0F172A",
+          800: "#1E293B",
+          700: "#334155",
+          600: "#475569",
+          500: "#64748B",
+          400: "#94A3B8",
+          300: "#CBD5E1",
+          200: "#E2E8F0",
+          100: "#F1F5F9",
+          50:  "#F8FAFC",
         },
       },
       fontFamily: {
-        sans: ["Inter", "system-ui", "sans-serif"],
+        sans: ["Pretendard Variable", "Pretendard", "Inter", "system-ui", "sans-serif"],
         mono: ["JetBrains Mono", "monospace"],
       },
     },
