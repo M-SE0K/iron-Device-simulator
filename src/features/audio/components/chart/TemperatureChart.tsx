@@ -9,7 +9,7 @@ import { DEFAULT_TEMP_WARN, DEFAULT_TEMP_DANGER } from "@/features/audio/lib/ren
 import {
   computeStreamWindow, computeTemperatureYRange, type ChannelMode,
 } from "@/features/audio/lib/render/chart-window";
-import { buildDataZoom, buildTimeAxis, buildValueTooltip, buildLegend } from "@/features/audio/lib/render/chart-option";
+import { buildDataZoom, buildTimeAxis, buildValueTooltip, buildLegend, resolveTimeDecimals } from "@/features/audio/lib/render/chart-option";
 
 const ReactECharts = dynamic(() => import("echarts-for-react"), { ssr: false });
 
@@ -110,6 +110,7 @@ export default function TemperatureChart({ frames, currentTime, isActive, stream
 
     // 다량 포인트 드로우 비용 상한: LTTB 다운샘플 + large 모드 (lttb=false면 미적용)
     const samplingOpts = lttb ? { sampling: "lttb", large: true, largeThreshold: 2000 } : {};
+    const timeDecimals = resolveTimeDecimals(windowFrames);
 
     const seriesL = {
       name: "L (ch0)",
@@ -167,8 +168,12 @@ export default function TemperatureChart({ frames, currentTime, isActive, stream
       animation: false,
       grid: { top: 8, right: 16, bottom: 52, left: 52 },
       legend: buildLegend(channelMode),
-      dataZoom: buildDataZoom(zoomRef.current, { filler: "rgba(11,65,113,0.12)", handle: "#0B4171" }),
-      xAxis: buildTimeAxis({ windowFrames }),
+      dataZoom: buildDataZoom(zoomRef, { filler: "rgba(11,65,113,0.12)", handle: "#0B4171" }, {
+        dataMin: windowFrames[0]?.time ?? 0,
+        dataMax: windowFrames[windowFrames.length - 1]?.time ?? 10,
+        dataDecimals: timeDecimals,
+      }),
+      xAxis: buildTimeAxis({ windowFrames, zoomRef }),
       yAxis: {
         type: "value",
         name: "°C",
@@ -180,7 +185,7 @@ export default function TemperatureChart({ frames, currentTime, isActive, stream
         max: yMax,
       },
       series,
-      tooltip: buildValueTooltip({ unit: "°C", decimals: 1 }),
+      tooltip: buildValueTooltip({ unit: "°C", decimals: 1, timeDecimals }),
     };
   }, [windowFrames, channelMode, yMin, yMax, lttb, warnThreshold, dangerThreshold]);
 

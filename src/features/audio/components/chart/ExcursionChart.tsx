@@ -8,7 +8,7 @@ import SegmentedControl from "@/shared/components/SegmentedControl";
 import {
   computeStreamWindow, computeExcursionYRange, type ChannelMode,
 } from "@/features/audio/lib/render/chart-window";
-import { buildDataZoom, buildTimeAxis, buildValueTooltip, buildLegend } from "@/features/audio/lib/render/chart-option";
+import { buildDataZoom, buildTimeAxis, buildValueTooltip, buildLegend, resolveTimeDecimals } from "@/features/audio/lib/render/chart-option";
 
 const ReactECharts = dynamic(() => import("echarts-for-react"), { ssr: false });
 
@@ -137,12 +137,18 @@ export default function ExcursionChart({ frames, currentTime, isActive, streamin
       channelMode === "R"    ? [seriesR] :
       /* Both */               [seriesL, seriesR];
 
+    const timeDecimals = resolveTimeDecimals(windowFrames);
+
     return {
       animation: false,
       grid: { top: 8, right: 16, bottom: 52, left: 60 },
       legend: buildLegend(channelMode),
-      dataZoom: buildDataZoom(zoomRef.current, { filler: "rgba(16,185,129,0.12)", handle: "#10B981" }),
-      xAxis: buildTimeAxis({ windowFrames }),
+      dataZoom: buildDataZoom(zoomRef, { filler: "rgba(16,185,129,0.12)", handle: "#10B981" }, {
+        dataMin: windowFrames[0]?.time ?? 0,
+        dataMax: windowFrames[windowFrames.length - 1]?.time ?? 10,
+        dataDecimals: timeDecimals,
+      }),
+      xAxis: buildTimeAxis({ windowFrames, zoomRef }),
       yAxis: {
         type: "value",
         name: "mm",
@@ -154,7 +160,7 @@ export default function ExcursionChart({ frames, currentTime, isActive, streamin
         max: yMax,
       },
       series,
-      tooltip: buildValueTooltip({ unit: "mm", decimals: 3 }),
+      tooltip: buildValueTooltip({ unit: "mm", decimals: 3, timeDecimals }),
     };
   }, [windowFrames, channelMode, yMin, yMax, lttb]);
 
