@@ -22,7 +22,7 @@
 
 | 파일 | 역할 |
 |------|------|
-| `WaveformPlayer.tsx` | 파일 재생 오케스트레이터. WaveSurfer 생성/파괴, 재생 컨트롤 UI, `calibration.outputDeviceId`에 따른 `setSinkId()` 출력 라우팅을 담당하고 분석 파이프라인은 `useCaptureSession` 한 인스턴스에 위임한다. 최초 재생 시 캡처 세션을 시작하고, 일시정지는 세션을 끊지 않고 저장 버퍼만 멈춘다(`pauseRecording`/`resumeRecording`). ref로 `WaveformPlayerHandle`(`sendMessage`/`pause`/`exportRecordedAudio`) 노출. |
+| `WaveformPlayer.tsx` | 파일 재생 오케스트레이터. WaveSurfer 생성/파괴, 재생 컨트롤 UI, `calibration.outputDeviceId`에 따른 `setSinkId()` 출력 라우팅을 담당하고 분석 파이프라인은 `useCaptureSession` 한 인스턴스에 위임한다. 최초 재생 시 캡처 세션을 시작하고, 일시정지는 세션을 끊지 않고 저장 버퍼만 멈춘다(`pauseRecording`/`resumeRecording`). ref로 `WaveformPlayerHandle`(`sendMessage`/`pause`/`exportRecordedAudio`/`subscribeCaptureStream`) 노출. |
 | `MicrophonePlayer.tsx` | 라이브 캡처 오케스트레이터 — `useCaptureSession`을 감싸는 얇은 UI 셸이다. 시작/중지 버튼, 장치명/샘플레이트/버퍼/레이턴시 readout(대기 중)과 송·수신 프레임 카운터(녹음 중), 오류 표시, 정지 후 나타나는 전 채널 "저장" 버튼(`saveRecording`)만 렌더한다. `MicRecordingExport`는 `CaptureRecordingExport`의 재export. |
 | `capture/useCaptureSession.ts` | 파일·마이크 공용 캡처+분석+녹음 세션 훅. 분석 소켓(`createAnalysisSocket`)과 `onmessage`(ready/frame/error) 핸들링을 소유하고, 실제 캡처는 `window.audioCapture` 존재 시 `useNativeCapture`, 부재 시 `useWebAudioWorkletCapture`로 분기한다. 세션 동안의 전 채널 원본 PCM(`rawCaptureRef`)을 축적해 `saveRecording()`/`getRecordedBlob()`으로 WAV 인코딩한다. `pauseRecording`/`resumeRecording`은 소켓/캡처를 유지한 채 분석 프레임 전송과 저장 버퍼 축적만 함께 멈춘다(재생 일시정지 시 WASM 온도 누적·차트 시간축 보존용). |
 | `stream/buildInitMessage.ts` | 분석 소켓 `init` 메시지(JSON: `ampOutputPower`/`speakerModel`/`ambientTemp`/`sampleRate`/`bufferSize`) 빌더. 파일·마이크 캡처 세션이 공유한다. |
@@ -72,7 +72,7 @@ window.audioCapture 존재?
 ## 5. 주요 인터페이스 / 진입점
 
 - `WaveformPlayer` (default export) → `forwardRef<WaveformPlayerHandle, Props>` 컴포넌트 → 파일 재생 + 캡처 분석 UI. 재생은 WaveSurfer, 분석은 `useCaptureSession`이 담당하며 파일 자체를 디코딩해 분석하지 않는다.
-- `WaveformPlayerHandle` → `{ sendMessage(msg: object): void; pause(): void; exportRecordedAudio(): Blob | null }` → 상위(DashboardClient)가 ref로 제어하는 핸들. `pause()`는 캡처 세션을 닫지 않아(저장 버퍼만 멈춤) 재개 시 차트가 보존되고, `exportRecordedAudio()`는 원본 파일이 아니라 세션이 실제 캡처한 전 채널 PCM을 WAV로 반환한다(캡처된 적 없으면 null).
+- `WaveformPlayerHandle` → `{ sendMessage(msg: object): void; pause(): void; exportRecordedAudio(): Blob | null; subscribeCaptureStream(fn: CaptureStreamListener): () => void }` → 상위(DashboardClient)가 ref로 제어하는 핸들. `pause()`는 캡처 세션을 닫지 않아(저장 버퍼만 멈춤) 재개 시 차트가 보존되고, `exportRecordedAudio()`는 원본 파일이 아니라 세션이 실제 캡처한 전 채널 PCM을 WAV로 반환한다(캡처된 적 없으면 null). `subscribeCaptureStream()`은 원본 캡처 청크 실시간 스트림 구독(구독 해제 함수 반환)으로, `MicrophonePlayerHandle`과 같은 계약이라 파일·마이크 모드에서 `ChartDetailOverlay` 채널 뷰가 같은 방식으로 실시간 갱신된다.
 - `MicrophonePlayer` (default export) → 라이브 캡처 컴포넌트. `onSaveRecording?: (rec: MicRecordingExport) => Promise<void> | void`를 주면 정지 후 "저장" 버튼이 나타난다.
 - `MicRecordingExport` = `CaptureRecordingExport` → `{ blob: Blob; channels: number; sampleRate: number; durationSec: number }` → N채널 인터리브 int32 WAV(ch0=V, ch1=I, ch2.. 확장 채널) 내보내기 페이로드.
 - `useCaptureSession(deps: UseCaptureSessionDeps)` → `{ start, stop, cleanup, isRecording, micError, sampleRate, deviceName, actualBufferSize, actualLatency, saveRecording, hasRecording, saving, recordingChannels, getRecordedBlob, sendMessage, pauseRecording, resumeRecording, frameCountRef, framesRcvdRef }` → 파일·마이크 공용 캡처+분석+녹음 세션. `start()`는 `window.audioCapture` 존재 시 네이티브, 부재 시 getUserMedia 폴백을 고른다. `getRecordedBlob()`은 세션 버퍼를 동기적으로 WAV Blob으로 반환(호출자가 저장 파이프라인을 직접 소유할 때, WaveformPlayer용), `saveRecording()`은 `onSaveRecording` 콜백으로 넘긴다(MicrophonePlayer용).
@@ -85,3 +85,4 @@ window.audioCapture 존재?
 ## 6. 변경 이력(요약)
 - 2026-07-09: 최초 작성 (기준 커밋: 1fbbf44, 커밋되지 않은 워크트리 변경 반영)
 - 2026-07-09: WaveformPlayer/MicrophonePlayer 캡처 세션 통합 반영 — `stream/{usePcmDecoder,useAnalysisStream,useBatchAnalysis}` 삭제, `capture/useCaptureSession.ts`(파일·마이크 공용 캡처+분석+녹음 세션) 신규. 파일 모드가 파일 PCM 직접 분석 대신 WaveSurfer 재생 + 하드웨어 V/I 캡처를 공유하도록 변경, 배치 분석 제거, `WaveformPlayerHandle`에서 `runBatchAnalysis`/`stopStreaming` 제거. 섹션 1·2·3·4·5 갱신 (커밋 범위: e0add14..HEAD, 워크트리 포함)
+- 2026-07-10: `WaveformPlayerHandle`에 `subscribeCaptureStream` 추가 — 파일 모드에서 `DashboardClient.subscribeChannelStream`이 호출될 때 이 핸들 메서드가 없어 런타임 크래시가 나던 잠복 버그를 수정. `WaveformPlayer`는 이미 `useCaptureSession`을 공유하므로 세션의 `subscribeCaptureStream`을 그대로 핸들에 노출(마이크 모드와 동일 계약). 섹션 3·5 부분 갱신 (커밋 범위: 537099f..HEAD, 워크트리 포함)

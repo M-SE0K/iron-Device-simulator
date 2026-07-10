@@ -17,7 +17,7 @@
 | `WorkspaceDrawer.tsx` | 우측 슬라이딩 드로어("Workspace" 내비) — 연결된 폴더의 오디오 파일을 "폴더 → 파일" 트리로 보여주는 **파일 브라우저**다. ESC로 닫히고, 폴더 UI는 `WorkspaceFolderSection`에 위임한다. 헤더 배지는 현재 폴더의 파일 수. 트리거 버튼은 `Sidebar`가 담당한다. |
 | `RecordsDrawer.tsx` | 우측 슬라이딩 드로어("측정 기록" 내비) — 저장된 측정 세션의 관리 지점. `WorkspaceContext.items`를 원본 파일명으로 그룹핑해 "파일 → 측정 기록" 접이식 트리로 보여준다. 내부 `RecordRow`가 기록 한 줄(이름 변경/삭제 + JSON/CSV/오디오/채널 내보내기)을 그리고, "채널" 버튼으로 `ChannelViewerOverlay`를 연다. (기존 `WorkspaceItemRow`의 CRUD/export가 이곳으로 이전됐다.) |
 | `WorkspaceFolderSection.tsx` | Workspace 드로어의 "폴더" 섹션. `window.localFolder` 존재 여부로 Electron(폴더 연결)/브라우저(`webkitdirectory` 업로드) UI를 분기한다. 내부 `FolderFileList`가 두 소스 공용 파일 목록을 그리며 `activeFileName`과 이름이 같은 항목을 선택 표시한다. |
-| `ChannelViewerOverlay.tsx` | 저장 세션의 채널별 파형 전체 화면 오버레이(`z-[60]`, ChartDetailOverlay와 동일한 진입/이탈 전환). IndexedDB 페이로드의 `audioBlob`을 `decodeAudioChannels()`로 디코딩해 채널마다 캔버스 min/max 엔벨로프 파형 + peak/RMS 통계를 그린다. 채널 의미는 ch0=V(전압), ch1=I(전류), ch2 이후 확장으로 라벨링한다. |
+| `ChannelViewerOverlay.tsx` | 저장 세션의 채널별 파형 전체 화면 오버레이. 셸과 진입/이탈 전환은 공용 `shared/components/overlay/FullscreenOverlay` + `hooks/useOverlayTransition`(ChartDetailOverlay와 같은 부품)에 위임한다. IndexedDB 페이로드의 `audioBlob`을 `decodeAudioChannels()`로 디코딩해 채널마다 `components/channel`의 `ChannelWaveformCanvas`(LTTB 단일 선) + `ChannelRowHeader`(peak/RMS)를 그린다. 채널 라벨/색(ch0=V, ch1=I, ch2 이후 확장)은 `lib/render/channel-meta.ts`에서 받아 넘긴다. |
 | `hooks/useWorkspaceItems.ts` | 저장 목록 상태 + CRUD/내보내기 액션. `lib/cache/workspace.ts`의 IndexedDB 함수를 감싸고 매 변경 후 `refresh()`로 목록을 다시 읽는다. 저장 성공 시 `onSaved()` 콜백(Context에서는 "측정 기록" 드로어 열기)을 호출한다. |
 | `hooks/useLocalFolderConnection.ts` | Electron 전용 로컬 폴더 연결 상태. `window.localFolder.select/unwatch/onChanged`를 감싸고 파일 로드는 `readLocalAudioFile()`(IPC 읽기)로 `File`을 만들어 `onFileLoad(file, name)`에 넘긴다. |
 | `hooks/useBrowserFolderUpload.ts` | 웹/모바일 폴더 업로드 상태. `FileList`에서 `webkitRelativePath` 최상위 폴더명을 뽑고 MIME `audio/*` 또는 확장자 `wav/mp3/flac/aac/m4a/ogg`만 걸러 보관한다. `File`을 이미 들고 있어 로드 시 IPC 없이 바로 `onFileLoad`로 전달한다. |
@@ -28,6 +28,8 @@
 - `lib/cache/workspace.ts` — IndexedDB(`irondevice-workspace` DB, `meta`/`payload` 2스토어) 영속화. 프레임은 `slim()`으로 `time/temperature/excursion`만 저장한다. `framesToCsv()`(헤더 `time,temperature_L,temperature_R,excursion_L,excursion_R`), `sanitizeFileName()`도 여기서 온다.
 - `lib/local-folder.ts` — `readLocalAudioFile(entry)`: `window.localFolder.readFile(path)` IPC 결과를 `File`로 감싼다. 브리지가 없으면 throw.
 - `lib/wav-decoder.ts` — `decodeAudioChannels(blob)`: RIFF 청크를 직접 파싱해 int16/int32/float32 PCM WAV를 채널별 평면 `Float32Array`([-1,1] 정규화)로 변환하고 WAV가 아니면(원본 mp3 저장 등) `decodeAudioData`로 폴백한다. `wav-encoder.ts`가 만든 N채널 int32 PCM WAV를 되읽는 것이 1차 목적이다(디코더 소스에 명시).
+- `components/channel/*` — `ChannelViewerOverlay`가 채널별 렌더에 `ChannelWaveformCanvas`/`channelStats`/`ChannelRowHeader`를 쓴다(실시간 상세 뷰와 공유하는 부품).
+- `shared/components/overlay/*`·`shared/hooks/*` — 드로어 셸(`SideDrawer`)·전체화면 오버레이 셸(`FullscreenOverlay`)·ESC 닫기(`useEscapeKey`)·오버레이 전환(`useOverlayTransition`)을 공용 부품으로 쓴다. `WorkspaceDrawer`/`RecordsDrawer`는 `SideDrawer` + `useEscapeKey`, `ChannelViewerOverlay`는 `FullscreenOverlay` + `useOverlayTransition`.
 - `features/audio/types.ts`의 `AnalysisFrame`(캐시 모듈 경유), `shared/lib/utils.ts`의 `cn/formatTime/formatFileSize/downloadBlob`, `shared/types/electron-bridge.d.ts`의 `window.localFolder` 타입.
 
 이 도메인을 가져다 쓰는 모듈 (외부 → workspace):
@@ -49,7 +51,7 @@
 
 [채널 뷰]  RecordsDrawer RecordRow "채널" → ChannelViewerOverlay
         → getWorkspacePayload(item.id) → payload.audioBlob
-        → decodeAudioChannels() → 채널별 Float32Array → 캔버스 엔벨로프 + peak/RMS
+        → decodeAudioChannels() → 채널별 Float32Array → ChannelWaveformCanvas(LTTB) + peak/RMS
 ```
 
 ## 5. 주요 인터페이스 / 진입점
@@ -72,3 +74,4 @@
 - 2026-07-09: 최초 작성 (기준 커밋: 1fbbf44, 커밋되지 않은 워크트리 변경 반영)
 - 2026-07-09: 드로어 이원화 반영 — 저장 세션 CRUD/export를 `WorkspaceItemRow`(삭제)에서 신규 `RecordsDrawer`(파일별 그룹 트리 + `RecordRow`)로 이전, `WorkspaceDrawer`는 폴더 파일 브라우저 전용으로 축소. `Header` 삭제에 따라 드로어 마운트는 `DashboardClient`, 여닫는 트리거는 `Sidebar`+`ActiveDrawerContext`로 이동, 저장 완료 시 "측정 기록" 드로어가 열리도록 변경. 섹션 1·2·3·4·5 갱신 (커밋 범위: e0add14..HEAD, 워크트리 포함)
 - 2026-07-09: `MeasurementRecordsDrawer` → `RecordsDrawer` 리네임 반영 — 파일도 `MeasurementRecordsDrawer.tsx`에서 `RecordsDrawer.tsx`로 이동. `dashboard/hooks/useMeasurementCapture.ts`·`MeasurementExport`(성능 측정 하네스)와 이름이 겹쳐 혼동을 주던 문제를 없애기 위한 순수 리네임으로 동작 변화는 없음. 섹션 1·2·3·4·5의 관련 언급 갱신 (커밋 범위: 9242fd2..HEAD, 워크트리 포함)
+- 2026-07-10: 공용 부품 위임 반영 — `WorkspaceDrawer`/`RecordsDrawer`가 드로어 셸을 `shared/components/overlay/SideDrawer`로, ESC 닫기를 `hooks/useEscapeKey`로 위임. `ChannelViewerOverlay`는 셸을 `FullscreenOverlay` + `useOverlayTransition`으로 바꾸고, 채널 렌더 부품을 `components/chart`에서 신설 `components/channel`(`ChannelWaveformCanvas`/`channelStats`/`ChannelRowHeader`)로 이동한 경로로 참조. 렌더는 min/max 엔벨로프가 아니라 LTTB 단일 선(주석 정정 반영). 섹션 3·4 부분 갱신 (커밋 범위: 537099f..HEAD, 워크트리 포함)

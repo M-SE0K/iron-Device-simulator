@@ -33,7 +33,9 @@
 
 - `features/audio/types.ts` — `AnalysisFrame` (`time`(초), `temperature: [ch0, ch1]`(°C), `excursion: [ch0, ch1]`(raw), 병합 메타 `excursionMin/Max` 등).
 - `lib/render/chart-window.ts` — `computeStreamWindow`(표시 윈도우 + 현재값 계산), `computeTemperatureYRange`, `computeExcursionYRange`, `ChannelMode` 타입.
-- `lib/render/chart-option.ts` — 공유 ECharts 옵션 조각 빌더 `buildDataZoom`/`buildTimeAxis`/`buildValueTooltip`/`buildLegend`. series·Y축·grid는 각 차트가 직접 구성한다.
+- `lib/render/chart-option.ts` — 공유 ECharts 옵션 빌더. 축·툴팁·범례(`buildDataZoom`/`buildTimeAxis`/`buildValueTooltip`/`buildLegend`)에 더해 series·Y축·그라디언트·옵션 골격까지 `buildLineSeries`/`buildValueYAxis`/`buildAreaGradient`/`buildBaseChartOption`으로 뽑았다. 두 차트는 지표별로 다른 색·smooth·폭·markLine·grid 좌측 여백만 인자로 넘긴다.
+- `lib/render/chart-window.ts` — 두 차트 공용 표시 윈도우 프레임 수 상수 `WINDOW_SIZE`(1000)도 여기서 온다(과거 각 차트에 중복 선언하던 것을 단일화).
+- `components/channel/*` — `ChartDetailOverlay`의 채널 상세 스택 UI(`ChannelSelectDrawer`/`ChannelStackView`/`ChannelWaveformCanvas`/`ChannelRowHeader`)는 이 도메인이 아니라 별도 `components/channel` 도메인에 있다(`workspace/ChannelViewerOverlay`와 공유하기 위해 분리). `ChartDetailOverlay`가 이를 조립해 쓴다.
 - `lib/render/detect-events.ts` — `DEFAULT_TEMP_WARN`(65°C)/`DEFAULT_TEMP_DANGER`(75°C) (TemperatureChart만).
 - `shared/lib/utils.ts` — `cn`, `findFrameIndex`, `formatTime`.
 - 외부 패키지 — `echarts-for-react`(`next/dynamic`, `ssr: false`로 지연 로드), `lucide-react`(아이콘).
@@ -72,3 +74,4 @@ frames(props) → computeStreamWindow(WINDOW_SIZE=1000)
 ## 6. 변경 이력(요약)
 - 2026-07-09: 최초 작성 (기준 커밋: 1fbbf44, 커밋되지 않은 워크트리 변경 반영)
 - 2026-07-09: 분석 모드 제거 + 디자인 마이그레이션 반영 — 세 컴포넌트에서 `followWindow` prop 삭제(realtime/batch X축 이원 모드 폐기, X축은 항상 표시 윈도우를 따라감), `audioDuration`은 X축 계산에서 빠지고 표시용으로만 사용, 채널(L/R/Both) 토글을 커스텀 버튼 → 공용 `SegmentedControl`로 교체. 섹션 2·3·4·5 부분 갱신 (색상 팔레트 변경은 표기 대상 아님) (커밋 범위: e0add14..HEAD, 워크트리 포함)
+- 2026-07-10: 리팩터 반영 — 채널 파형 뷰 부품(`Channel*`)을 `components/channel` 도메인으로 분리(`ChartDetailOverlay`는 그곳을 조립해 쓴다), `chart-option.ts`에 series·값 축·그라디언트·옵션 골격 빌더가 추가되고 두 차트가 이를 소비, `WINDOW_SIZE`를 `chart-window.ts` 단일 상수로. `ChartDetailOverlay`의 진입/이탈 전환은 공용 `shared/components/overlay/FullscreenOverlay` + `hooks/useOverlayTransition`으로 위임. 섹션 4 부분 갱신 (커밋 범위: 537099f..HEAD, 워크트리 포함)
