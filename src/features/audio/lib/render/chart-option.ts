@@ -14,8 +14,8 @@ export interface ZoomState {
 export type ZoomStateRef = { current: ZoomState };
 
 // 표시 소수 자릿수 상한 — 1/1000s(ms) 수준이면 충분하다는 판단.
-export const MAX_TIME_DECIMALS = 3;
-export const MIN_TIME_DECIMALS = 0;
+const MAX_TIME_DECIMALS = 3;
+const MIN_TIME_DECIMALS = 0;
 
 // 두 데이터 포인트 사이의 최소 시간 간격을 서로 구분할 수 있는 최소 소수 자릿수를 계산한다.
 // 예: 480 samples/48kHz(기본 분석 프레임) = 10ms 간격 → 3자리(ms)로 충분히 구분됨.
