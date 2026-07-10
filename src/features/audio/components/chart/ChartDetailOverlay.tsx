@@ -30,10 +30,10 @@ import { useOverlayTransition } from "@/shared/hooks/useOverlayTransition";
 import FullscreenOverlay from "@/shared/components/FullscreenOverlay";
 import TemperatureChart from "./TemperatureChart";
 import ExcursionChart from "./ExcursionChart";
-import ChannelSelectDrawer, { type DrawerEntry } from "./ChannelSelectDrawer";
-import ChannelStackView, { type StackItem } from "./ChannelStackView";
-import ChannelRowHeader from "./ChannelRowHeader";
-import { ChannelWaveformCanvas, channelStats, type WaveformWindow } from "./ChannelWaveformCanvas";
+import ChannelSelectDrawer, { type DrawerEntry } from "../channel/ChannelSelectDrawer";
+import ChannelStackView, { type StackItem } from "../channel/ChannelStackView";
+import ChannelRowHeader from "../channel/ChannelRowHeader";
+import { ChannelWaveformCanvas, channelStats, type WaveformWindow } from "../channel/ChannelWaveformCanvas";
 
 // 채널 라이브 뷰가 화면에 유지하는 슬라이딩 윈도우 길이(초) — 이보다 오래된 샘플은 버려서
 // 세션이 길어져도 채널당 메모리 사용량이 상한(윈도우 크기)을 넘지 않게 한다.
