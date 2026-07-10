@@ -25,6 +25,7 @@ import { BYTES_PER_SAMPLE } from "@/features/audio/lib/engine/core";
 import { appendWindowed, decodeWavRange, peekWavHeader } from "@/features/audio/lib/codec/wav-incremental";
 import type { CaptureStreamEvent, CaptureStreamListener } from "@/features/audio/components/player/capture/useCaptureSession";
 import { channelLabel, channelColor } from "@/features/audio/lib/render/channel-meta";
+import { useOverlayTransition } from "@/shared/hooks/useOverlayTransition";
 import TemperatureChart from "./TemperatureChart";
 import ExcursionChart from "./ExcursionChart";
 import ChannelSelectDrawer, { type DrawerEntry } from "./ChannelSelectDrawer";
@@ -91,22 +92,7 @@ export default function ChartDetailOverlay({
   const accent = isTemp ? "#0B4171" : "#10B981";
 
   // 진입/이탈 애니메이션 (페이지 전환 느낌) — 마운트 후 show=true, 닫을 때 트랜지션 후 언마운트
-  const [show, setShow] = useState(false);
-  useEffect(() => {
-    const id = requestAnimationFrame(() => setShow(true));
-    return () => cancelAnimationFrame(id);
-  }, []);
-  const close = () => {
-    setShow(false);
-    window.setTimeout(onClose, 250);
-  };
-
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => e.key === "Escape" && close();
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  const { show, close } = useOverlayTransition(onClose);
 
   // ── 표시 항목 드로어 — 메인 차트(metric) + 캡처 버퍼의 채널들을 같은 방식으로 체크/해제한다.
   // 기본값은 메인 차트만 선택된 상태(기존 동작과 동일하게 열자마자 차트가 보인다).

@@ -11,6 +11,7 @@ import { decodeAudioChannels, type DecodedChannels } from "@/features/audio/lib/
 import { channelLabel, channelColor } from "@/features/audio/lib/render/channel-meta";
 import { ChannelWaveformCanvas, channelStats } from "@/features/audio/components/chart/ChannelWaveformCanvas";
 import { formatTime } from "@/shared/lib/utils";
+import { useOverlayTransition } from "@/shared/hooks/useOverlayTransition";
 
 interface Props {
   item: WorkspaceItemMeta;
@@ -21,23 +22,8 @@ export default function ChannelViewerOverlay({ item, onClose }: Props) {
   const [decoded, setDecoded] = useState<DecodedChannels | null>(null);
   const [error, setError]     = useState<string | null>(null);
 
-  // 진입/이탈 애니메이션 — ChartDetailOverlay와 동일 패턴
-  const [show, setShow] = useState(false);
-  useEffect(() => {
-    const id = requestAnimationFrame(() => setShow(true));
-    return () => cancelAnimationFrame(id);
-  }, []);
-  const close = () => {
-    setShow(false);
-    window.setTimeout(onClose, 250);
-  };
-
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => e.key === "Escape" && close();
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  // 진입/이탈 애니메이션 — ChartDetailOverlay와 동일 패턴(useOverlayTransition 공용)
+  const { show, close } = useOverlayTransition(onClose);
 
   // 페이로드(IndexedDB) 로드 → 디코딩. 언마운트 후 setState 방지 가드.
   useEffect(() => {

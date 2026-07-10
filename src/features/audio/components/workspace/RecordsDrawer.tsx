@@ -12,6 +12,7 @@ import { useActiveDrawer } from "@/features/audio/components/dashboard/ActiveDra
 import { cn, formatTime } from "@/shared/lib/utils";
 import type { WorkspaceItemMeta } from "@/features/audio/lib/cache/workspace";
 import ChannelViewerOverlay from "./ChannelViewerOverlay";
+import { useEscapeKey } from "@/shared/hooks/useEscapeKey";
 
 function formatMm(raw: number | null | undefined): string {
   if (raw === null || raw === undefined || !Number.isFinite(raw)) return "—";
@@ -144,12 +145,7 @@ export default function RecordsDrawer() {
   const open = active === "records";
   const setOpen = (v: boolean) => (v ? openDrawer("records") : closeDrawer());
 
-  useEffect(() => {
-    if (!open) return;
-    const onKey = (e: KeyboardEvent) => e.key === "Escape" && setOpen(false);
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [open, setOpen]);
+  useEscapeKey(() => setOpen(false), open);
 
   const groups = useMemo<FileGroup[]>(() => {
     const byFile = new Map<string, WorkspaceItemMeta[]>();

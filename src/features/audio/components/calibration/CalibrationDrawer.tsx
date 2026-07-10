@@ -22,6 +22,7 @@ import { useMediaDevices } from "./hooks/useMediaDevices";
 import { useDeviceOptionAutoCorrect } from "./hooks/useDeviceOptionAutoCorrect";
 import { useCalibrationDraft } from "./hooks/useCalibrationDraft";
 import { useCalibrationApply } from "./hooks/useCalibrationApply";
+import { useEscapeKey } from "@/shared/hooks/useEscapeKey";
 
 /** 드롭다운 선택 필드 */
 function SelectField({
@@ -137,12 +138,7 @@ export default function CalibrationDrawer({ projectName, onApply }: Props) {
     refreshDeviceInfo(values.captureDeviceUID);
     refreshInputDevices();
   }, [open]);
-  useEffect(() => {
-    if (!open) return;
-    const onKey = (e: KeyboardEvent) => e.key === "Escape" && setOpen(false);
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [open]);
+  useEscapeKey(() => setOpen(false), open);
 
   // Input/Output Device 헤더의 새로고침 버튼 — 동작이 완전히 동일해 하나로 공유한다.
   const refreshDevicesButton = (
