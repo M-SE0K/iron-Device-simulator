@@ -14,7 +14,7 @@ const DEFAULT_AMBIENT = 25;
 // 파일 업로드(WaveformPlayer)/마이크(MicrophonePlayer, 네이티브+getUserMedia 폴백) 두 경로 모두
 // 이 값을 실제로 사용한다 — WASM 엔진(native/ff_prot.c)의 dt 계산과 와이어 프레임 크기에 그대로
 // 반영되며, 다음 세션 시작 시점(다음 재생/다음 녹음 시작)에 적용된다(engine/core.ts EngineRuntimeConfig).
-export const SAMPLE_RATE_OPTIONS = ["8000", "11025", "16000","32000", "44100", "44100", "48000", "96000", "176400", "192000", "352800", "384000"];
+export const SAMPLE_RATE_OPTIONS = ["8000", "11025", "16000", "32000", "44100", "48000", "96000", "176400", "192000", "352800", "384000"];
 export const BUFFER_SIZE_OPTIONS = ["8", "16", "32", "64", "128", "256", "480", "512", "1024", "2048"];
 // 캡처 시 열 채널 수(전체 후보) — 네이티브 캡처(Electron)에서만 의미 있음. MCHStreamer 같은 다채널
 // 장치의 V/I 센싱 채널을 받으려면 늘린다. 분석 파이프라인은 항상 ch0/ch1(L/R)만 사용.

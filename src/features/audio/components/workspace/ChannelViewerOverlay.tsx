@@ -3,7 +3,7 @@
 // 저장 세션의 채널별 파형 뷰 — 측정 기록 드로어(RecordsDrawer)의 "채널" 액션으로 진입하는
 // 전체 화면 오버레이(ChartDetailOverlay와 동일한 전환 패턴). 워크스페이스에 보존된
 // N채널 WAV(마이크 전 채널 캡처: ch0=V, ch1=I, ch2..=확장 / 파일 모드: 2ch V·I)를
-// 디코딩해 채널마다 min/max 엔벨로프 파형 + peak/RMS 통계를 렌더링한다.
+// 디코딩해 채널마다 파형(LTTB 단일 선) + peak/RMS 통계를 렌더링한다.
 import { useEffect, useState } from "react";
 import { ArrowLeft, AudioLines, X } from "lucide-react";
 import { getWorkspacePayload, type WorkspaceItemMeta } from "@/features/audio/lib/cache/workspace";
