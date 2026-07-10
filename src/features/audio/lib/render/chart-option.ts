@@ -145,3 +145,100 @@ export function buildLegend(channelMode: ChannelMode) {
     ? { top: "auto" as const, bottom: 56, textStyle: { color: "#94A3B8", fontSize: 10 } }
     : { show: false as const };
 }
+
+/** 지표 선(series) 아래를 채우는 세로 그라디언트 areaStyle — 위→아래 두 색만 지표별로 다르다. */
+export function buildAreaGradient(topColor: string, bottomColor: string) {
+  return {
+    color: {
+      type: "linear" as const, x: 0, y: 0, x2: 0, y2: 1,
+      colorStops: [
+        { offset: 0, color: topColor },
+        { offset: 1, color: bottomColor },
+      ],
+    },
+  };
+}
+
+/**
+ * 값(Y) 축 — Temperature/Excursion 공통 스타일. labelFormatter만 지표별로 다르므로
+ * 있을 때만 axisLabel에 얹는다(없으면 색/크기만 — 온도축은 formatter 없음).
+ */
+export function buildValueYAxis(opts: {
+  name: string;
+  min: number;
+  max: number;
+  labelFormatter?: (v: number) => string;
+}) {
+  return {
+    type: "value" as const,
+    name: opts.name,
+    nameTextStyle: { color: "#94A3B8", fontSize: 10 },
+    axisLabel: {
+      color: "#94A3B8",
+      fontSize: 10,
+      ...(opts.labelFormatter ? { formatter: opts.labelFormatter } : {}),
+    },
+    axisLine: { show: false },
+    splitLine: { lineStyle: { color: "#F1F5F9" } },
+    min: opts.min,
+    max: opts.max,
+  };
+}
+
+/**
+ * 지표 선 series 하나. type/symbol/샘플링/lineStyle 골격은 공통이고, area(그라디언트)와
+ * markLine은 지표·채널 모드에 따라 호출부가 넘긴다(area는 없으면 undefined, markLine은 생략).
+ */
+export function buildLineSeries(opts: {
+  name: string;
+  data: number[][];
+  color: string;
+  smooth: number | boolean;
+  width: number;
+  sampling: Record<string, unknown>;
+  area?: object;
+  markLine?: object;
+}) {
+  return {
+    name: opts.name,
+    type: "line" as const,
+    data: opts.data,
+    smooth: opts.smooth,
+    symbol: "none",
+    ...opts.sampling,
+    lineStyle: { color: opts.color, width: opts.width },
+    areaStyle: opts.area,
+    ...(opts.markLine !== undefined ? { markLine: opts.markLine } : {}),
+  };
+}
+
+/**
+ * 두 차트가 동일하게 두르던 옵션 골격(animation/grid/legend/dataZoom/시간축)을 조립한다.
+ * 지표별로 다른 부분(grid 좌측 여백, dataZoom 색, yAxis/series/tooltip)만 인자로 받는다.
+ */
+export function buildBaseChartOption(opts: {
+  channelMode: ChannelMode;
+  windowFrames: AnalysisFrame[];
+  zoomRef: ZoomStateRef;
+  gridLeft: number;
+  zoomColors: { filler: string; handle: string };
+  timeDecimals: number;
+  yAxis: object;
+  series: object[];
+  tooltip: object;
+}) {
+  return {
+    animation: false,
+    grid: { top: 8, right: 16, bottom: 52, left: opts.gridLeft },
+    legend: buildLegend(opts.channelMode),
+    dataZoom: buildDataZoom(opts.zoomRef, opts.zoomColors, {
+      dataMin: opts.windowFrames[0]?.time ?? 0,
+      dataMax: opts.windowFrames[opts.windowFrames.length - 1]?.time ?? 10,
+      dataDecimals: opts.timeDecimals,
+    }),
+    xAxis: buildTimeAxis({ windowFrames: opts.windowFrames, zoomRef: opts.zoomRef }),
+    yAxis: opts.yAxis,
+    series: opts.series,
+    tooltip: opts.tooltip,
+  };
+}

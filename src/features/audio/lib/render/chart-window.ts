@@ -4,6 +4,9 @@ import { findFrameIndex } from "@/shared/lib/utils";
 
 export type ChannelMode = "L" | "R" | "Both";
 
+/** 차트가 유지하는 슬라이딩 표시 윈도우 프레임 수 — Temperature/Excursion 공통. */
+export const WINDOW_SIZE = 1000;
+
 export interface StreamWindowResult {
   /** 헤더에 표시할 현재값(스트리밍: 마지막 프레임 / 비스트리밍: currentTime 위치 프레임) */
   current: [number, number] | null;

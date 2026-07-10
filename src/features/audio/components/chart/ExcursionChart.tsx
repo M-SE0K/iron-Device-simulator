@@ -6,9 +6,12 @@ import { Maximize2 } from "lucide-react";
 import { AnalysisFrame } from "@/features/audio/types";
 import SegmentedControl from "@/shared/components/SegmentedControl";
 import {
-  computeStreamWindow, computeExcursionYRange, type ChannelMode,
+  computeStreamWindow, computeExcursionYRange, WINDOW_SIZE, type ChannelMode,
 } from "@/features/audio/lib/render/chart-window";
-import { buildDataZoom, buildTimeAxis, buildValueTooltip, buildLegend, resolveTimeDecimals } from "@/features/audio/lib/render/chart-option";
+import {
+  buildValueTooltip, resolveTimeDecimals,
+  buildAreaGradient, buildValueYAxis, buildLineSeries, buildBaseChartOption,
+} from "@/features/audio/lib/render/chart-option";
 
 const ReactECharts = dynamic(() => import("echarts-for-react"), { ssr: false });
 
@@ -26,7 +29,6 @@ interface Props {
   onExpand?: () => void;
 }
 
-const WINDOW_SIZE   = 1000;
 const SCALE_PADDING = 1.15;
 // 서버 raw 값 → UI 표기 단위([mm]) 변환 계수
 const MM_SCALE      = 1 / 1000;
@@ -89,44 +91,21 @@ export default function ExcursionChart({ frames, currentTime, isActive, streamin
 
     // 다량 포인트 드로우 비용 상한: LTTB 다운샘플 + large 모드 (lttb=false면 미적용)
     const samplingOpts = lttb ? { sampling: "lttb" as const, large: true, largeThreshold: 2000 } : {};
+    const timeDecimals = resolveTimeDecimals(windowFrames);
 
-    const seriesL = {
+    const seriesL = buildLineSeries({
       name: "L (ch0)",
-      type: "line" as const,
       data: windowFrames.map((f) => [f.time, toMm(f.excursion[0])]),
-      smooth: 0.3,
-      symbol: "none",
-      ...samplingOpts,
-      lineStyle: { color: colors.ch0, width: 1.5 },
-      areaStyle: channelMode !== "Both" ? {
-        color: {
-          type: "linear", x: 0, y: 0, x2: 0, y2: 1,
-          colorStops: [
-            { offset: 0, color: "rgba(16,185,129,0.15)" },
-            { offset: 1, color: "rgba(16,185,129,0)" },
-          ],
-        },
-      } : undefined,
-    };
+      color: colors.ch0, smooth: 0.3, width: 1.5, sampling: samplingOpts,
+      area: channelMode !== "Both" ? buildAreaGradient("rgba(16,185,129,0.15)", "rgba(16,185,129,0)") : undefined,
+    });
 
-    const seriesR = {
+    const seriesR = buildLineSeries({
       name: "R (ch1)",
-      type: "line" as const,
       data: windowFrames.map((f) => [f.time, toMm(f.excursion[1])]),
-      smooth: 0.3,
-      symbol: "none",
-      ...samplingOpts,
-      lineStyle: { color: colors.ch1, width: 1.5 },
-      areaStyle: channelMode === "R" ? {
-        color: {
-          type: "linear", x: 0, y: 0, x2: 0, y2: 1,
-          colorStops: [
-            { offset: 0, color: "rgba(245,158,11,0.15)" },
-            { offset: 1, color: "rgba(245,158,11,0)" },
-          ],
-        },
-      } : undefined,
-    };
+      color: colors.ch1, smooth: 0.3, width: 1.5, sampling: samplingOpts,
+      area: channelMode === "R" ? buildAreaGradient("rgba(245,158,11,0.15)", "rgba(245,158,11,0)") : undefined,
+    });
 
     // Note: envelope 데이터(excursionMin/Max)는 AnalysisFrame에 보존되어 있으나,
     // 차트에 추가 series로 렌더링하면 ECharts 부하가 3배 증가하여 latency에 영향을 준다.
@@ -137,31 +116,14 @@ export default function ExcursionChart({ frames, currentTime, isActive, streamin
       channelMode === "R"    ? [seriesR] :
       /* Both */               [seriesL, seriesR];
 
-    const timeDecimals = resolveTimeDecimals(windowFrames);
-
-    return {
-      animation: false,
-      grid: { top: 8, right: 16, bottom: 52, left: 60 },
-      legend: buildLegend(channelMode),
-      dataZoom: buildDataZoom(zoomRef, { filler: "rgba(16,185,129,0.12)", handle: "#10B981" }, {
-        dataMin: windowFrames[0]?.time ?? 0,
-        dataMax: windowFrames[windowFrames.length - 1]?.time ?? 10,
-        dataDecimals: timeDecimals,
-      }),
-      xAxis: buildTimeAxis({ windowFrames, zoomRef }),
-      yAxis: {
-        type: "value",
-        name: "mm",
-        nameTextStyle: { color: "#94A3B8", fontSize: 10 },
-        axisLabel: { color: "#94A3B8", fontSize: 10, formatter: (v: number) => v.toFixed(3) },
-        axisLine: { show: false },
-        splitLine: { lineStyle: { color: "#F1F5F9" } },
-        min: yMin,
-        max: yMax,
-      },
+    return buildBaseChartOption({
+      channelMode, windowFrames, zoomRef, gridLeft: 60,
+      zoomColors: { filler: "rgba(16,185,129,0.12)", handle: "#10B981" },
+      timeDecimals,
+      yAxis: buildValueYAxis({ name: "mm", min: yMin, max: yMax, labelFormatter: (v: number) => v.toFixed(3) }),
       series,
       tooltip: buildValueTooltip({ unit: "mm", decimals: 3, timeDecimals }),
-    };
+    });
   }, [windowFrames, channelMode, yMin, yMax, lttb]);
 
   const showChart = audioDuration != null || frames.length > 0;
