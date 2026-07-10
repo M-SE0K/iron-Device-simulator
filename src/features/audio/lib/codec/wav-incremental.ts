@@ -8,6 +8,8 @@
 //     (ChartDetailOverlay의 handleChunk), 여기서는 채널을 새로 선택했을 때의 1회 백필과
 //     dataZoom으로 과거를 확대했을 때의 온디맨드 조회만 담당한다.
 
+import { readTag, makeSampleReader } from "./wav-primitives";
+
 export interface WavHeader {
   channels: number;
   sampleRate: number;
@@ -19,12 +21,6 @@ export interface WavHeader {
 }
 
 const HEADER_BYTES = 44;
-
-function readTag(view: DataView, offset: number): string {
-  return String.fromCharCode(
-    view.getUint8(offset), view.getUint8(offset + 1), view.getUint8(offset + 2), view.getUint8(offset + 3),
-  );
-}
 
 /** 44바이트만 읽어 채널 수/샘플레이트/전체 길이를 얻는다 — 전체 샘플을 훑지 않아 사실상 무료. */
 export async function peekWavHeader(blob: Blob): Promise<WavHeader | null> {
@@ -47,12 +43,6 @@ export async function peekWavHeader(blob: Blob): Promise<WavHeader | null> {
     dataSize,
     durationSec: frameCount / sampleRate,
   };
-}
-
-function makeSampleReader(view: DataView, bitsPerSample: number): (byteOffset: number) => number {
-  if (bitsPerSample === 32) return (o) => view.getInt32(o, true) / 0x80000000;
-  if (bitsPerSample === 16) return (o) => view.getInt16(o, true) / 0x8000;
-  throw new Error(`지원하지 않는 bitsPerSample: ${bitsPerSample}`);
 }
 
 /**
@@ -81,6 +71,7 @@ export async function decodeWavRange(
   const buf = await blob.slice(byteStart, byteEnd).arrayBuffer();
   const view = new DataView(buf);
   const read = makeSampleReader(view, bitsPerSample);
+  if (!read) throw new Error(`지원하지 않는 bitsPerSample: ${bitsPerSample}`);
 
   const frameCount = Math.floor(buf.byteLength / blockAlign);
   const out = new Float32Array(frameCount);
