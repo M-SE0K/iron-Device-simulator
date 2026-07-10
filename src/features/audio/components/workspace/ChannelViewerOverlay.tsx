@@ -12,6 +12,7 @@ import { channelLabel, channelColor } from "@/features/audio/lib/render/channel-
 import { ChannelWaveformCanvas, channelStats } from "@/features/audio/components/chart/ChannelWaveformCanvas";
 import { formatTime } from "@/shared/lib/utils";
 import { useOverlayTransition } from "@/shared/hooks/useOverlayTransition";
+import FullscreenOverlay from "@/shared/components/FullscreenOverlay";
 
 interface Props {
   item: WorkspaceItemMeta;
@@ -45,15 +46,7 @@ export default function ChannelViewerOverlay({ item, onClose }: Props) {
   }, [item.id]);
 
   return (
-    <div
-      role="dialog"
-      aria-modal="true"
-      aria-label={`${item.name} 채널별 파형`}
-      className={`fixed inset-0 z-[60] flex flex-col bg-iron-50 transition-all duration-300 ease-out ${
-        show ? "opacity-100 translate-y-0" : "opacity-0 translate-y-4"
-      }`}
-      style={{ paddingTop: "env(safe-area-inset-top)" }}
-    >
+    <FullscreenOverlay show={show} ariaLabel={`${item.name} 채널별 파형`}>
       {/* 상단 바 */}
       <header className="shrink-0 h-14 px-3 sm:px-5 flex items-center gap-3 border-b border-iron-100 bg-white">
         <button
@@ -128,6 +121,6 @@ export default function ChannelViewerOverlay({ item, onClose }: Props) {
           </div>
         )}
       </div>
-    </div>
+    </FullscreenOverlay>
   );
 }

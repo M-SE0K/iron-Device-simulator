@@ -6,13 +6,14 @@
 // (기존 Workspace 드로어의 아이템 CRUD/export 를 이곳으로 이전했다.)
 // 데이터는 WorkspaceContext.items(lib/cache/workspace.ts, IndexedDB)를 그대로 공유한다.
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ChevronRight, History, Music, Pencil, Trash2, X } from "lucide-react";
+import { ChevronRight, History, Music, Pencil, Trash2 } from "lucide-react";
 import { useWorkspace } from "./WorkspaceContext";
 import { useActiveDrawer } from "@/features/audio/components/dashboard/ActiveDrawerContext";
 import { cn, formatTime } from "@/shared/lib/utils";
 import type { WorkspaceItemMeta } from "@/features/audio/lib/cache/workspace";
 import ChannelViewerOverlay from "./ChannelViewerOverlay";
 import { useEscapeKey } from "@/shared/hooks/useEscapeKey";
+import SideDrawer from "@/shared/components/SideDrawer";
 
 function formatMm(raw: number | null | undefined): string {
   if (raw === null || raw === undefined || !Number.isFinite(raw)) return "—";
@@ -174,44 +175,14 @@ export default function RecordsDrawer() {
   };
 
   return (
-    <>
-      <div
-        onClick={() => setOpen(false)}
-        aria-hidden
-        className={`absolute inset-0 z-40 bg-iron-900/30 backdrop-blur-[1px] transition-opacity duration-300 ${
-          open ? "opacity-100" : "opacity-0 pointer-events-none"
-        }`}
-      />
-
-      <aside
-        className={`absolute top-0 right-0 z-50 h-full w-[320px] max-w-[82vw] bg-white border-l border-iron-100 shadow-[-12px_0_40px_rgba(15,23,42,0.16)] flex flex-col transition-transform duration-[240ms] ease-out ${
-          open ? "translate-x-0" : "translate-x-full"
-        }`}
-        role="dialog"
-        aria-label="측정 기록"
-        aria-hidden={!open}
-      >
-        <div className="px-5 pt-5 pb-4 shrink-0 flex items-center justify-between border-b border-iron-100">
-          <div className="flex items-center gap-2 min-w-0">
-            <h2 className="m-0 text-lg font-bold text-iron-900">측정 기록</h2>
-            {items.length > 0 && (
-              <span className="px-2 py-0.5 rounded-full bg-iron-100 text-xs text-iron-500 font-semibold tabular-nums">
-                {items.length}
-              </span>
-            )}
-          </div>
-          <button
-            type="button"
-            onClick={() => setOpen(false)}
-            aria-label="닫기"
-            className="flex items-center justify-center w-8 h-8 rounded-lg text-iron-400 hover:bg-iron-100 hover:text-iron-700 transition shrink-0"
-          >
-            <X className="w-4 h-4" />
-          </button>
-        </div>
-
-        <div className="flex-1 min-h-0 overflow-auto p-4">
-          {groups.length === 0 ? (
+    <SideDrawer
+      open={open}
+      onClose={() => setOpen(false)}
+      ariaLabel="측정 기록"
+      title="측정 기록"
+      count={items.length}
+    >
+      {groups.length === 0 ? (
             <div className="flex flex-col items-center justify-center h-full gap-2 text-center px-6">
               <History className="w-6 h-6 text-iron-200" />
               <p className="text-xs text-iron-400 leading-relaxed">
@@ -277,8 +248,6 @@ export default function RecordsDrawer() {
               })}
             </div>
           )}
-        </div>
-      </aside>
-    </>
+    </SideDrawer>
   );
 }

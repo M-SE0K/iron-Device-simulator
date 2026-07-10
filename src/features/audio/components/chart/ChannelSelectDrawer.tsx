@@ -6,8 +6,9 @@
 // 캡처된 오디오의 채널 번호)"으로 바꿔 재사용한다. 메인 차트(Temperature/Excursion)도 채널과
 // 동일하게 여기서 체크 해제해 스택에서 제거하거나 다시 추가할 수 있다.
 import type { LucideIcon } from "lucide-react";
-import { AudioLines, X } from "lucide-react";
+import { AudioLines } from "lucide-react";
 import { cn } from "@/shared/lib/utils";
+import SideDrawer from "@/shared/components/SideDrawer";
 
 export interface DrawerEntry {
   id: string;
@@ -73,45 +74,15 @@ export default function ChannelSelectDrawer({ open, onClose, entries, selected, 
   const channelEntries = entries.filter((e) => e.section === "channel");
 
   return (
-    <>
-      {/* 배경 오버레이 — 오버레이(z-60) 내부 기준이라 그 위(z-61)에 얹는다 */}
-      <div
-        onClick={onClose}
-        aria-hidden
-        className={`fixed inset-0 z-[61] bg-iron-900/30 backdrop-blur-[1px] transition-opacity duration-300 ${
-          open ? "opacity-100" : "opacity-0 pointer-events-none"
-        }`}
-      />
-
-      <aside
-        className={`fixed top-0 right-0 z-[62] h-full w-[320px] max-w-[82vw] bg-white border-l border-iron-100 shadow-[-12px_0_40px_rgba(15,23,42,0.16)] flex flex-col transition-transform duration-[240ms] ease-out ${
-          open ? "translate-x-0" : "translate-x-full"
-        }`}
-        style={{ paddingTop: "env(safe-area-inset-top)" }}
-        role="dialog"
-        aria-label="표시 항목 선택"
-        aria-hidden={!open}
-      >
-        <div className="px-5 pt-5 pb-4 shrink-0 flex items-center justify-between border-b border-iron-100">
-          <div className="flex items-center gap-2 min-w-0">
-            <h2 className="m-0 text-lg font-bold text-iron-900">표시 항목</h2>
-            {selected.size > 0 && (
-              <span className="px-2 py-0.5 rounded-full bg-iron-100 text-xs text-iron-500 font-semibold tabular-nums">
-                {selected.size}
-              </span>
-            )}
-          </div>
-          <button
-            type="button"
-            onClick={onClose}
-            aria-label="닫기"
-            className="flex items-center justify-center w-8 h-8 rounded-lg text-iron-400 hover:bg-iron-100 hover:text-iron-700 transition shrink-0"
-          >
-            <X className="w-4 h-4" />
-          </button>
-        </div>
-
-        <div className="flex-1 min-h-0 overflow-auto p-4">
+    <SideDrawer
+      open={open}
+      onClose={onClose}
+      ariaLabel="표시 항목 선택"
+      title="표시 항목"
+      count={selected.size}
+      layer="overlay"
+      safeAreaTop
+    >
           {/* 메인 차트 — 채널과 동일한 체크 방식으로 스택에서 제거/추가 */}
           {metricEntries.length > 0 && (
             <div className="flex flex-col gap-1 mb-3 pb-3 border-b border-iron-100">
@@ -153,8 +124,6 @@ export default function ChannelSelectDrawer({ open, onClose, entries, selected, 
                 <EntryRow key={entry.id} entry={entry} isSelected={selected.has(entry.id)} onToggle={onToggle} />
               ))}
           </div>
-        </div>
-      </aside>
-    </>
+    </SideDrawer>
   );
 }

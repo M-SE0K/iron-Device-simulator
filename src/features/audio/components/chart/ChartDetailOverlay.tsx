@@ -27,6 +27,7 @@ import { makeSampleReader } from "@/features/audio/lib/codec/wav-primitives";
 import type { CaptureStreamEvent, CaptureStreamListener } from "@/features/audio/components/player/capture/useCaptureSession";
 import { channelLabel, channelColor } from "@/features/audio/lib/render/channel-meta";
 import { useOverlayTransition } from "@/shared/hooks/useOverlayTransition";
+import FullscreenOverlay from "@/shared/components/FullscreenOverlay";
 import TemperatureChart from "./TemperatureChart";
 import ExcursionChart from "./ExcursionChart";
 import ChannelSelectDrawer, { type DrawerEntry } from "./ChannelSelectDrawer";
@@ -414,15 +415,7 @@ export default function ChartDetailOverlay({
   ]);
 
   return (
-    <div
-      role="dialog"
-      aria-modal="true"
-      aria-label={`${title} 자세히 보기`}
-      className={`fixed inset-0 z-[60] flex flex-col bg-iron-50 transition-all duration-300 ease-out ${
-        show ? "opacity-100 translate-y-0" : "opacity-0 translate-y-4"
-      }`}
-      style={{ paddingTop: "env(safe-area-inset-top)" }}
-    >
+    <FullscreenOverlay show={show} ariaLabel={`${title} 자세히 보기`}>
       {/* 상단 바 */}
       <header className="shrink-0 h-14 px-3 sm:px-5 flex items-center gap-3 border-b border-iron-100 bg-white">
         <div className="flex items-center gap-2 min-w-0">
@@ -480,6 +473,6 @@ export default function ChartDetailOverlay({
         loading={headerLoading && !header}
         error={channelError}
       />
-    </div>
+    </FullscreenOverlay>
   );
 }
