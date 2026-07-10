@@ -6,7 +6,7 @@ import { cn, formatTime } from "@/shared/lib/utils";
 import { AppStatus, AnalysisFrame, InputParameterValues } from "@/features/audio/types";
 import { StreamDebugInfo, DebugLogEntry } from "@/features/audio/lib/debug/types";
 import { useCalibration } from "@/features/audio/components/calibration/CalibrationContext";
-import { useCaptureSession } from "./capture/useCaptureSession";
+import { useCaptureSession, type CaptureStreamListener } from "./capture/useCaptureSession";
 
 // 'auto' = 파형 컨테이너 높이(CSS)에 자동으로 맞춤.
 const WAVEFORM_CANVAS_HEIGHT: number | "auto" = "auto";
@@ -33,6 +33,12 @@ interface Props {
   canSave?: boolean;
   /** 선택된 파일 초기화 (플로팅 독의 X 아이콘) — SelectedFilePanel에서 이전 */
   onReset?: () => void;
+  /**
+   * ChartDetailOverlay(z-[60])처럼 전체 화면을 덮는 뷰가 열려 있을 때, 플로팅 독을 그 위로
+   * 끌어올려 재생 중에도 계속 보이게 한다(같은 인스턴스를 그대로 노출하는 것 — 캡처 세션을
+   * 새로 열지 않는다).
+   */
+  elevated?: boolean;
 }
 
 /** page.tsx에서 ref로 접근할 수 있는 WaveformPlayer 핸들 */
@@ -50,7 +56,14 @@ export interface WaveformPlayerHandle {
    * 캡처 세션이 없었거나(재생한 적 없음) 데이터가 없으면 null.
    */
   exportRecordedAudio: () => Blob | null;
+  /**
+   * 원본 캡처 청크 실시간 스트림을 구독한다(ChartDetailOverlay 채널 뷰) — 폴링 없이 청크가
+   * 들어오는 즉시 알림을 받는다. 구독 해제 함수를 반환한다.
+   */
+  subscribeCaptureStream: CaptureStreamListenerSubscriber;
 }
+
+type CaptureStreamListenerSubscriber = (fn: CaptureStreamListener) => () => void;
 
 const WaveformPlayer = forwardRef<WaveformPlayerHandle, Props>(function WaveformPlayer({
   audioFile,
@@ -66,6 +79,7 @@ const WaveformPlayer = forwardRef<WaveformPlayerHandle, Props>(function Waveform
   onSave,
   canSave = false,
   onReset,
+  elevated = false,
 }: Props, ref) {
   const { values: calibration } = useCalibration();
 
@@ -218,7 +232,8 @@ const WaveformPlayer = forwardRef<WaveformPlayerHandle, Props>(function Waveform
     sendMessage: captureSession.sendMessage,
     pause: pausePlayback,
     exportRecordedAudio: captureSession.getRecordedBlob,
-  }), [captureSession.sendMessage, pausePlayback, captureSession.getRecordedBlob]);
+    subscribeCaptureStream: captureSession.subscribeCaptureStream,
+  }), [captureSession.sendMessage, pausePlayback, captureSession.getRecordedBlob, captureSession.subscribeCaptureStream]);
 
   const isPlaying = status === "playing";
 
@@ -226,7 +241,10 @@ const WaveformPlayer = forwardRef<WaveformPlayerHandle, Props>(function Waveform
   return (
     <div
       id="waveform-player"
-      className="absolute left-1/2 -translate-x-1/2 z-30 flex items-center gap-3 bg-white rounded-full shadow-[0_12px_40px_rgba(15,23,42,0.16)] py-2 pl-2 pr-4 sm:pr-7 w-[calc(100%-1.5rem)] sm:w-[720px] max-w-[720px]"
+      className={cn(
+        "absolute left-1/2 -translate-x-1/2 flex items-center gap-3 bg-white rounded-full shadow-[0_12px_40px_rgba(15,23,42,0.16)] py-2 pl-2 pr-4 sm:pr-7 w-[calc(100%-1.5rem)] sm:w-[640px] max-w-[640px]",
+        elevated ? "z-[65]" : "z-30",
+      )}
       style={{ bottom: "calc(28px + env(safe-area-inset-bottom))" }}
     >
       <button

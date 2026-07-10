@@ -9,7 +9,7 @@ import { AppStatus, AnalysisFrame, InputParameterValues } from "@/features/audio
 import { StreamDebugInfo, DebugLogEntry } from "@/features/audio/lib/debug/types";
 import { createAnalysisSocket, type SocketLike } from "@/features/audio/lib/engine/protocol/local-socket";
 import { useCalibration } from "@/features/audio/components/calibration/CalibrationContext";
-import { pcmFramesToWavBlob } from "@/features/audio/lib/wav-encoder";
+import { pcmFramesToWavBlob } from "@/features/audio/lib/codec/wav-encoder";
 import { BYTES_PER_SAMPLE } from "@/features/audio/lib/engine/core";
 import { useNativeCapture, type NativeRawCapture } from "./useNativeCapture";
 import { useWebAudioWorkletCapture } from "./useWebAudioWorkletCapture";
@@ -22,6 +22,16 @@ export interface CaptureRecordingExport {
   sampleRate: number;
   durationSec: number;
 }
+
+/**
+ * 원본 캡처 청크(N채널 인터리브 int32) 실시간 스트림 — ChartDetailOverlay의 채널 뷰가
+ * Blob을 폴링하는 대신 이 이벤트를 구독해 청크가 들어오는 즉시(useNativeCapture의 rawFrame
+ * 콜백과 같은 타이밍) 반영한다. "reset"은 새 세션이 시작돼 이전 누적 상태를 버려야 함을 알린다.
+ */
+export type CaptureStreamEvent =
+  | { type: "reset"; channels: number; sampleRate: number }
+  | { type: "chunk"; chunk: ArrayBuffer; channels: number; sampleRate: number };
+export type CaptureStreamListener = (ev: CaptureStreamEvent) => void;
 
 export interface UseCaptureSessionDeps {
   /** 세션 상태 — 호출자(MicrophonePlayer: 캡처 상태 그 자체 / WaveformPlayer: 재생과 공유) */
@@ -69,6 +79,16 @@ export function useCaptureSession(deps: UseCaptureSessionDeps) {
   const frameCountRef  = useRef(0);
   const lastSendAtRef  = useRef(0);
   const framesRcvdRef  = useRef(0);
+  // 원본 캡처 청크 실시간 구독자 목록 — ChartDetailOverlay의 채널 뷰가 여기에 등록해서
+  // 폴링 없이 청크 도착 즉시 알림을 받는다.
+  const streamListenersRef = useRef<Set<CaptureStreamListener>>(new Set());
+  const emitStreamEvent = useCallback((ev: CaptureStreamEvent) => {
+    streamListenersRef.current.forEach((fn) => fn(ev));
+  }, []);
+  const subscribeCaptureStream = useCallback((fn: CaptureStreamListener) => {
+    streamListenersRef.current.add(fn);
+    return () => { streamListenersRef.current.delete(fn); };
+  }, []);
 
   const isRecording = status === "playing";
 
@@ -201,7 +221,7 @@ export function useCaptureSession(deps: UseCaptureSessionDeps) {
   const { start: startNativeCapture } = useNativeCapture({
     nativeOffsRef, nativeActiveRef, rawCaptureRef, recordingActiveRef, analysisActiveRef, isActiveRef, frameCountRef, lastSendAtRef,
     onDebugUpdate: emitDebugUpdate, onStatusChange, setMicError, setSampleRate, setDeviceName,
-    setActualBufferSize, openAnalysisSocket, cleanup,
+    setActualBufferSize, openAnalysisSocket, cleanup, emitStreamEvent,
   });
   const { start: startWebCapture } = useWebAudioWorkletCapture({
     audioCtxRef, streamRef, workletRef, analysisActiveRef, isActiveRef, frameCountRef, lastSendAtRef,
@@ -315,6 +335,7 @@ export function useCaptureSession(deps: UseCaptureSessionDeps) {
     micError, sampleRate, deviceName, actualBufferSize, actualLatency,
     saveRecording, hasRecording, saving, recordingChannels,
     getRecordedBlob, sendMessage, pauseRecording, resumeRecording,
+    subscribeCaptureStream,
     frameCountRef, framesRcvdRef,
   };
 }

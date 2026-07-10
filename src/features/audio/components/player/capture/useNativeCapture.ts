@@ -8,6 +8,7 @@ import { useCallback, type MutableRefObject } from "react";
 import type { AppStatus } from "@/features/audio/types";
 import type { StreamDebugInfo } from "@/features/audio/lib/debug/types";
 import type { SocketLike } from "@/features/audio/lib/engine/protocol/local-socket";
+import type { CaptureStreamEvent } from "./useCaptureSession";
 import { createNativeFrameReframer } from "./reframeNativeChunk";
 
 export interface NativeCaptureParams {
@@ -58,13 +59,18 @@ export interface NativeCaptureDeps {
   setActualBufferSize: (v: number | null) => void;
   openAnalysisSocket: (actualRate: number, samplesPerCh: number) => SocketLike;
   cleanup: () => void;
+  /**
+   * 원본 캡처 청크를 실시간으로 알린다(ChartDetailOverlay 채널 뷰가 폴링 없이 구독) —
+   * 세션 시작 시 "reset", 이후 청크마다 "chunk"(저장 버퍼에 쌓는 것과 같은 복사본).
+   */
+  emitStreamEvent: (ev: CaptureStreamEvent) => void;
 }
 
 export function useNativeCapture(deps: NativeCaptureDeps) {
   const {
     nativeOffsRef, nativeActiveRef, rawCaptureRef, recordingActiveRef, analysisActiveRef, isActiveRef, frameCountRef, lastSendAtRef,
     onDebugUpdate, onStatusChange, setMicError, setSampleRate, setDeviceName,
-    setActualBufferSize, openAnalysisSocket, cleanup,
+    setActualBufferSize, openAnalysisSocket, cleanup, emitStreamEvent,
   } = deps;
 
   const start = useCallback(async (params: NativeCaptureParams) => {
@@ -98,6 +104,7 @@ export function useNativeCapture(deps: NativeCaptureDeps) {
     // 새 캡처 세션 시작 — 이전 세션의 전 채널 버퍼를 교체한다(저장하지 않았다면 여기서 소멸).
     rawCaptureRef.current = { channels: captureChannels, sampleRate: actualRate, frames: [] };
     recordingActiveRef.current = true;
+    emitStreamEvent({ type: "reset", channels: captureChannels, sampleRate: actualRate });
 
     const reframe = createNativeFrameReframer(
       captureChannels,
@@ -117,8 +124,11 @@ export function useNativeCapture(deps: NativeCaptureDeps) {
         // 저장용 원본 버퍼는 recordingActiveRef가 꺼져 있으면(재생 일시정지 중) 쌓지 않는다 —
         // 분석(onFrame/WASM)은 계속 흘러가되, 저장 파일에는 무음 구간이 섞이지 않게 한다.
         if (!recordingActiveRef.current) return;
-        // outRaw도 재사용 버퍼 → 복사본을 세션 메모리에 축적 (전 채널, 프레임 순서 보존)
-        rawCaptureRef.current?.frames.push((rawFrame.buffer as ArrayBuffer).slice(0));
+        // outRaw도 재사용 버퍼 → 복사본을 세션 메모리에 축적 (전 채널, 프레임 순서 보존).
+        // 채널 뷰 실시간 구독자에게도 같은 복사본을 그대로 흘려보낸다(추가 복사 없음).
+        const copy = (rawFrame.buffer as ArrayBuffer).slice(0);
+        rawCaptureRef.current?.frames.push(copy);
+        emitStreamEvent({ type: "chunk", chunk: copy, channels: captureChannels, sampleRate: actualRate });
       },
     );
 
@@ -136,7 +146,7 @@ export function useNativeCapture(deps: NativeCaptureDeps) {
   }, [
     nativeOffsRef, nativeActiveRef, rawCaptureRef, recordingActiveRef, analysisActiveRef, isActiveRef, frameCountRef, lastSendAtRef,
     onDebugUpdate, onStatusChange, setMicError, setSampleRate, setDeviceName,
-    setActualBufferSize, openAnalysisSocket, cleanup,
+    setActualBufferSize, openAnalysisSocket, cleanup, emitStreamEvent,
   ]);
 
   return { start };

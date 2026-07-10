@@ -1,5 +1,7 @@
 # Iron Device Simulator
 
+English | [한국어](README.ko.md)
+
 A web-based dashboard for demonstrating Iron Device Corporation's speaker protection algorithm library (`libirontune.so`), developed as part of a Jeonbuk National University SW industry-academic collaboration project.
 
 Visualizes **speaker temperature** and **excursion displacement** in real-time via audio file upload or live microphone input.

@@ -215,7 +215,7 @@ export default function TemperatureChart({ frames, currentTime, isActive, stream
               { value: "R", label: "R" },
               { value: "Both", label: "Both" },
             ]}
-            className="w-[132px]"
+            className="w-[116px]"
             aria-label="온도 채널"
           />
 
@@ -234,7 +234,7 @@ export default function TemperatureChart({ frames, currentTime, isActive, stream
         </div>
       </div>
 
-      <div className="chart-body flex-1 p-2 min-h-[180px]">
+      <div className="chart-body flex-1 p-2 min-h-[160px]">
         {showChart ? (
           <ReactECharts
             key={channelMode}

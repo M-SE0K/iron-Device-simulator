@@ -12,6 +12,12 @@
     --color-iron-900: #0F172A;
   }
 
+  /* 전역 비율 축소 — rem 기반 Tailwind 유틸(여백/폰트/간격/라운드)을 한 번에 87.5%로 낮춘다.
+     고정 px 값(text-[11px] 등 작은 라벨, 구조적 너비)은 영향받지 않는다. */
+  html {
+    font-size: 87.5%;
+  }
+
   body {
     @apply bg-iron-50 text-iron-900 font-sans antialiased;
   }

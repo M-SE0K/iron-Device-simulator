@@ -170,7 +170,7 @@ export default function CalibrationDrawer({ projectName, onApply }: Props) {
 
       {/* 우측 슬라이딩 패널 */}
       <aside
-        className={`absolute top-0 right-0 z-50 h-full w-[420px] max-w-[92vw] bg-white border-l border-iron-100 shadow-[-12px_0_40px_rgba(15,23,42,0.16)] flex flex-col transition-transform duration-[240ms] ease-out ${
+        className={`absolute top-0 right-0 z-50 h-full w-[320px] max-w-[82vw] bg-white border-l border-iron-100 shadow-[-12px_0_40px_rgba(15,23,42,0.16)] flex flex-col transition-transform duration-[240ms] ease-out ${
           open ? "translate-x-0" : "translate-x-full"
         }`}
         role="dialog"

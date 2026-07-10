@@ -1,14 +1,22 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, forwardRef, useImperativeHandle } from "react";
 import { Mic, Save, Square } from "lucide-react";
 import { cn } from "@/shared/lib/utils";
 import { AppStatus, AnalysisFrame, InputParameterValues } from "@/features/audio/types";
 import { StreamDebugInfo, DebugLogEntry } from "@/features/audio/lib/debug/types";
-import { useCaptureSession, type CaptureRecordingExport } from "./capture/useCaptureSession";
+import { useCaptureSession, type CaptureRecordingExport, type CaptureStreamListener } from "./capture/useCaptureSession";
 
 /** 저장 요청 시 상위(DashboardClient)로 넘기는 전 채널 캡처 내보내기 */
 export type MicRecordingExport = CaptureRecordingExport;
+
+/** page.tsx에서 ref로 접근할 수 있는 MicrophonePlayer 핸들 — WaveformPlayerHandle과 동일 계약 */
+export interface MicrophonePlayerHandle {
+  /** 캡처 세션 버퍼(ch0=V/ch1=I + 확장 채널)를 WAV로 인코딩해 반환한다. 캡처 이력이 없으면 null. */
+  exportRecordedAudio: () => Blob | null;
+  /** 원본 캡처 청크 실시간 스트림을 구독한다(ChartDetailOverlay 채널 뷰) — WaveformPlayer와 동일 계약. */
+  subscribeCaptureStream: (fn: CaptureStreamListener) => () => void;
+}
 
 interface Props {
   status: AppStatus;
@@ -19,9 +27,11 @@ interface Props {
   onDebugLog?: (entry: DebugLogEntry) => void;
   onSaveRecording?: (rec: MicRecordingExport) => Promise<void> | void;
   inputParams: InputParameterValues;
+  /** ChartDetailOverlay(z-[60])가 열려 있을 때 플로팅 독을 그 위로 끌어올린다 — WaveformPlayer와 동일 계약. */
+  elevated?: boolean;
 }
 
-export default function MicrophonePlayer({
+const MicrophonePlayer = forwardRef<MicrophonePlayerHandle, Props>(function MicrophonePlayer({
   status,
   onStatusChange,
   onFrameReceived,
@@ -30,16 +40,22 @@ export default function MicrophonePlayer({
   onDebugLog,
   onSaveRecording,
   inputParams,
-}: Props) {
+  elevated = false,
+}: Props, ref) {
   const {
     start, stop, cleanup, isRecording,
     micError, sampleRate, deviceName, actualBufferSize, actualLatency,
     saveRecording, hasRecording, saving, recordingChannels,
-    frameCountRef, framesRcvdRef,
+    getRecordedBlob, subscribeCaptureStream, frameCountRef, framesRcvdRef,
   } = useCaptureSession({
     status, onStatusChange, onFrameReceived, onStreamStart,
     onDebugUpdate, onDebugLog, onSaveRecording, inputParams,
   });
+
+  useImperativeHandle(ref, () => ({
+    exportRecordedAudio: getRecordedBlob,
+    subscribeCaptureStream,
+  }), [getRecordedBlob, subscribeCaptureStream]);
 
   // 언마운트 시 정리
   useEffect(() => () => { cleanup(); }, [cleanup]);
@@ -48,7 +64,10 @@ export default function MicrophonePlayer({
   // 상태/장치 정보(대기) 또는 송수신 프레임 카운터(녹음 중)를 보여준다.
   return (
     <div
-      className="absolute left-1/2 -translate-x-1/2 z-30 flex items-center gap-3 bg-white rounded-full shadow-[0_12px_40px_rgba(15,23,42,0.16)] py-2 pl-2 pr-4 sm:pr-7 w-[calc(100%-1.5rem)] sm:w-[720px] max-w-[720px]"
+      className={cn(
+        "absolute left-1/2 -translate-x-1/2 flex items-center gap-3 bg-white rounded-full shadow-[0_12px_40px_rgba(15,23,42,0.16)] py-2 pl-2 pr-4 sm:pr-7 w-[calc(100%-1.5rem)] sm:w-[640px] max-w-[640px]",
+        elevated ? "z-[65]" : "z-30",
+      )}
       style={{ bottom: "calc(28px + env(safe-area-inset-bottom))" }}
     >
       <button
@@ -103,4 +122,6 @@ export default function MicrophonePlayer({
       )}
     </div>
   );
-}
+});
+
+export default MicrophonePlayer;

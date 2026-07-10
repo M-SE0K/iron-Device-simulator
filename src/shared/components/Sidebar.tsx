@@ -17,9 +17,11 @@ interface SidebarProps {
   /** lg 미만(모바일)에서 햄버거로 연 슬라이드 오버레이 여부 — lg 이상에서는 무시(항상 고정 표시). */
   mobileOpen?: boolean;
   onMobileClose?: () => void;
+  /** lg 이상(데스크톱)에서 Cmd/Ctrl+B로 접힌 상태 여부 — lg 미만에서는 무시(모바일은 mobileOpen으로만 제어). */
+  collapsed?: boolean;
 }
 
-export default function Sidebar({ mobileOpen = false, onMobileClose }: SidebarProps) {
+export default function Sidebar({ mobileOpen = false, onMobileClose, collapsed = false }: SidebarProps) {
   const { active, openDrawer, closeDrawer } = useActiveDrawer();
   const { values: calibration } = useCalibration();
 
@@ -40,15 +42,21 @@ export default function Sidebar({ mobileOpen = false, onMobileClose }: SidebarPr
       />
       <aside
         id="app-sidebar"
-        className={`fixed lg:static inset-y-0 left-0 z-50 flex flex-col w-[248px] shrink-0 bg-brand-blue px-4 py-6 gap-1 transition-transform duration-[240ms] ease-out lg:translate-x-0 ${
+        aria-hidden={collapsed}
+        className={`fixed lg:static inset-y-0 left-0 z-50 flex flex-col shrink-0 overflow-hidden bg-brand-blue gap-1 transition-all duration-[240ms] ease-out lg:duration-300 lg:ease-in-out lg:translate-x-0 ${
           mobileOpen ? "translate-x-0" : "-translate-x-full"
+        } ${
+          collapsed
+            ? "w-[188px] max-w-[78vw] px-4 py-6 lg:w-0 lg:max-w-0 lg:px-0 lg:opacity-0 lg:pointer-events-none"
+            : "w-[188px] max-w-[78vw] px-4 py-6 lg:opacity-100"
         }`}
         style={{ paddingTop: "calc(1.5rem + env(safe-area-inset-top))" }}
       >
-      {/* 로고 */}
-      <div id="header-logo" className="bg-white rounded-[10px] py-2.5 px-3.5 flex items-center justify-center mb-6">
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img id="brand-name" src="/logo_header.jpeg" alt="IRON DEVICE" className="h-[22px] w-auto object-contain" />
+      {/* 로고 — 이미지 대신 텍스트 워드마크 */}
+      <div id="header-logo" className="px-1 mb-6">
+        <span id="brand-name" className="text-white text-[15px] font-extrabold tracking-tight">
+          IRON DEVICE
+        </span>
       </div>
 
       {/* 대시보드(드로어 전부 닫기) */}
@@ -81,19 +89,6 @@ export default function Sidebar({ mobileOpen = false, onMobileClose }: SidebarPr
           </button>
         );
       })}
-
-      <div className="flex-1" />
-
-      {/* 엔진 상태 칩 — 설정된(협상되지 않은) Calibration 값 표시 */}
-      <div className="flex items-center gap-2.5 px-3.5 py-3 rounded-xl bg-white/8">
-        <span className="w-2 h-2 rounded-full bg-emerald-400 shrink-0" />
-        <div className="min-w-0">
-          <p className="m-0 text-xs font-semibold text-white">WASM Engine</p>
-          <p className="m-0.5 mt-0.5 text-[11px] text-white/50 tabular-nums truncate">
-            {Number(calibration.sampleRate || 0).toLocaleString()}Hz · buf {calibration.bufferSize || "—"}
-          </p>
-        </div>
-      </div>
       </aside>
     </>
   );

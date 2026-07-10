@@ -4,94 +4,13 @@
 // 전체 화면 오버레이(ChartDetailOverlay와 동일한 전환 패턴). 워크스페이스에 보존된
 // N채널 WAV(마이크 전 채널 캡처: ch0=V, ch1=I, ch2..=확장 / 파일 모드: 2ch V·I)를
 // 디코딩해 채널마다 min/max 엔벨로프 파형 + peak/RMS 통계를 렌더링한다.
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { ArrowLeft, AudioLines, X } from "lucide-react";
 import { getWorkspacePayload, type WorkspaceItemMeta } from "@/features/audio/lib/cache/workspace";
-import { decodeAudioChannels, type DecodedChannels } from "@/features/audio/lib/wav-decoder";
+import { decodeAudioChannels, type DecodedChannels } from "@/features/audio/lib/codec/wav-decoder";
+import { channelLabel, channelColor } from "@/features/audio/lib/render/channel-meta";
+import { ChannelWaveformCanvas, channelStats } from "@/features/audio/components/chart/ChannelWaveformCanvas";
 import { formatTime } from "@/shared/lib/utils";
-
-// 채널 의미(확정): ch0=V(전압 센스), ch1=I(전류 센스), ch2 이후는 Calibration에서 확장한 예비 채널.
-function channelLabel(ch: number): { name: string; role: string } {
-  if (ch === 0) return { name: "CH0", role: "V (전압)" };
-  if (ch === 1) return { name: "CH1", role: "I (전류)" };
-  return { name: `CH${ch}`, role: "확장" };
-}
-const CHANNEL_COLORS = ["#0B4171", "#6B9BD1", "#10B981", "#F97316", "#0EA5E9", "#EC4899", "#84CC16", "#F43F5E"];
-
-/** 한 채널의 min/max 엔벨로프를 캔버스에 그린다 (컨테이너 리사이즈 추적, DPR 스케일) */
-function ChannelWaveform({ data, color }: { data: Float32Array; color: string }) {
-  const canvasRef = useRef<HTMLCanvasElement>(null);
-
-  useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-
-    const draw = () => {
-      const parent = canvas.parentElement;
-      if (!parent) return;
-      const dpr = window.devicePixelRatio || 1;
-      const w = parent.clientWidth;
-      const h = parent.clientHeight;
-      if (w === 0 || h === 0) return;
-      canvas.width  = w * dpr;
-      canvas.height = h * dpr;
-      canvas.style.width  = `${w}px`;
-      canvas.style.height = `${h}px`;
-      const ctx = canvas.getContext("2d");
-      if (!ctx) return;
-      ctx.scale(dpr, dpr);
-      ctx.clearRect(0, 0, w, h);
-
-      // 중앙 0선
-      ctx.strokeStyle = "rgba(148, 163, 184, 0.35)";
-      ctx.lineWidth = 1;
-      ctx.beginPath();
-      ctx.moveTo(0, h / 2);
-      ctx.lineTo(w, h / 2);
-      ctx.stroke();
-
-      // 픽셀 컬럼마다 버킷 min/max 수직선 — 표시용 엔벨로프 (데이터는 원본 그대로 보존)
-      const n = data.length;
-      if (n === 0) return;
-      const half = h / 2;
-      ctx.strokeStyle = color;
-      ctx.lineWidth = 1;
-      ctx.beginPath();
-      for (let x = 0; x < w; x++) {
-        const start = Math.floor((x / w) * n);
-        const end   = Math.max(start + 1, Math.floor(((x + 1) / w) * n));
-        let min = Infinity, max = -Infinity;
-        for (let i = start; i < end; i++) {
-          const v = data[i];
-          if (v < min) min = v;
-          if (v > max) max = v;
-        }
-        const yMax = half - max * half * 0.95;
-        const yMin = half - min * half * 0.95;
-        ctx.moveTo(x + 0.5, yMax);
-        ctx.lineTo(x + 0.5, Math.max(yMin, yMax + 1)); // 무음 구간도 1px은 보이게
-      }
-      ctx.stroke();
-    };
-
-    draw();
-    const observer = new ResizeObserver(draw);
-    if (canvas.parentElement) observer.observe(canvas.parentElement);
-    return () => observer.disconnect();
-  }, [data, color]);
-
-  return <canvas ref={canvasRef} className="block" />;
-}
-
-function channelStats(data: Float32Array): { peak: number; rms: number } {
-  let peak = 0, sumSq = 0;
-  for (let i = 0; i < data.length; i++) {
-    const a = Math.abs(data[i]);
-    if (a > peak) peak = a;
-    sumSq += data[i] * data[i];
-  }
-  return { peak, rms: data.length ? Math.sqrt(sumSq / data.length) : 0 };
-}
 
 interface Props {
   item: WorkspaceItemMeta;
@@ -191,7 +110,7 @@ export default function ChannelViewerOverlay({ item, onClose }: Props) {
           <div className="flex flex-col gap-3 max-w-5xl mx-auto">
             {decoded.channels.map((data, ch) => {
               const { name, role } = channelLabel(ch);
-              const color = CHANNEL_COLORS[ch % CHANNEL_COLORS.length];
+              const color = channelColor(ch);
               const { peak, rms } = channelStats(data);
               return (
                 <div key={ch} className="rounded-xl border border-iron-100 bg-white overflow-hidden">
@@ -203,17 +122,23 @@ export default function ChannelViewerOverlay({ item, onClose }: Props) {
                       peak {peak.toFixed(4)} · rms {rms.toFixed(4)}
                     </span>
                   </div>
-                  <div className="h-28 sm:h-32">
-                    <ChannelWaveform data={data} color={color} />
+                  <div className="h-40 sm:h-44">
+                    <ChannelWaveformCanvas
+                      color={color}
+                      sampleRate={decoded.sampleRate}
+                      totalDurationSec={decoded.durationSec}
+                      liveWindow={{ data, startSec: 0 }}
+                      fetchRange={async (s, e) =>
+                        data.subarray(
+                          Math.max(0, Math.round(s * decoded.sampleRate)),
+                          Math.min(data.length, Math.round(e * decoded.sampleRate)),
+                        )
+                      }
+                    />
                   </div>
                 </div>
               );
             })}
-            {/* 시간축 라벨 (공통) */}
-            <div className="flex justify-between px-1 text-[10px] font-mono text-iron-400">
-              <span>0:00</span>
-              <span>{formatTime(decoded.durationSec)}</span>
-            </div>
           </div>
         )}
       </div>
