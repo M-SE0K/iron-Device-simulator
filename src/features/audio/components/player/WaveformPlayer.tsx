@@ -35,8 +35,7 @@ interface Props {
   onReset?: () => void;
   /**
    * ChartDetailOverlay(z-[60])처럼 전체 화면을 덮는 뷰가 열려 있을 때, 플로팅 독을 그 위로
-   * 끌어올려 재생 중에도 계속 보이게 한다(같은 인스턴스를 그대로 노출하는 것 — 캡처 세션을
-   * 새로 열지 않는다).
+   * 끌어올려 재생 중에도 계속 보이게 한다(같은 인스턴스를 그대로 노출하는 것 — 캡처 세션을 새로 열지 않는다).
    */
   elevated?: boolean;
 }
@@ -57,13 +56,11 @@ export interface WaveformPlayerHandle {
    */
   exportRecordedAudio: () => Blob | null;
   /**
-   * 원본 캡처 청크 실시간 스트림을 구독한다(ChartDetailOverlay 채널 뷰) — 폴링 없이 청크가
-   * 들어오는 즉시 알림을 받는다. 구독 해제 함수를 반환한다.
+   * 원본 캡처 청크 실시간 스트림 구독 — ChartDetailOverlay 채널 뷰가 폴링 없이
+   * 청크 도착 즉시 갱신하는 경로(마이크 모드 MicrophonePlayerHandle과 동일 계약).
    */
-  subscribeCaptureStream: CaptureStreamListenerSubscriber;
+  subscribeCaptureStream: (fn: CaptureStreamListener) => () => void;
 }
-
-type CaptureStreamListenerSubscriber = (fn: CaptureStreamListener) => () => void;
 
 const WaveformPlayer = forwardRef<WaveformPlayerHandle, Props>(function WaveformPlayer({
   audioFile,
