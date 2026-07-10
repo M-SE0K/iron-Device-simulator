@@ -14,6 +14,7 @@ import type { WorkspaceItemMeta } from "@/features/audio/lib/cache/workspace";
 import ChannelViewerOverlay from "./ChannelViewerOverlay";
 import { useEscapeKey } from "@/shared/hooks/useEscapeKey";
 import SideDrawer from "@/shared/components/SideDrawer";
+import CountBadge from "@/shared/components/CountBadge";
 
 function formatMm(raw: number | null | undefined): string {
   if (raw === null || raw === undefined || !Number.isFinite(raw)) return "—";
@@ -196,10 +197,7 @@ export default function RecordsDrawer() {
               {/* 섹션 헤더 — Workspace 폴더 섹션과 동일 톤 */}
               <div className="flex items-center justify-between px-1 pb-1">
                 <span className="text-sm font-medium text-iron-400">파일별 기록</span>
-                <span className="flex items-center gap-1.5 text-xs text-iron-400 tabular-nums">
-                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
-                  {groups.length}개 파일
-                </span>
+                <CountBadge count={groups.length} suffix="개 파일" />
               </div>
 
               {groups.map((group) => {

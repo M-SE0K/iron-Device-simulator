@@ -10,6 +10,7 @@ import { getWorkspacePayload, type WorkspaceItemMeta } from "@/features/audio/li
 import { decodeAudioChannels, type DecodedChannels } from "@/features/audio/lib/codec/wav-decoder";
 import { channelLabel, channelColor } from "@/features/audio/lib/render/channel-meta";
 import { ChannelWaveformCanvas, channelStats } from "@/features/audio/components/chart/ChannelWaveformCanvas";
+import ChannelRowHeader from "@/features/audio/components/chart/ChannelRowHeader";
 import { formatTime } from "@/shared/lib/utils";
 import { useOverlayTransition } from "@/shared/hooks/useOverlayTransition";
 import FullscreenOverlay from "@/shared/components/FullscreenOverlay";
@@ -94,12 +95,7 @@ export default function ChannelViewerOverlay({ item, onClose }: Props) {
               return (
                 <div key={ch} className="rounded-xl border border-iron-100 bg-white overflow-hidden">
                   <div className="flex items-center gap-2 px-3 py-2 border-b border-iron-50">
-                    <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: color }} />
-                    <span className="text-xs font-semibold text-iron-800 font-mono">{name}</span>
-                    <span className="text-[11px] text-iron-400">{role}</span>
-                    <span className="ml-auto text-[10px] font-mono text-iron-400">
-                      peak {peak.toFixed(4)} · rms {rms.toFixed(4)}
-                    </span>
+                    <ChannelRowHeader color={color} name={name} role={role} stats={{ peak, rms }} />
                   </div>
                   <div className="h-40 sm:h-44">
                     <ChannelWaveformCanvas

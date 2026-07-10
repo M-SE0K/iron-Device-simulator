@@ -9,6 +9,7 @@ import type { LucideIcon } from "lucide-react";
 import { AudioLines } from "lucide-react";
 import { cn } from "@/shared/lib/utils";
 import SideDrawer from "@/shared/components/SideDrawer";
+import CountBadge from "@/shared/components/CountBadge";
 
 export interface DrawerEntry {
   id: string;
@@ -99,10 +100,7 @@ export default function ChannelSelectDrawer({ open, onClose, entries, selected, 
             <div className="flex items-center justify-between px-1 pb-1">
               <span className="text-sm font-medium text-iron-400">채널 목록</span>
               {channelEntries.length > 0 && (
-                <span className="flex items-center gap-1.5 text-xs text-iron-400 tabular-nums">
-                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
-                  {channelEntries.length}ch
-                </span>
+                <CountBadge count={channelEntries.length} suffix="ch" />
               )}
             </div>
 

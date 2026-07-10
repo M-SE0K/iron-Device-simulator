@@ -32,6 +32,7 @@ import TemperatureChart from "./TemperatureChart";
 import ExcursionChart from "./ExcursionChart";
 import ChannelSelectDrawer, { type DrawerEntry } from "./ChannelSelectDrawer";
 import ChannelStackView, { type StackItem } from "./ChannelStackView";
+import ChannelRowHeader from "./ChannelRowHeader";
 import { ChannelWaveformCanvas, channelStats, type WaveformWindow } from "./ChannelWaveformCanvas";
 
 // 채널 라이브 뷰가 화면에 유지하는 슬라이딩 윈도우 길이(초) — 이보다 오래된 샘플은 버려서
@@ -376,19 +377,12 @@ export default function ChartDetailOverlay({
       items.push({
         id: entry.id,
         header: (
-          <>
-            <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: entry.color }} />
-            <span className="text-xs font-semibold text-iron-800 font-mono">{entry.name}</span>
-            <span className="text-[11px] text-iron-400">{entry.role}</span>
-            {liveWindow && (
-              <span className="ml-auto text-[10px] font-mono text-iron-400">
-                {(() => {
-                  const { peak, rms } = channelStats(liveWindow.data);
-                  return `peak ${peak.toFixed(4)} · rms ${rms.toFixed(4)}`;
-                })()}
-              </span>
-            )}
-          </>
+          <ChannelRowHeader
+            color={entry.color}
+            name={entry.name}
+            role={entry.role}
+            stats={liveWindow ? channelStats(liveWindow.data) : null}
+          />
         ),
         content: liveWindow && header ? (
           <ChannelWaveformCanvas

@@ -24,6 +24,7 @@ import { useCalibrationDraft } from "./hooks/useCalibrationDraft";
 import { useCalibrationApply } from "./hooks/useCalibrationApply";
 import { useEscapeKey } from "@/shared/hooks/useEscapeKey";
 import SideDrawer from "@/shared/components/SideDrawer";
+import LabeledField from "@/shared/components/LabeledField";
 
 /** 드롭다운 선택 필드 */
 function SelectField({
@@ -42,8 +43,7 @@ function SelectField({
   disabled?: boolean;
 }) {
   return (
-    <div className="flex flex-col gap-1.5">
-      <label className="text-[10px] uppercase tracking-wider font-medium text-iron-400">{label}</label>
+    <LabeledField label={label}>
       <AnimatedSelect
         value={value}
         unit={unit}
@@ -52,7 +52,7 @@ function SelectField({
         aria-label={label}
         disabled={disabled}
       />
-    </div>
+    </LabeledField>
   );
 }
 
@@ -69,8 +69,7 @@ function NumberField({
   onChange: (v: string) => void;
 }) {
   return (
-    <div className="flex flex-col gap-1.5">
-      <label className="text-[10px] uppercase tracking-wider font-medium text-iron-400">{label}</label>
+    <LabeledField label={label}>
       <div className="flex items-center gap-2 px-3 py-2 rounded-lg border border-iron-200 bg-white focus-within:border-brand-blue focus-within:ring-1 focus-within:ring-brand-blue">
         <input
           type="number"
@@ -82,7 +81,7 @@ function NumberField({
         />
         {unit && <span className="text-xs text-iron-400 shrink-0">{unit}</span>}
       </div>
-    </div>
+    </LabeledField>
   );
 }
 

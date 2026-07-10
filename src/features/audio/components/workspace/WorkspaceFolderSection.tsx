@@ -8,6 +8,7 @@ import { useCallback, useEffect, useState } from "react";
 import { Folder, FileText, FolderOpen } from "lucide-react";
 import { useWorkspace } from "./WorkspaceContext";
 import { cn, formatFileSize } from "@/shared/lib/utils";
+import CountBadge from "@/shared/components/CountBadge";
 
 interface FolderFile { key: string; name: string; size: number }
 
@@ -122,10 +123,7 @@ export default function WorkspaceFolderSection() {
       <span className="text-sm font-medium text-iron-400">폴더</span>
       {connected && (
         <div className="flex items-center gap-2">
-          <span className="flex items-center gap-1.5 text-xs text-iron-400 tabular-nums">
-            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
-            {count}개 파일
-          </span>
+          <CountBadge count={count} suffix="개 파일" />
           <button
             type="button"
             onClick={onDisconnect}

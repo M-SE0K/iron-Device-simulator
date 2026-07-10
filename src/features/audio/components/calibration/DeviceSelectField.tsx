@@ -5,6 +5,7 @@
 // 버튼(새로고침 등)과 하단 안내 문구는 필드마다 달라 슬롯(headerRight/footnote)으로 남긴다.
 import type { ReactNode } from "react";
 import AnimatedSelect, { type SelectOption } from "@/shared/components/AnimatedSelect";
+import LabeledField from "@/shared/components/LabeledField";
 
 interface DeviceSelectFieldProps {
   label: string;
@@ -42,15 +43,8 @@ export default function DeviceSelectField({
   ];
 
   return (
-    <div className="flex flex-col gap-1.5">
-      <div className="flex items-center justify-between">
-        <label className="text-[10px] uppercase tracking-wider font-medium text-iron-400">
-          {label}
-        </label>
-        {headerRight}
-      </div>
+    <LabeledField label={label} headerRight={headerRight} footnote={footnote}>
       <AnimatedSelect value={value} aria-label={ariaLabel} onChange={onChange} options={options} />
-      {footnote}
-    </div>
+    </LabeledField>
   );
 }
