@@ -1,22 +1,22 @@
 "use client";
 
 import { useState, useCallback, useRef, useEffect, useMemo } from "react";
-import { Menu } from "lucide-react";
+import { Menu, PanelLeftClose, PanelLeftOpen } from "lucide-react";
 import Sidebar from "@/shared/components/Sidebar";
 import SegmentedControl from "@/shared/components/SegmentedControl";
-import { AnalysisModeProvider } from "@/features/audio/components/dashboard/AnalysisModeContext";
 import SelectedFilePanel from "@/features/audio/components/dashboard/SelectedFilePanel";
 import WaveformPlayer, { WaveformPlayerHandle } from "@/features/audio/components/player/WaveformPlayer";
-import MicrophonePlayer, { type MicRecordingExport } from "@/features/audio/components/player/MicrophonePlayer";
+import MicrophonePlayer, { type MicRecordingExport, type MicrophonePlayerHandle } from "@/features/audio/components/player/MicrophonePlayer";
+import type { CaptureStreamListener } from "@/features/audio/components/player/capture/useCaptureSession";
 import TemperatureChart from "@/features/audio/components/chart/TemperatureChart";
 import ExcursionChart from "@/features/audio/components/chart/ExcursionChart";
 import ChartDetailOverlay, { type DetailMetric } from "@/features/audio/components/chart/ChartDetailOverlay";
 import WorkspaceDrawer from "@/features/audio/components/workspace/WorkspaceDrawer";
-import MeasurementRecordsDrawer from "@/features/audio/components/workspace/MeasurementRecordsDrawer";
+import RecordsDrawer from "@/features/audio/components/workspace/RecordsDrawer";
 import CalibrationDrawer from "@/features/audio/components/calibration/CalibrationDrawer";
 import { AppStatus, AnalysisFrame, InputParameterValues } from "@/features/audio/types";
 import { StreamDebugInfo, DebugLogEntry, MeasurementExport } from "@/features/audio/lib/debug/types";
-import type { MeasurementStatus } from "@/features/audio/lib/cache/workspace";
+import type { SessionStatus } from "@/features/audio/lib/cache/workspace";
 import { useCalibration } from "../calibration/CalibrationContext";
 import { useWorkspace } from "../workspace/WorkspaceContext";
 import { clearFrameCache } from "@/features/audio/lib/cache/frame";
@@ -38,7 +38,7 @@ interface DashboardPageProps {
 function computeMeasurementSummary(
   frames: AnalysisFrame[],
   thresholds: TempThresholds,
-): { peakTemp: number | null; peakExcursion: number | null; status: MeasurementStatus | null } {
+): { peakTemp: number | null; peakExcursion: number | null; status: SessionStatus | null } {
   if (frames.length === 0) return { peakTemp: null, peakExcursion: null, status: null };
   let peakTemp = -Infinity;
   let peakExcursion = 0;
@@ -46,7 +46,7 @@ function computeMeasurementSummary(
     peakTemp = Math.max(peakTemp, f.temperature[0], f.temperature[1]);
     peakExcursion = Math.max(peakExcursion, Math.abs(f.excursion[0]), Math.abs(f.excursion[1]));
   }
-  const status: MeasurementStatus =
+  const status: SessionStatus =
     peakTemp >= thresholds.danger ? "danger" : peakTemp >= thresholds.warn ? "warning" : "normal";
   return { peakTemp, peakExcursion, status };
 }
@@ -92,6 +92,19 @@ export default function DashboardPage({ useQueue }: DashboardPageProps) {
 
   // ── 모바일(lg 미만) 사이드바 슬라이드 오버레이 토글 ─────────────────────────
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
+  // ── 데스크톱(lg 이상) 네이비 사이드바 접힘 토글 — Cmd/Ctrl+B ────────────────
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "b") {
+        e.preventDefault();
+        setSidebarCollapsed((prev) => !prev);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
 
   // ── sessionStorage 캐시용 최신값 미러 refs ────────────────────────────────
   // 이벤트 핸들러(pagehide 등)에서 stale closure 없이 최신 버퍼를 읽기 위함.
@@ -101,6 +114,23 @@ export default function DashboardPage({ useQueue }: DashboardPageProps) {
 
   // ── WaveformPlayer ref (sendMessage/exportRecordedAudio 접근용) ──────────
   const realtimeWaveRef = useRef<WaveformPlayerHandle>(null);
+  // ── MicrophonePlayer ref (exportRecordedAudio 접근용 — 파일 모드의 realtimeWaveRef와 동일 계약) ──
+  const micWaveRef = useRef<MicrophonePlayerHandle>(null);
+  // 채널 상세 뷰(ChartDetailOverlay)의 데이터 소스 — 입력 모드에 맞는 플레이어 핸들에서
+  // 현재 캡처 버퍼를 WAV Blob으로 스냅샷 반환한다.
+  const getChannelsBlob = useCallback(
+    () => (inputMode === "file" ? realtimeWaveRef.current?.exportRecordedAudio() : micWaveRef.current?.exportRecordedAudio()) ?? null,
+    [inputMode],
+  );
+  // ChartDetailOverlay 채널 뷰가 폴링 없이 실시간으로 구독하는 원본 캡처 청크 스트림 —
+  // 입력 모드에 맞는 플레이어 핸들의 subscribeCaptureStream을 그대로 위임한다.
+  const subscribeChannelStream = useCallback(
+    (fn: CaptureStreamListener) => {
+      const handle = inputMode === "file" ? realtimeWaveRef.current : micWaveRef.current;
+      return handle?.subscribeCaptureStream(fn) ?? (() => {});
+    },
+    [inputMode],
+  );
   // metrics 전송 간격 카운터 (10회에 1회 전송)
   const metricsCountRef    = useRef(0);
   const METRICS_INTERVAL   = 10;
@@ -367,7 +397,9 @@ export default function DashboardPage({ useQueue }: DashboardPageProps) {
     lastRenderRateRef.current = { time: performance.now(), count: 0 };
     renderUpdateRateRef.current = null;
 
-    const timer = setInterval(() => {
+    // 매 틱 + 스케줄러 종료(정지/일시정지) 시 마지막 한 번 모두 같은 드레인 로직을 탄다 —
+    // cleanup에서도 호출해야 마지막 미처리 버킷이 유실되지 않는다(아래 참고).
+    const drain = () => {
       const bucket = outputQueueRef.current;
       outputQueueRef.current = [];
 
@@ -437,9 +469,19 @@ export default function DashboardPage({ useQueue }: DashboardPageProps) {
         );
         lastRenderRateRef.current = { time: now, count: renderTickCountRef.current };
       }
-    }, RENDER_INTERVAL);
+    };
 
-    return () => clearInterval(timer);
+    const timer = setInterval(drain, RENDER_INTERVAL);
+
+    // 정지/일시정지로 isPlaying이 false가 되면 이 effect가 정리되며 setInterval이 멈춘다 —
+    // 그 순간 outputQueueRef에 아직 남아 있던(마지막 틱 이후 도착한) 프레임은 그대로
+    // 유실된다. 채널 뷰(청크 즉시 push, 버퍼링 없음)는 이 영향을 받지 않아 항상 최신
+    // 캡처 시점을 반영하는데, Temperature/Excursion만 그 마지막 버킷만큼 시간축이
+    // 뒤처지는 원인이었다 — clearInterval 전에 남은 버킷을 한 번 더 드레인해 없앤다.
+    return () => {
+      clearInterval(timer);
+      drain();
+    };
   }, [isPlaying, useQueue]);
 
   // ── 렌더 파이프라인 텔레메트리(RTT/react/echarts/freshness lag 집계 + metrics 역전송) ──
@@ -467,17 +509,15 @@ export default function DashboardPage({ useQueue }: DashboardPageProps) {
     || streamingFrames.length > 0;
 
   return (
-    <AnalysisModeProvider
-      value={{
-        inputMode,
-        setInputMode: handleInputModeChange,
-      }}
-    >
     <div
       id="dashboard-root"
       className="flex flex-col lg:flex-row min-h-screen lg:h-screen lg:overflow-hidden"
     >
-      <Sidebar mobileOpen={mobileNavOpen} onMobileClose={() => setMobileNavOpen(false)} />
+      <Sidebar
+        mobileOpen={mobileNavOpen}
+        onMobileClose={() => setMobileNavOpen(false)}
+        collapsed={sidebarCollapsed}
+      />
 
       <div id="content-column" className="relative flex-1 min-w-0 flex flex-col lg:h-screen lg:overflow-hidden">
         {/* 모바일(lg 미만) 전용 상단 바 — 햄버거로 사이드바를 슬라이드 오버레이로 연다 */}
@@ -493,14 +533,22 @@ export default function DashboardPage({ useQueue }: DashboardPageProps) {
           >
             <Menu className="w-5 h-5" />
           </button>
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src="/logo_header.jpeg" alt="IRON DEVICE" className="h-6 w-auto object-contain" />
+          <span className="text-iron-900 text-[15px] font-extrabold tracking-tight">IRON DEVICE</span>
         </div>
 
         <main id="dashboard-main" className="flex-1 min-h-0 overflow-y-auto p-3 lg:p-7 pb-28 lg:pb-32">
           <div id="dashboard-content" className="lg:h-full w-full flex flex-col gap-4">
             {/* 상단: 타이틀/서브타이틀 + 입력 소스(파일/마이크) 세그먼트 토글 */}
             <div className="flex items-center gap-4 flex-wrap">
+              <button
+                type="button"
+                onClick={() => setSidebarCollapsed((prev) => !prev)}
+                aria-label={sidebarCollapsed ? "사이드바 펼치기 (⌘/Ctrl + B)" : "사이드바 숨기기 (⌘/Ctrl + B)"}
+                title={sidebarCollapsed ? "사이드바 펼치기 (⌘/Ctrl + B)" : "사이드바 숨기기 (⌘/Ctrl + B)"}
+                className="hidden lg:flex items-center justify-center w-8 h-8 rounded-lg text-iron-500 hover:bg-iron-100 hover:text-iron-700 transition-colors shrink-0"
+              >
+                {sidebarCollapsed ? <PanelLeftOpen className="w-4 h-4" /> : <PanelLeftClose className="w-4 h-4" />}
+              </button>
               <div className="mr-auto min-w-0">
                 <h2 className="m-0 text-xl font-bold text-iron-900">
                   {inputMode === "file" ? "실시간 추적" : "마이크 입력"}
@@ -522,7 +570,7 @@ export default function DashboardPage({ useQueue }: DashboardPageProps) {
                   { value: "file", label: "파일" },
                   { value: "mic", label: "마이크" },
                 ]}
-                className="w-[236px]"
+                className="w-[208px]"
                 aria-label="입력 소스"
               />
             </div>
@@ -533,9 +581,9 @@ export default function DashboardPage({ useQueue }: DashboardPageProps) {
               <p id="error-message" className="error-message text-xs text-red-500 px-1 shrink-0">오류: {errorMsg}</p>
             )}
 
-            <div id="dashboard-grid" className="flex flex-col gap-4 lg:flex-1 lg:min-h-[600px]">
+            <div id="dashboard-grid" className="flex flex-col gap-4 lg:flex-1 lg:min-h-[528px]">
               <div id="charts-section" className="flex flex-col gap-4 min-h-0 lg:flex-1">
-                <div className="h-[300px] lg:h-auto lg:min-h-0 lg:flex-1">
+                <div className="h-[264px] lg:h-auto lg:min-h-0 lg:flex-1">
                   <TemperatureChart
                     frames={streamingFrames}
                     currentTime={currentTime}
@@ -550,7 +598,7 @@ export default function DashboardPage({ useQueue }: DashboardPageProps) {
                     dangerThreshold={tempThresholds.danger}
                   />
                 </div>
-                <div className="h-[300px] lg:h-auto lg:min-h-0 lg:flex-1">
+                <div className="h-[264px] lg:h-auto lg:min-h-0 lg:flex-1">
                   <ExcursionChart
                     frames={streamingFrames}
                     currentTime={currentTime}
@@ -568,7 +616,7 @@ export default function DashboardPage({ useQueue }: DashboardPageProps) {
 
         {/* 우측 드로어 3개 — content-column 기준 absolute, ActiveDrawerContext로 배타 전환 */}
         <WorkspaceDrawer />
-        <MeasurementRecordsDrawer />
+        <RecordsDrawer />
         <CalibrationDrawer />
 
         {/* 플로팅 플레이어 독 — 파일 모드는 재생/파형/저장, 마이크 모드는 녹음/저장 */}
@@ -588,9 +636,11 @@ export default function DashboardPage({ useQueue }: DashboardPageProps) {
             onSave={handleSaveToWorkspace}
             canSave={!!audioFile && streamingFrames.length > 0}
             onReset={handleReset}
+            elevated={detailChart !== null}
           />
         ) : (
           <MicrophonePlayer
+            ref={micWaveRef}
             status={realtimeStatus}
             onStatusChange={handleRealtimeStatus}
             onFrameReceived={handleFrameReceived}
@@ -599,6 +649,7 @@ export default function DashboardPage({ useQueue }: DashboardPageProps) {
             onDebugLog={handleDebugLog}
             onSaveRecording={handleSaveMicRecording}
             inputParams={inputParams}
+            elevated={detailChart !== null}
           />
         )}
       </div>
@@ -614,10 +665,11 @@ export default function DashboardPage({ useQueue }: DashboardPageProps) {
           lttb={LTTB_ENABLED}
           warnThreshold={tempThresholds.warn}
           dangerThreshold={tempThresholds.danger}
+          getChannelsBlob={getChannelsBlob}
+          subscribeChannelStream={subscribeChannelStream}
           onClose={() => setDetailChart(null)}
         />
       )}
     </div>
-    </AnalysisModeProvider>
   );
 }

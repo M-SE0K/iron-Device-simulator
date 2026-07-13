@@ -4,6 +4,8 @@
 //     다채널 WAV 지원이 보장되지 않아 RIFF 청크를 직접 파싱한다(int16/int32/float32).
 //   · WAV가 아니거나 파싱에 실패하면(원본 mp3 업로드 저장 등) decodeAudioData로 폴백.
 
+import { readTag, makeSampleReader } from "./wav-primitives";
+
 export interface DecodedChannels {
   /** 채널별 평면 파형, [-1, 1] 정규화 — 인덱스가 곧 채널 번호(ch0=V, ch1=I, ch2..=확장) */
   channels: Float32Array[];
@@ -15,8 +17,7 @@ export interface DecodedChannels {
 function parseWav(buf: ArrayBuffer): DecodedChannels | null {
   const view = new DataView(buf);
   if (buf.byteLength < 44) return null;
-  const tag = (off: number) =>
-    String.fromCharCode(view.getUint8(off), view.getUint8(off + 1), view.getUint8(off + 2), view.getUint8(off + 3));
+  const tag = (off: number) => readTag(view, off);
   if (tag(0) !== "RIFF" || tag(8) !== "WAVE") return null;
 
   let fmt: { format: number; channels: number; sampleRate: number; bits: number } | null = null;
@@ -50,10 +51,7 @@ function parseWav(buf: ArrayBuffer): DecodedChannels | null {
   if (frameCount === 0) return null;
 
   // 지원 포맷: PCM(1) int16/int32, IEEE float(3) float32 — 그 외는 폴백에 맡긴다.
-  let read: ((byteOff: number) => number) | null = null;
-  if (format === 1 && bits === 16) read = (o) => view.getInt16(o, true) / 0x8000;
-  if (format === 1 && bits === 32) read = (o) => view.getInt32(o, true) / 0x80000000;
-  if (format === 3 && bits === 32) read = (o) => view.getFloat32(o, true);
+  const read = makeSampleReader(view, bits, format);
   if (!read) return null;
 
   const channels = Array.from({ length: nCh }, () => new Float32Array(frameCount));

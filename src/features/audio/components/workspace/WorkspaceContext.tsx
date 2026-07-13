@@ -59,8 +59,10 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     [activeDrawer],
   );
 
+  // 저장 완료 후에는 (파일 브라우저인) Workspace 드로어가 아니라, 방금 저장된 항목이
+  // 실제로 보이는 "측정 기록" 드로어를 연다.
   const { items, saveCurrent, rename, remove, exportJson, exportCsv, downloadAudio } =
-    useWorkspaceItems(() => setOpen(true));
+    useWorkspaceItems(() => activeDrawer.openDrawer("records"));
 
   // 로컬/브라우저 두 폴더 소스가 공유하는 다리 상태 — 어느 쪽에서 로드하든 DashboardClient의
   // 기존 handleFileSelected(File) 파이프라인으로 그대로 흘려보낸다.

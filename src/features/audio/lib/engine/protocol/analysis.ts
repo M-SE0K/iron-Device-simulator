@@ -35,8 +35,11 @@ export function parseSamplesPerCh(msg: Record<string, unknown>): number {
 
 // ─── 메시지 생성 ────────────────────────────────────────────────────────────
 // 프레임 인덱스를 오디오 시간(초)으로 변환한다. 시간 = (프레임 인덱스 × samplesPerCh) / sampleRate
+// 소수 6자리(μs 단위)로 반올림 — BUFFER_SIZE_OPTIONS/SAMPLE_RATE_OPTIONS의 최소 프레임 간격
+// (8 samples / 384000 Hz ≈ 20.8μs)보다 촘촘해야 연속 프레임의 시간이 같은 값으로 뭉개지지 않는다.
+// (과거 toFixed(4)=0.1ms 단위는 이 극단 설정에서 여러 프레임이 동일 타임스탬프로 겹치는 문제가 있었다.)
 function calculateFrameTime(frameIndex: number, sampleRate: number, samplesPerCh: number): number {
-  return parseFloat(((frameIndex * samplesPerCh) / sampleRate).toFixed(4));
+  return parseFloat(((frameIndex * samplesPerCh) / sampleRate).toFixed(6));
 }
 
 //분석 프레임을 WebSocket 메시지로 변환한다. - 시간 정보를 추가하고, 구조화된 응답 객체를 반환한다.

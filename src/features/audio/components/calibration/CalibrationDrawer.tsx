@@ -22,6 +22,9 @@ import { useMediaDevices } from "./hooks/useMediaDevices";
 import { useDeviceOptionAutoCorrect } from "./hooks/useDeviceOptionAutoCorrect";
 import { useCalibrationDraft } from "./hooks/useCalibrationDraft";
 import { useCalibrationApply } from "./hooks/useCalibrationApply";
+import { useEscapeKey } from "@/shared/hooks/useEscapeKey";
+import SideDrawer from "@/shared/components/SideDrawer";
+import LabeledField from "@/shared/components/LabeledField";
 
 /** 드롭다운 선택 필드 */
 function SelectField({
@@ -40,8 +43,7 @@ function SelectField({
   disabled?: boolean;
 }) {
   return (
-    <div className="flex flex-col gap-1.5">
-      <label className="text-[10px] uppercase tracking-wider font-medium text-iron-400">{label}</label>
+    <LabeledField label={label}>
       <AnimatedSelect
         value={value}
         unit={unit}
@@ -50,7 +52,7 @@ function SelectField({
         aria-label={label}
         disabled={disabled}
       />
-    </div>
+    </LabeledField>
   );
 }
 
@@ -67,8 +69,7 @@ function NumberField({
   onChange: (v: string) => void;
 }) {
   return (
-    <div className="flex flex-col gap-1.5">
-      <label className="text-[10px] uppercase tracking-wider font-medium text-iron-400">{label}</label>
+    <LabeledField label={label}>
       <div className="flex items-center gap-2 px-3 py-2 rounded-lg border border-iron-200 bg-white focus-within:border-brand-blue focus-within:ring-1 focus-within:ring-brand-blue">
         <input
           type="number"
@@ -80,7 +81,7 @@ function NumberField({
         />
         {unit && <span className="text-xs text-iron-400 shrink-0">{unit}</span>}
       </div>
-    </div>
+    </LabeledField>
   );
 }
 
@@ -137,12 +138,7 @@ export default function CalibrationDrawer({ projectName, onApply }: Props) {
     refreshDeviceInfo(values.captureDeviceUID);
     refreshInputDevices();
   }, [open]);
-  useEffect(() => {
-    if (!open) return;
-    const onKey = (e: KeyboardEvent) => e.key === "Escape" && setOpen(false);
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [open]);
+  useEscapeKey(() => setOpen(false), open);
 
   // Input/Output Device 헤더의 새로고침 버튼 — 동작이 완전히 동일해 하나로 공유한다.
   const refreshDevicesButton = (
@@ -158,25 +154,12 @@ export default function CalibrationDrawer({ projectName, onApply }: Props) {
   );
 
   return (
-    <>
-      {/* 배경 오버레이 — content-column 기준(사이드바는 백드롭 아래에서도 클릭 가능) */}
-      <div
-        onClick={() => setOpen(false)}
-        aria-hidden
-        className={`absolute inset-0 z-40 bg-iron-900/30 backdrop-blur-[1px] transition-opacity duration-300 ${
-          open ? "opacity-100" : "opacity-0 pointer-events-none"
-        }`}
-      />
-
-      {/* 우측 슬라이딩 패널 */}
-      <aside
-        className={`absolute top-0 right-0 z-50 h-full w-[420px] max-w-[92vw] bg-white border-l border-iron-100 shadow-[-12px_0_40px_rgba(15,23,42,0.16)] flex flex-col transition-transform duration-[240ms] ease-out ${
-          open ? "translate-x-0" : "translate-x-full"
-        }`}
-        role="dialog"
-        aria-label="Calibration Parameter"
-        aria-hidden={!open}
-      >
+    <SideDrawer
+      open={open}
+      onClose={() => setOpen(false)}
+      ariaLabel="Calibration Parameter"
+      bodyClassName="p-4 space-y-5"
+      header={
         <div className="h-14 px-4 shrink-0 flex items-center justify-between border-b border-iron-100">
           <div className="flex items-center gap-2 min-w-0">
             <SlidersHorizontal className="w-4 h-4 text-brand-blue shrink-0" />
@@ -191,8 +174,26 @@ export default function CalibrationDrawer({ projectName, onApply }: Props) {
             <X className="w-4 h-4" />
           </button>
         </div>
-
-        <div className="flex-1 min-h-0 overflow-auto p-4 space-y-5">
+      }
+      footer={
+        <div className="p-3 border-t border-iron-100 shrink-0 flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setDraft(CALIBRATION_EMPTY)}
+            className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm text-iron-500 border border-iron-200 hover:bg-iron-100"
+          >
+            <RotateCcw className="w-4 h-4" /> 초기화
+          </button>
+          <button
+            type="button"
+            onClick={apply}
+            className="flex-1 px-3 py-2 rounded-lg text-sm text-white bg-brand-blue hover:bg-brand-blue/90"
+          >
+            적용
+          </button>
+        </div>
+      }
+    >
           {projectName && (
             <div className="px-3 py-2 rounded-lg bg-brand-blue/5 text-xs text-brand-blue">
               대상: <span className="font-medium">{projectName}</span>
@@ -424,25 +425,6 @@ export default function CalibrationDrawer({ projectName, onApply }: Props) {
               </p>
             </section>
           )}
-        </div>
-
-        <div className="p-3 border-t border-iron-100 shrink-0 flex items-center gap-2">
-          <button
-            type="button"
-            onClick={() => setDraft(CALIBRATION_EMPTY)}
-            className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm text-iron-500 border border-iron-200 hover:bg-iron-100"
-          >
-            <RotateCcw className="w-4 h-4" /> 초기화
-          </button>
-          <button
-            type="button"
-            onClick={apply}
-            className="flex-1 px-3 py-2 rounded-lg text-sm text-white bg-brand-blue hover:bg-brand-blue/90"
-          >
-            적용
-          </button>
-        </div>
-      </aside>
-    </>
+    </SideDrawer>
   );
 }

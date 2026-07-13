@@ -7,9 +7,12 @@ import { AnalysisFrame } from "@/features/audio/types";
 import SegmentedControl from "@/shared/components/SegmentedControl";
 import { DEFAULT_TEMP_WARN, DEFAULT_TEMP_DANGER } from "@/features/audio/lib/render/detect-events";
 import {
-  computeStreamWindow, computeTemperatureYRange, type ChannelMode,
+  computeStreamWindow, computeTemperatureYRange, WINDOW_SIZE, type ChannelMode,
 } from "@/features/audio/lib/render/chart-window";
-import { buildDataZoom, buildTimeAxis, buildValueTooltip, buildLegend } from "@/features/audio/lib/render/chart-option";
+import {
+  buildValueTooltip, resolveTimeDecimals,
+  buildAreaGradient, buildValueYAxis, buildLineSeries, buildBaseChartOption,
+} from "@/features/audio/lib/render/chart-option";
 
 const ReactECharts = dynamic(() => import("echarts-for-react"), { ssr: false });
 
@@ -34,8 +37,6 @@ interface Props {
   /** 온도 DANGER 임계값(°C) — Calibration.tempDanger. 미지정 시 기본값(75°C) */
   dangerThreshold?: number;
 }
-
-const WINDOW_SIZE = 1000;
 
 // 채널별 색상
 const CH_COLOR: Record<ChannelMode, { ch0: string; ch1: string }> = {
@@ -110,78 +111,45 @@ export default function TemperatureChart({ frames, currentTime, isActive, stream
 
     // 다량 포인트 드로우 비용 상한: LTTB 다운샘플 + large 모드 (lttb=false면 미적용)
     const samplingOpts = lttb ? { sampling: "lttb", large: true, largeThreshold: 2000 } : {};
+    const timeDecimals = resolveTimeDecimals(windowFrames);
 
-    const seriesL = {
+    const markLine = {
+      silent: true,
+      symbol: "none",
+      data: [
+        { yAxis: warnThreshold,   lineStyle: { color: "#F59E0B", type: "dashed", width: 1 }, label: { formatter: "WARN",   color: "#F59E0B", fontSize: 9 } },
+        { yAxis: dangerThreshold, lineStyle: { color: "#EF4444", type: "dashed", width: 1 }, label: { formatter: "DANGER", color: "#EF4444", fontSize: 9 } },
+      ],
+    };
+
+    const seriesL = buildLineSeries({
       name: "L (ch0)",
-      type: "line",
       data: windowFrames.map((f) => [f.time, f.temperature[0]]),
-      smooth: true,
-      symbol: "none",
-      ...samplingOpts,
-      lineStyle: { color: colors.ch0, width: 2 },
-      areaStyle: channelMode !== "Both" ? {
-        color: {
-          type: "linear", x: 0, y: 0, x2: 0, y2: 1,
-          colorStops: [
-            { offset: 0, color: "rgba(11,65,113,0.18)" },
-            { offset: 1, color: "rgba(11,65,113,0)" },
-          ],
-        },
-      } : undefined,
-      markLine: {
-        silent: true,
-        symbol: "none",
-        data: [
-          { yAxis: warnThreshold,   lineStyle: { color: "#F59E0B", type: "dashed", width: 1 }, label: { formatter: "WARN",   color: "#F59E0B", fontSize: 9 } },
-          { yAxis: dangerThreshold, lineStyle: { color: "#EF4444", type: "dashed", width: 1 }, label: { formatter: "DANGER", color: "#EF4444", fontSize: 9 } },
-        ],
-      },
-    };
+      color: colors.ch0, smooth: true, width: 2, sampling: samplingOpts,
+      area: channelMode !== "Both" ? buildAreaGradient("rgba(11,65,113,0.18)", "rgba(11,65,113,0)") : undefined,
+      markLine,
+    });
 
-    const seriesR = {
+    const seriesR = buildLineSeries({
       name: "R (ch1)",
-      type: "line",
       data: windowFrames.map((f) => [f.time, f.temperature[1]]),
-      smooth: true,
-      symbol: "none",
-      ...samplingOpts,
-      lineStyle: { color: colors.ch1, width: 2 },
-      areaStyle: channelMode !== "Both" ? {
-        color: {
-          type: "linear",
-          x: 0, y: 0, x2: 0, y2: 1,
-          colorStops: [
-            { offset: 0, color: "rgba(107,155,209,0.18)" },
-            { offset: 1, color: "rgba(107,155,209,0)" },
-          ],
-        },
-      } : undefined,
-    };
+      color: colors.ch1, smooth: true, width: 2, sampling: samplingOpts,
+      area: channelMode !== "Both" ? buildAreaGradient("rgba(107,155,209,0.18)", "rgba(107,155,209,0)") : undefined,
+    });
 
     const series =
       channelMode === "L"    ? [seriesL] :
-      channelMode === "R"    ? [{ ...seriesR, markLine: seriesL.markLine }] :
+      channelMode === "R"    ? [{ ...seriesR, markLine }] :
       /* Both */               [seriesL, seriesR];
 
-    return {
-      animation: false,
-      grid: { top: 8, right: 16, bottom: 52, left: 52 },
-      legend: buildLegend(channelMode),
-      dataZoom: buildDataZoom(zoomRef.current, { filler: "rgba(11,65,113,0.12)", handle: "#0B4171" }),
-      xAxis: buildTimeAxis({ windowFrames }),
-      yAxis: {
-        type: "value",
-        name: "°C",
-        nameTextStyle: { color: "#94A3B8", fontSize: 10 },
-        axisLabel: { color: "#94A3B8", fontSize: 10 },
-        axisLine: { show: false },
-        splitLine: { lineStyle: { color: "#F1F5F9" } },
-        min: yMin,
-        max: yMax,
-      },
+    return buildBaseChartOption({
+      channelMode, windowFrames, zoomRef, gridLeft: 52,
+      zoomColors: { filler: "rgba(11,65,113,0.12)", handle: "#0B4171" },
+      timeDecimals,
+      yAxis: buildValueYAxis({ name: "°C", min: yMin, max: yMax }),
       series,
-      tooltip: buildValueTooltip({ unit: "°C", decimals: 1 }),
-    };
+      tooltip: buildValueTooltip({ unit: "°C", decimals: 1, timeDecimals }),
+    });
   }, [windowFrames, channelMode, yMin, yMax, lttb, warnThreshold, dangerThreshold]);
 
   const showChart = audioDuration != null || frames.length > 0;
@@ -215,7 +183,7 @@ export default function TemperatureChart({ frames, currentTime, isActive, stream
               { value: "R", label: "R" },
               { value: "Both", label: "Both" },
             ]}
-            className="w-[132px]"
+            className="w-[116px]"
             aria-label="온도 채널"
           />
 
@@ -234,7 +202,7 @@ export default function TemperatureChart({ frames, currentTime, isActive, stream
         </div>
       </div>
 
-      <div className="chart-body flex-1 p-2 min-h-[180px]">
+      <div className="chart-body flex-1 p-2 min-h-[160px]">
         {showChart ? (
           <ReactECharts
             key={channelMode}

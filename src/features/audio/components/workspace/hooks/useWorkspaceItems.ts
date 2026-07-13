@@ -16,6 +16,13 @@ import {
 } from "@/features/audio/lib/cache/workspace";
 import { downloadBlob } from "@/shared/lib/utils";
 
+/** 파일명에서 확장자만 추출 (없으면 ""). export 시 편집한 이름 + 원본 확장자 조합에 사용 */
+function fileExtension(fileName: string | null): string {
+  if (!fileName) return "";
+  const dot = fileName.lastIndexOf(".");
+  return dot > 0 && dot < fileName.length - 1 ? fileName.slice(dot + 1) : "";
+}
+
 export function useWorkspaceItems(onSaved: () => void) {
   const [items, setItems] = useState<WorkspaceItemMeta[]>([]);
 
@@ -75,7 +82,9 @@ export function useWorkspaceItems(onSaved: () => void) {
   const downloadAudio = useCallback(async (meta: WorkspaceItemMeta) => {
     const payload = await getWorkspacePayload(meta.id);
     if (!payload?.audioBlob) return;
-    downloadBlob(payload.audioBlob, meta.audioFileName ?? `${sanitizeFileName(meta.name)}.audio`);
+    // 편집한 기록 이름(meta.name)을 파일명으로 쓰되, 확장자는 원본 오디오 파일명에서 보존한다.
+    const ext = fileExtension(meta.audioFileName) || "audio";
+    downloadBlob(payload.audioBlob, `${sanitizeFileName(meta.name)}.${ext}`);
   }, []);
 
   return { items, saveCurrent, rename, remove, exportJson, exportCsv, downloadAudio };

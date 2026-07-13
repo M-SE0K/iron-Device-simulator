@@ -12,10 +12,10 @@
 ## 2. 프로젝트 전반에서의 역할
 
 - `CalibrationProvider`는 `src/app/layout.tsx`에서 앱 전체를 감싼다. 즉 대시보드·플레이어·드로어가 모두 같은 `CalibrationValues` 인스턴스를 읽는다.
-- `CalibrationDrawer`는 `src/shared/components/Header.tsx`가 렌더링한다(헤더 우측 트리거 버튼 포함). 드로어 안에서 대시보드의 입력 소스(파일/마이크)·분석 모드(실시간/배치) 토글도 함께 조작하는데, 이 상태는 `dashboard/AnalysisModeContext`를 통해 받는다(Provider 부재 시 해당 섹션 숨김).
+- `CalibrationDrawer`는 `dashboard/DashboardClient.tsx`가 마운트하고, 여닫는 트리거 버튼은 `shared/components/Sidebar.tsx`에 있다. 열림 여부는 `dashboard/ActiveDrawerContext`(`active === "calibration"`)에서 파생한다. 입력 소스(파일/마이크) 토글은 이 드로어에서 대시보드 상단 세그먼트 컨트롤로 이동했고, 분석 모드(실시간/배치) 개념 자체가 제거됐다.
 - 커밋된 값의 소비처:
   - `dashboard/DashboardClient.tsx` — `speakerModel`/`ampOutputPower`/`ambientTemp`를 엔진 파라미터로, `tempWarn`/`tempDanger`를 이벤트 감지·차트 markLine 임계값으로 읽는다.
-  - `player/WaveformPlayer.tsx` — `sampleRate`/`bufferSize`로 디코딩·프레이밍하고 `outputDeviceId`로 재생 출력을 라우팅한다(`WaveSurfer.setSinkId`).
+  - `player/WaveformPlayer.tsx` — `sampleRate`/`bufferSize`로 캡처 세션(V/I)을 열고 `outputDeviceId`로 재생 출력을 라우팅한다(`WaveSurfer.setSinkId`). 업로드 파일 자체를 디코딩해 분석하지는 않는다.
   - `player/MicrophonePlayer.tsx` — `sampleRate`/`bufferSize`/`channels`/`captureDeviceUID`(네이티브 캡처) 또는 `inputDeviceId`/`inputDeviceLabel`(getUserMedia 폴백)으로 캡처를 연다.
   - `dashboard/SelectedFilePanel.tsx` — `CalibrationSummary` 배지를 두 곳에 표시한다.
 - `sampleRate`/`bufferSize`는 라벨이 아니라 실제 엔진 런타임 설정이다(기본 48000 Hz / 480 samples/ch). 새 값은 다음 세션 시작(다음 재생/다음 캡처 시작)에 적용된다.
@@ -26,9 +26,9 @@
 | 파일 | 역할 |
 |------|------|
 | `CalibrationContext.tsx` | 앱 전역 단일 소스. `CalibrationValues` 인터페이스(15개 필드, 전부 string), 기본값 `CALIBRATION_EMPTY`, 옵션 상수(`SAMPLE_RATE_OPTIONS`/`BUFFER_SIZE_OPTIONS`/`CHANNEL_OPTIONS`), `CalibrationProvider`, `useCalibration()`을 export한다. 마운트 후 sessionStorage에서 복원하고(`hydrated` 가드로 기본값 덮어쓰기 방지), 값이 바뀔 때마다 저장한다. |
-| `CalibrationDrawer.tsx` | 우측 슬라이딩 드로어(항상 마운트된 순수 DOM, `open` 불리언으로 클래스 토글). hooks/ 5개를 조합하고 로컬 UI 조각(`SelectField`, `NumberField`, `Segmented`, `DeviceRow`)으로 섹션(입력 소스/분석 모드, Input·Output Device, THRESHOLD, DEVICE, 연결된 장치)을 구성한다. 열릴 때마다 상태 리셋 + 장치 정보 새로고침을 하는 `[open]` 오케스트레이션 effect를 본체가 소유한다. Escape로 닫힘. |
+| `CalibrationDrawer.tsx` | 우측 슬라이딩 드로어. 셸(백드롭·패널·헤더·푸터)은 공용 `shared/components/overlay/SideDrawer`(커스텀 헤더/푸터 슬롯)에 위임하고, `open`은 `useActiveDrawer().active === "calibration"`에서 파생한다. hooks/ 5개를 조합하고 로컬 UI 조각(`SelectField`/`NumberField`는 공용 `LabeledField` 기반, `DeviceRow`)으로 섹션(Input·Output Device, THRESHOLD, DEVICE, 연결된 장치)을 구성한다. 트리거 버튼은 없다(Sidebar 담당). 열릴 때마다 상태 리셋 + 장치 정보 새로고침을 하는 `[open]` 오케스트레이션 effect를 본체가 소유한다. ESC 닫기는 `useEscapeKey`. |
 | `CalibrationSummary.tsx` | 적용 상태 배지. `speakerModel !== ""`이면 "모델 · W · °C · Hz/버퍼" 요약을 파란색으로, 미선택이면 "모델 미선택 · 기본 프로파일로 분석"을 주황색으로 표시한다. |
-| `DeviceSelectField.tsx` | Input/Output/Capture Device 3개 셀렉트가 공유하는 옵션 구성 컴포넌트. 플레이스홀더(`value=""`) 옵션을 앞에 붙이고 저장된 장치가 현재 목록에 없으면(연결 해제) "연결 안 됨" 힌트를 단 폴백 옵션으로 값을 보존한다. `headerRight`/`footnote` 슬롯 제공. |
+| `DeviceSelectField.tsx` | Input/Output/Capture Device 3개 셀렉트가 공유하는 옵션 구성 컴포넌트. 플레이스홀더(`value=""`) 옵션을 앞에 붙이고 저장된 장치가 현재 목록에 없으면(연결 해제) "연결 안 됨" 힌트를 단 폴백 옵션으로 값을 보존한다. 라벨+컨트롤 레이아웃은 공용 `LabeledField`에 위임하고 `headerRight`/`footnote` 슬롯을 넘긴다. |
 | `hooks/useCalibrationDraft.ts` | 드로어 로컬 draft 상태. `open`이 true가 될 때마다 draft를 committed 값으로 동기화하고 부분 갱신 함수 `set(patch)`를 제공한다. |
 | `hooks/useCalibrationApply.ts` | "적용" 오케스트레이션. `setValues(draft)`로 Context에 커밋 → 네이티브 브리지가 있으면 `window.audioCapture.start()`/`stop()` capture probe로 실제 SampleRate/BufferFrameSize를 읽고(TN2321: Buffer는 per-client라 probe로만 확인 가능) `DeviceActualCache`로 sessionStorage에 저장 → `refreshDeviceInfo()`로 패널 갱신. probe 시 채널 수를 `deviceInfo.inputChannels` 이하로 한 번 더 클램프한다. 브리지가 없으면 커밋 후 드로어를 바로 닫는다. |
 | `hooks/useDeviceOptionAutoCorrect.ts` | 장치 능력(`query`) 도착 시 DEVICE 섹션 드롭다운 옵션을 그 장치의 지원값으로 재구성한다(SR: `supportedSampleRates`, Buffer: `bufferRange` 안의 정적 목록, Channels: `inputChannels` 이하). draft의 SR/Buffer/Channels가 지원 범위 밖이면 `nearestOption`으로 가장 가까운 지원값에 자동 보정하고 `adjustedNote` 안내 문구를 만든다. 조회 중에는 `deviceOptionsLoading`으로 선택을 잠근다. |
@@ -42,9 +42,10 @@
 - **In (조회)** — `hooks/useNativeAudioDevice` → `window.audioDevice`(Electron IPC, 타입은 `shared/types/electron-bridge.d.ts`), `hooks/useMediaDevices` → `navigator.mediaDevices`. 둘 다 읽기 전용 데이터 페칭이라 실패해도 드롭다운/패널이 비어 보일 뿐 분석에는 영향이 없다.
 - **In/Out (하드웨어 확인)** — `hooks/useCalibrationApply` → `window.audioCapture.start/stop`(capture probe) → 실제 반영값을 받아 `lib/cache/calibration.ts`(`saveDeviceActualCache`)에 저장.
 - **Out (영속화)** — `CalibrationContext` → `lib/cache/calibration.ts`(`saveCalibrationCache`/`loadCalibrationCache`, sessionStorage, 탭 수명). 역으로 `lib/cache/calibration.ts`가 `CalibrationValues` 타입을 이 도메인에서 import하는 타입 순환이 있다(런타임 순환은 아니다).
-- **Out (소비자)** — 커밋된 `values`를 `useCalibration()`으로 읽는 외부: `dashboard/DashboardClient`(엔진 파라미터·임계값), `player/WaveformPlayer`(디코딩 SR/버퍼·`setSinkId` 출력 라우팅), `player/MicrophonePlayer`(캡처 설정·장치 선택), `dashboard/SelectedFilePanel`(배지). Provider 마운트는 `app/layout.tsx`, 드로어 마운트는 `shared/components/Header`.
-- **In (대시보드 상태)** — `CalibrationDrawer` ← `dashboard/AnalysisModeContext`(`useAnalysisMode()`, Provider 부재 시 null → 해당 섹션 숨김). 입력 소스/분석 모드 상태의 소유자는 여전히 `DashboardClient`다.
-- **In (상수)** — `CalibrationContext` ← `lib/render/detect-events.ts`의 `DEFAULT_TEMP_WARN`(65°C)/`DEFAULT_TEMP_DANGER`(75°C)를 기본 임계값으로 사용. UI 컴포넌트는 `shared/components/AnimatedSelect`를 공용 셀렉트로 쓴다.
+- **Out (소비자)** — 커밋된 `values`를 `useCalibration()`으로 읽는 외부: `dashboard/DashboardClient`(엔진 파라미터·임계값), `player/WaveformPlayer`(캡처 세션 SR/버퍼·`setSinkId` 출력 라우팅), `player/MicrophonePlayer`(캡처 설정·장치 선택), `dashboard/SelectedFilePanel`(배지). Provider 마운트는 `app/layout.tsx`, 드로어 마운트는 `dashboard/DashboardClient`(트리거는 `shared/components/Sidebar`).
+- **In (드로어 개폐)** — `CalibrationDrawer` ← `dashboard/ActiveDrawerContext`(`useActiveDrawer()`). `active === "calibration"`일 때만 열리고, 여닫는 트리거는 `Sidebar`다. (구 `AnalysisModeContext` 기반 입력 소스/분석 모드 조작은 제거됐다.)
+- **In (상수)** — `CalibrationContext` ← `lib/render/detect-events.ts`의 `DEFAULT_TEMP_WARN`(65°C)/`DEFAULT_TEMP_DANGER`(75°C)를 기본 임계값으로 사용.
+- **In (공용 UI 부품)** — 드롭다운은 `shared/components/ui/AnimatedSelect`, 라벨+컨트롤 레이아웃은 `shared/components/ui/LabeledField`(`SelectField`/`NumberField`/`DeviceSelectField` 공용), 드로어 셸은 `shared/components/overlay/SideDrawer`, ESC 닫기는 `shared/hooks/useEscapeKey`에 위임한다.
 
 내부 처리 흐름 (드로어 열기 → 적용):
 
@@ -68,7 +69,7 @@
 - `CalibrationValues` — 15개 필드 전부 string. 단위: `ampOutputPower` W, `ambientTemp`/`tempWarn`/`tempDanger` °C, `sampleRate` Hz, `bufferSize` samples/ch, `channels` 캡처 채널 수. `""`의 의미: `inputDeviceId`/`outputDeviceId`/`captureDeviceUID`는 시스템 기본 장치, `speakerModel`은 미선택(기본 프로파일).
 - `CALIBRATION_EMPTY: CalibrationValues` — 기본값(48000 Hz / 480 / 2ch / 20 W / 25°C / WARN 65°C / DANGER 75°C). 드로어 "초기화" 버튼이 draft에 그대로 대입한다.
 - `SAMPLE_RATE_OPTIONS` / `BUFFER_SIZE_OPTIONS` / `CHANNEL_OPTIONS: string[]` — 장치 능력 조회가 없을 때(브라우저)의 데모 옵션 목록. Electron에서는 `useDeviceOptionAutoCorrect`가 장치 지원값으로 대체/필터링한다.
-- `CalibrationDrawer({ projectName?, onApply? })` (default export) — 트리거 버튼 + 드로어 본체. `onApply(values)`는 커밋 직후 호출되는 선택 콜백.
+- `CalibrationDrawer({ projectName?, onApply? })` (default export) — 드로어 본체(트리거는 Sidebar가 담당). `onApply(values)`는 커밋 직후 호출되는 선택 콜백.
 - `CalibrationSummary({ className? })` (default export) — 적용 상태 배지. props 외 입력은 전역 Context.
 - `DeviceSelectField(props)` (default export) — 장치 셀렉트 공용 컴포넌트. `devices`에 없는 `value`를 `savedLabel` + "연결 안 됨" 힌트로 보존 표시한다.
 - `useCalibrationApply(deps): { deviceStatus, deviceActual, deviceError, appliedRuntime, apply, resetStatus }` — `deviceStatus`는 `"idle" | "applying" | "applied" | "error"`. probe는 마이크가 이미 녹음 중이면 `capture-already-running`으로 실패한다.
@@ -85,3 +86,5 @@
 
 ## 6. 변경 이력(요약)
 - 2026-07-09: 최초 작성 (기준 커밋: 1fbbf44, 커밋되지 않은 워크트리 변경 반영)
+- 2026-07-09: 드로어 개폐 경로 변경 반영 — `Header` 삭제로 마운트는 `DashboardClient`, 트리거는 `Sidebar`+`ActiveDrawerContext`로 이동. `AnalysisModeContext` 소비 제거(입력 소스 토글은 대시보드 상단으로 이동, 분석 모드 제거)에 따라 드로어의 입력 소스/분석 모드 섹션 삭제. `WaveformPlayer` 소비 설명을 파일 디코딩 → 캡처 세션으로 정정. 섹션 2·3·4·5 부분 갱신 (커밋 범위: e0add14..HEAD, 워크트리 포함)
+- 2026-07-10: 공용 UI 부품 위임 반영 — `CalibrationDrawer` 셸을 `shared/components/overlay/SideDrawer`(커스텀 헤더/푸터 슬롯), ESC 닫기를 `hooks/useEscapeKey`로 위임. `SelectField`/`NumberField`/`DeviceSelectField`의 라벨+컨트롤 레이아웃을 공용 `shared/components/ui/LabeledField`로 통합. `AnimatedSelect` 경로는 `shared/components/ui/AnimatedSelect`로 이동. 섹션 3·4 부분 갱신 (커밋 범위: 537099f..HEAD, 워크트리 포함)

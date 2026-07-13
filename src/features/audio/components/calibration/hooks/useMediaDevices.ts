@@ -1,13 +1,10 @@
 "use client";
 
 // navigator.mediaDevices.enumerateDevices() 기반 입출력 장치 열거 — 웹/Electron 공용.
-// 읽기 전용 데이터 페칭이라 실패해도 Input/Output Device 드롭다운이 비어 보일 뿐,
-// 실시간 온도/익스커션 표시 자체에는 영향이 없다.
 import { useCallback, useEffect, useState } from "react";
 
 export function useMediaDevices() {
-  // OS 오디오 입력 장치 목록 — navigator.mediaDevices.enumerateDevices()로 열거(브라우저·Electron 공용).
-  // deviceId를 캘리브레이션에 저장해 마이크 캡처 대상(MicrophonePlayer)을 그 장치로 라우팅한다.
+  // OS 오디오 입력 장치 목록 — navigator.mediaDevices.enumerateDevices()로 열거(브라우저·Electron 공용). deviceId를 캘리브레이션에 저장해 마이크 캡처 대상(MicrophonePlayer)을 그 장치로 라우팅한다.
   const [hasMediaDevices, setHasMediaDevices] = useState(false);
   const [inputDevices, setInputDevices] = useState<MediaDeviceInfo[]>([]);
   // 재생 출력 장치 목록(audiooutput) — WaveSurfer setSinkId 라우팅 대상. 웹·Electron 공용
