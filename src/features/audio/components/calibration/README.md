@@ -4,10 +4,9 @@
 
 분석 결과가 어떤 조건(스피커 모델·앰프 출력·주변온도·샘플레이트·버퍼·장치)에서 나온 값인지 앱 전체가 하나의 소스로 합의하게 만드는 도메인이다. 개발자는 이 폴더 하나만 보면 "사용자가 어디서 파라미터를 고치고, 그 값이 어떤 경로로 엔진·플레이어·차트에 도달하는지"를 파악할 수 있다.
 
-기능 단위로는 세 가지다. 
-(1) `CalibrationContext`가 캘리브레이션 파라미터 전체(`CalibrationValues`)를 앱 전역 단일 소스로 보관하고 sessionStorage에 유지한다. 
-(2) `CalibrationDrawer`가 우측 슬라이딩 드로어에서 그 값을 편집한다 — 로컬 draft에서 고치고 "적용" 시 Context에 커밋하는 draft/commit 패턴이며 Electron에서는 커밋 직후 capture probe로 하드웨어 실제 반영값까지 확인한다. 
-(3) `CalibrationSummary`가 현재 적용 상태를 파일 타이틀 옆 배지로 요약해 보여준다. 드로어의 편집 로직은 `hooks/` 5개(draft 관리, 적용/probe, 장치 옵션 자동 보정, 웹 장치 열거, 네이티브 장치 조회)로 분리되어 있고 `CalibrationDrawer`가 이들을 조합한다.
+기능 단위로는 두 가지다. 
+(1) `CalibrationContext`가 캘리브레이션 파라미터 전체(`CalibrationValues`)를 앱 전역 단일 소스로 들고 sessionStorage에 저장한다. 
+(2) `CalibrationDrawer`가 우측 슬라이딩 드로어에서 그 값을 편집한다 — 로컬 draft에서 고친 뒤 "적용"할 때 Context에 커밋하는 draft/commit 패턴이고, Electron에서는 커밋 직후 capture probe로 하드웨어에 실제 반영된 값까지 확인한다. 드로어의 편집 로직은 `hooks/` 5개(draft 관리, 적용/probe, 장치 옵션 자동 보정, 웹 장치 열거, 네이티브 장치 조회)로 나뉘어 있고, `CalibrationDrawer`가 이들을 조합한다.
 
 ## 2. 프로젝트 전반에서의 역할
 
@@ -17,7 +16,6 @@
   - `dashboard/DashboardClient.tsx` — `speakerModel`/`ampOutputPower`/`ambientTemp`를 엔진 파라미터로, `tempWarn`/`tempDanger`를 이벤트 감지·차트 markLine 임계값으로 읽는다.
   - `player/WaveformPlayer.tsx` — `sampleRate`/`bufferSize`로 캡처 세션(V/I)을 열고 `outputDeviceId`로 재생 출력을 라우팅한다(`WaveSurfer.setSinkId`). 업로드 파일 자체를 디코딩해 분석하지는 않는다.
   - `player/MicrophonePlayer.tsx` — `sampleRate`/`bufferSize`/`channels`/`captureDeviceUID`(네이티브 캡처) 또는 `inputDeviceId`/`inputDeviceLabel`(getUserMedia 폴백)으로 캡처를 연다.
-  - `dashboard/SelectedFilePanel.tsx` — `CalibrationSummary` 배지를 두 곳에 표시한다.
 - `sampleRate`/`bufferSize`는 라벨이 아니라 실제 엔진 런타임 설정이다(기본 48000 Hz / 480 samples/ch). 새 값은 다음 세션 시작(다음 재생/다음 캡처 시작)에 적용된다.
 - `tempBase`/`excAmp`/`tempMult`/`excMult` 4개 프로파일 필드는 향후 `ff_prot_set_param` 연동을 위한 선행 필드로, 현재 엔진에 전달되지 않는다(`CalibrationContext.tsx` 상단 주석 기준).
 
@@ -26,8 +24,7 @@
 | 파일 | 역할 |
 |------|------|
 | `CalibrationContext.tsx` | 앱 전역 단일 소스. `CalibrationValues` 인터페이스(15개 필드, 전부 string), 기본값 `CALIBRATION_EMPTY`, 옵션 상수(`SAMPLE_RATE_OPTIONS`/`BUFFER_SIZE_OPTIONS`/`CHANNEL_OPTIONS`), `CalibrationProvider`, `useCalibration()`을 export한다. 마운트 후 sessionStorage에서 복원하고(`hydrated` 가드로 기본값 덮어쓰기 방지), 값이 바뀔 때마다 저장한다. |
-| `CalibrationDrawer.tsx` | 우측 슬라이딩 드로어. 셸(백드롭·패널·헤더·푸터)은 공용 `shared/components/overlay/SideDrawer`(커스텀 헤더/푸터 슬롯)에 위임하고, `open`은 `useActiveDrawer().active === "calibration"`에서 파생한다. hooks/ 5개를 조합하고 로컬 UI 조각(`SelectField`/`NumberField`는 공용 `LabeledField` 기반, `DeviceRow`)으로 섹션(Input·Output Device, THRESHOLD, DEVICE, 연결된 장치)을 구성한다. 트리거 버튼은 없다(Sidebar 담당). 열릴 때마다 상태 리셋 + 장치 정보 새로고침을 하는 `[open]` 오케스트레이션 effect를 본체가 소유한다. ESC 닫기는 `useEscapeKey`. |
-| `CalibrationSummary.tsx` | 적용 상태 배지. `speakerModel !== ""`이면 "모델 · W · °C · Hz/버퍼" 요약을 파란색으로, 미선택이면 "모델 미선택 · 기본 프로파일로 분석"을 주황색으로 표시한다. |
+| `CalibrationDrawer.tsx` | 우측 슬라이딩 드로어. 셸(백드롭·패널·헤더·푸터)은 공용 `shared/components/overlay/SideDrawer`(커스텀 헤더/푸터 슬롯)에 위임하고, `open`은 `useActiveDrawer().active === "calibration"`에서 파생한다. hooks/ 5개를 조합하고 로컬 UI 조각(`SelectField`/`NumberField`는 공용 `shared/components/ui/LabeledField` 기반, `DeviceRow`)으로 섹션(Input·Output Device, THRESHOLD, DEVICE, 연결된 장치)을 구성한다. 헤더에는 닫기 버튼만 두고 제목·트리거는 없다(트리거는 Sidebar 담당). 드롭다운은 `shared/components/ui/AnimatedSelect`를 쓴다. 열릴 때마다 상태 리셋 + 장치 정보 새로고침을 하는 `[open]` 오케스트레이션 effect를 본체가 소유한다. ESC 닫기는 `useEscapeKey`. |
 | `DeviceSelectField.tsx` | Input/Output/Capture Device 3개 셀렉트가 공유하는 옵션 구성 컴포넌트. 플레이스홀더(`value=""`) 옵션을 앞에 붙이고 저장된 장치가 현재 목록에 없으면(연결 해제) "연결 안 됨" 힌트를 단 폴백 옵션으로 값을 보존한다. 라벨+컨트롤 레이아웃은 공용 `LabeledField`에 위임하고 `headerRight`/`footnote` 슬롯을 넘긴다. |
 | `hooks/useCalibrationDraft.ts` | 드로어 로컬 draft 상태. `open`이 true가 될 때마다 draft를 committed 값으로 동기화하고 부분 갱신 함수 `set(patch)`를 제공한다. |
 | `hooks/useCalibrationApply.ts` | "적용" 오케스트레이션. `setValues(draft)`로 Context에 커밋 → 네이티브 브리지가 있으면 `window.audioCapture.start()`/`stop()` capture probe로 실제 SampleRate/BufferFrameSize를 읽고(TN2321: Buffer는 per-client라 probe로만 확인 가능) `DeviceActualCache`로 sessionStorage에 저장 → `refreshDeviceInfo()`로 패널 갱신. probe 시 채널 수를 `deviceInfo.inputChannels` 이하로 한 번 더 클램프한다. 브리지가 없으면 커밋 후 드로어를 바로 닫는다. |
@@ -70,7 +67,6 @@
 - `CALIBRATION_EMPTY: CalibrationValues` — 기본값(48000 Hz / 480 / 2ch / 20 W / 25°C / WARN 65°C / DANGER 75°C). 드로어 "초기화" 버튼이 draft에 그대로 대입한다.
 - `SAMPLE_RATE_OPTIONS` / `BUFFER_SIZE_OPTIONS` / `CHANNEL_OPTIONS: string[]` — 장치 능력 조회가 없을 때(브라우저)의 데모 옵션 목록. Electron에서는 `useDeviceOptionAutoCorrect`가 장치 지원값으로 대체/필터링한다.
 - `CalibrationDrawer({ projectName?, onApply? })` (default export) — 드로어 본체(트리거는 Sidebar가 담당). `onApply(values)`는 커밋 직후 호출되는 선택 콜백.
-- `CalibrationSummary({ className? })` (default export) — 적용 상태 배지. props 외 입력은 전역 Context.
 - `DeviceSelectField(props)` (default export) — 장치 셀렉트 공용 컴포넌트. `devices`에 없는 `value`를 `savedLabel` + "연결 안 됨" 힌트로 보존 표시한다.
 - `useCalibrationApply(deps): { deviceStatus, deviceActual, deviceError, appliedRuntime, apply, resetStatus }` — `deviceStatus`는 `"idle" | "applying" | "applied" | "error"`. probe는 마이크가 이미 녹음 중이면 `capture-already-running`으로 실패한다.
 - `useCalibrationDraft(open, values): { draft, setDraft, set }` — `set`은 `Partial<CalibrationValues>` 병합.
@@ -88,3 +84,4 @@
 - 2026-07-09: 최초 작성 (기준 커밋: 1fbbf44, 커밋되지 않은 워크트리 변경 반영)
 - 2026-07-09: 드로어 개폐 경로 변경 반영 — `Header` 삭제로 마운트는 `DashboardClient`, 트리거는 `Sidebar`+`ActiveDrawerContext`로 이동. `AnalysisModeContext` 소비 제거(입력 소스 토글은 대시보드 상단으로 이동, 분석 모드 제거)에 따라 드로어의 입력 소스/분석 모드 섹션 삭제. `WaveformPlayer` 소비 설명을 파일 디코딩 → 캡처 세션으로 정정. 섹션 2·3·4·5 부분 갱신 (커밋 범위: e0add14..HEAD, 워크트리 포함)
 - 2026-07-10: 공용 UI 부품 위임 반영 — `CalibrationDrawer` 셸을 `shared/components/overlay/SideDrawer`(커스텀 헤더/푸터 슬롯), ESC 닫기를 `hooks/useEscapeKey`로 위임. `SelectField`/`NumberField`/`DeviceSelectField`의 라벨+컨트롤 레이아웃을 공용 `shared/components/ui/LabeledField`로 통합. `AnimatedSelect` 경로는 `shared/components/ui/AnimatedSelect`로 이동. 섹션 3·4 부분 갱신 (커밋 범위: 537099f..HEAD, 워크트리 포함)
+- 2026-07-13: `CalibrationSummary.tsx` 삭제 반영 — 적용 상태 배지 컴포넌트를 제거(`SelectedFilePanel`이 더는 렌더하지 않음). `CalibrationDrawer`가 `AnimatedSelect`/`SideDrawer`/`LabeledField`를 `shared/components/ui`·`overlay` 경로에서 import하도록 정리하고, 드로어 헤더의 "Calibration Parameter" 제목을 제거해 닫기 버튼만 남겼다. 섹션 1·2·3·5 부분 갱신 (커밋 범위: 9f08d59..HEAD, 워크트리 포함)
