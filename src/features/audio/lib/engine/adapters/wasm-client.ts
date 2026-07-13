@@ -17,7 +17,7 @@ import { createAnalysisFrame } from "../utils";
 /** 브라우저 WASM 엔진의 메모리 레이아웃 구현 */
 class ClientWasmMemoryLayout implements MemoryLayout {
   constructor(
-    private mod: any,
+    private mod: FfProtInstance,
     private bufPtr: number,
     private tempPtr: number,
     private excPtr: number,

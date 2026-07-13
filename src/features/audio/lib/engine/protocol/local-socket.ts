@@ -15,7 +15,6 @@ import {
 
 /**
  * WaveformPlayer/MicrophonePlayer가 실제로 사용하는 WebSocket 부분집합.
- * 이벤트 핸들러는 일부러 `any`로 느슨하게 잡아, 네이티브 WebSocket(구체적인 CloseEvent/MessageEvent 타입 사용)이 구조적으로 그대로 대입 가능하게 한다.
  */
 export interface SocketLike {
   readyState: number;
@@ -23,10 +22,10 @@ export interface SocketLike {
   bufferedAmount: number;
   send(data: string | ArrayBuffer): void;
   close(): void;
-  onopen:    ((ev: any) => void) | null;
-  onmessage: ((ev: any) => void) | null;
-  onerror:   ((ev: any) => void) | null;
-  onclose:   ((ev: any) => void) | null;
+  onopen:    ((ev: Event) => void) | null;
+  onmessage: ((ev: MessageEvent) => void) | null;
+  onerror:   ((ev: Event) => void) | null;
+  onclose:   ((ev: Event) => void) | null;
 }
 
 class LocalWasmSocket implements SocketLike {
@@ -42,10 +41,10 @@ class LocalWasmSocket implements SocketLike {
   // in-process 호출이라 전송 큐잉이 없음 — 항상 0(백프레셔 없음)
   readonly bufferedAmount = 0;
 
-  onopen:    ((ev: any) => void) | null = null;
-  onmessage: ((ev: any) => void) | null = null;
-  onerror:   ((ev: any) => void) | null = null;
-  onclose:   ((ev: any) => void) | null = null;
+  onopen:    ((ev: Event) => void) | null = null;
+  onmessage: ((ev: MessageEvent) => void) | null = null;
+  onerror:   ((ev: Event) => void) | null = null;
+  onclose:   ((ev: Event) => void) | null = null;
 
   private session: AnalysisSession | null = null;
   private engineParams: EngineParams = { ampOutputPower: null, speakerModel: "", ambientTemp: DEFAULT_AMBIENT_TEMP };

@@ -8,7 +8,7 @@
 // 좌측 WorkspaceDrawer와 동일하게 항상 마운트된 순수 DOM(비Radix)로 구현 — open 불리언으로
 // 클래스만 토글해 열기/닫기 양방향 슬라이드·페이드 애니메이션을 대칭적으로 재생한다.
 import { useCallback, useEffect } from "react";
-import { RefreshCw, RotateCcw, SlidersHorizontal, X } from "lucide-react";
+import { RefreshCw, RotateCcw, X } from "lucide-react";
 import AnimatedSelect from "@/shared/components/ui/AnimatedSelect";
 import DeviceSelectField from "./DeviceSelectField";
 import { useActiveDrawer } from "@/features/audio/components/dashboard/ActiveDrawerContext";
@@ -161,10 +161,6 @@ export default function CalibrationDrawer({ projectName, onApply }: Props) {
       bodyClassName="p-4 space-y-5"
       header={
         <div className="h-14 px-4 shrink-0 flex items-center justify-between border-b border-iron-100">
-          <div className="flex items-center gap-2 min-w-0">
-            <SlidersHorizontal className="w-4 h-4 text-brand-blue shrink-0" />
-            <span className="text-sm font-semibold text-iron-900">Calibration Parameter</span>
-          </div>
           <button
             type="button"
             onClick={() => setOpen(false)}
@@ -420,7 +416,7 @@ export default function CalibrationDrawer({ projectName, onApply }: Props) {
               )}
               <p className="text-[10px] text-iron-300 leading-relaxed">
                 ⚠️ Buffer Size는 per-client(TN2321)라 이 조회만으로는 장치 기본값이 보입니다.
-                "적용"을 누르면 마이크를 아주 잠깐 열었다 닫아 실제 반영값을 확인합니다(마이크가
+                &ldquo;적용&rdquo;을 누르면 마이크를 아주 잠깐 열었다 닫아 실제 반영값을 확인합니다(마이크가
                 이미 녹음 중이면 적용에 실패합니다).
               </p>
             </section>
