@@ -3,7 +3,7 @@
 import { useState, useCallback, useRef, useEffect, useMemo } from "react";
 import { Menu, PanelLeftClose, PanelLeftOpen } from "lucide-react";
 import Sidebar from "@/shared/components/Sidebar";
-import SegmentedControl from "@/shared/components/SegmentedControl";
+import SegmentedControl from "@/shared/components/ui/SegmentedControl";
 import SelectedFilePanel from "@/features/audio/components/dashboard/SelectedFilePanel";
 import WaveformPlayer, { WaveformPlayerHandle } from "@/features/audio/components/player/WaveformPlayer";
 import MicrophonePlayer, { type MicRecordingExport, type MicrophonePlayerHandle } from "@/features/audio/components/player/MicrophonePlayer";

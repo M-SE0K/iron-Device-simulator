@@ -22,7 +22,6 @@ export interface WorkspaceItemMeta {
   audioDuration: number | null;
   analysisMode: "realtime" | "batch";
   frameCount: number;
-  // 측정 기록(사이드바 "측정 기록" 드로어)용 — 과거(이 필드 도입 이전) 레코드는 undefined일 수 있다.
   peakTemp: number | null;
   peakExcursion: number | null;
   status: SessionStatus | null;

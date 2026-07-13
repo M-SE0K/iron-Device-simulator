@@ -4,13 +4,14 @@ import dynamic from "next/dynamic";
 import { useMemo, useState, useRef, useCallback, useEffect } from "react";
 import { Maximize2 } from "lucide-react";
 import { AnalysisFrame } from "@/features/audio/types";
-import SegmentedControl from "@/shared/components/SegmentedControl";
+import SegmentedControl from "@/shared/components/ui/SegmentedControl";
 import {
   computeStreamWindow, computeExcursionYRange, WINDOW_SIZE, type ChannelMode,
 } from "@/features/audio/lib/render/chart-window";
 import {
   buildValueTooltip, resolveTimeDecimals,
   buildAreaGradient, buildValueYAxis, buildLineSeries, buildBaseChartOption,
+  shouldShowFrameSymbols,
 } from "@/features/audio/lib/render/chart-option";
 
 const ReactECharts = dynamic(() => import("echarts-for-react"), { ssr: false });
@@ -30,7 +31,7 @@ interface Props {
 }
 
 const SCALE_PADDING = 1.15;
-// 서버 raw 값 → UI 표기 단위([mm]) 변환 계수
+// WASM 엔진 raw 값 → UI 표기 단위([mm]) 변환 계수
 const MM_SCALE      = 1 / 1000;
 const toMm = (v: number) => v * MM_SCALE;
 
@@ -46,7 +47,10 @@ export default function ExcursionChart({ frames, currentTime, isActive, streamin
 
   // ── 줌 상태 보존 ─────────────────────────────────────────────────────────
   const zoomRef = useRef({ start: 0, end: 100 });
-  useEffect(() => { zoomRef.current = { start: 0, end: 100 }; }, [audioDuration]);
+  // 확대해서 프레임이 충분히 벌어졌을 때만 각 프레임 위치에 점을 표시(프레임 간격 시인용).
+  const [showSymbols, setShowSymbols] = useState(false);
+  const pointCountRef = useRef(0);
+  useEffect(() => { zoomRef.current = { start: 0, end: 100 }; setShowSymbols(false); }, [audioDuration]);
 
   const echartsEvents = useRef<Record<string, (...args: unknown[]) => void>>({});
   echartsEvents.current = {
@@ -56,6 +60,8 @@ export default function ExcursionChart({ frames, currentTime, isActive, streamin
       if (src.start !== undefined && src.end !== undefined) {
         zoomRef.current = { start: src.start, end: src.end };
       }
+      const next = shouldShowFrameSymbols(pointCountRef.current, zoomRef.current);
+      setShowSymbols((prev) => (prev === next ? prev : next));
     }, []),
   };
 
@@ -64,6 +70,7 @@ export default function ExcursionChart({ frames, currentTime, isActive, streamin
     () => computeStreamWindow(frames, currentTime, isActive, streaming, audioDuration, WINDOW_SIZE, (f) => f.excursion),
     [frames, currentTime, isActive, streaming],
   );
+  pointCountRef.current = windowFrames.length;
 
   // ── 창 내 데이터 범위로 Y축 동적 계산 ─────────────────────────────────────
   const { yMin, yMax } = useMemo(
@@ -98,6 +105,7 @@ export default function ExcursionChart({ frames, currentTime, isActive, streamin
       data: windowFrames.map((f) => [f.time, toMm(f.excursion[0])]),
       color: colors.ch0, smooth: 0.3, width: 1.5, sampling: samplingOpts,
       area: channelMode !== "Both" ? buildAreaGradient("rgba(16,185,129,0.15)", "rgba(16,185,129,0)") : undefined,
+      showSymbol: showSymbols, symbolSize: 4,
     });
 
     const seriesR = buildLineSeries({
@@ -105,6 +113,7 @@ export default function ExcursionChart({ frames, currentTime, isActive, streamin
       data: windowFrames.map((f) => [f.time, toMm(f.excursion[1])]),
       color: colors.ch1, smooth: 0.3, width: 1.5, sampling: samplingOpts,
       area: channelMode === "R" ? buildAreaGradient("rgba(245,158,11,0.15)", "rgba(245,158,11,0)") : undefined,
+      showSymbol: showSymbols, symbolSize: 4,
     });
 
     // Note: envelope 데이터(excursionMin/Max)는 AnalysisFrame에 보존되어 있으나,
@@ -124,7 +133,7 @@ export default function ExcursionChart({ frames, currentTime, isActive, streamin
       series,
       tooltip: buildValueTooltip({ unit: "mm", decimals: 3, timeDecimals }),
     });
-  }, [windowFrames, channelMode, yMin, yMax, lttb]);
+  }, [windowFrames, channelMode, yMin, yMax, lttb, showSymbols]);
 
   const showChart = audioDuration != null || frames.length > 0;
 

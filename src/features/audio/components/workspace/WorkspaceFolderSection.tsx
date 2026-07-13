@@ -8,7 +8,7 @@ import { useCallback, useEffect, useState } from "react";
 import { Folder, FileText, FolderOpen } from "lucide-react";
 import { useWorkspace } from "./WorkspaceContext";
 import { cn, formatFileSize } from "@/shared/lib/utils";
-import CountBadge from "@/shared/components/CountBadge";
+import CountBadge from "@/shared/components/ui/CountBadge";
 
 interface FolderFile { key: string; name: string; size: number }
 

@@ -6,33 +6,18 @@
 // 메인 차트(Temperature/Excursion)와 캡처된 오디오의 채널들을 "표시 항목" 드로어에서 동일하게
 // 체크/해제(추가·제거) + 리사이즈할 수 있는 하나의 스택으로 구성한다 — ChannelSelectDrawer가
 // 항목 목록을, ChannelStackView가 실제 스택 렌더링을 맡는다.
-//
-// 채널 데이터는 더 이상 Blob을 주기적으로 폴링하지 않는다(폴링 주기가 곧 렌더 갱신 단위가
-// 되어 "1초씩 끊겨 보이는" 문제가 있었다) — 대신 Temperature/Excursion과 동일하게 캡처 청크가
-// 들어오는 즉시 반영되는 push 구조다:
-//   1) subscribeChannelStream으로 원본 캡처 청크(useNativeCapture의 rawFrame과 같은 타이밍)를
-//      구독해, 선택된 채널의 새 샘플을 그 즉시 최근 LIVE_WINDOW_SEC초 슬라이딩 윈도우에
-//      이어붙인다(윈도우를 넘는 과거는 버림 — 메모리 상한).
-//   2) 채널을 새로 선택한 순간에는 그 청크 스트림에 과거가 없으니, getChannelsBlob()으로
-//      단 한 번만 최근 LIVE_WINDOW_SEC초를 백필(seed)한다 — 세션 전체를 훑지 않는다.
-//   3) 사용자가 dataZoom으로 그 윈도우 밖(과거)을 보려 하면, 그 순간에만 해당 구간을
-//      getChannelsBlob() 기준으로 온디맨드로 디코딩한다(ChannelWaveformCanvas의 fetchRange).
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Activity, Rows3, Thermometer, X } from "lucide-react";
 import type { AnalysisFrame } from "@/features/audio/types";
 import { cn } from "@/shared/lib/utils";
 import { BYTES_PER_SAMPLE } from "@/features/audio/lib/engine/core";
 import { appendWindowed, decodeWavRange, peekWavHeader } from "@/features/audio/lib/codec/wav-incremental";
-import { makeSampleReader } from "@/features/audio/lib/codec/wav-primitives";
 import type { CaptureStreamEvent, CaptureStreamListener } from "@/features/audio/components/player/capture/useCaptureSession";
 import { channelLabel, channelColor } from "@/features/audio/lib/render/channel-meta";
-import { useOverlayTransition } from "@/shared/hooks/useOverlayTransition";
-import FullscreenOverlay from "@/shared/components/FullscreenOverlay";
 import TemperatureChart from "./TemperatureChart";
 import ExcursionChart from "./ExcursionChart";
 import ChannelSelectDrawer, { type DrawerEntry } from "../channel/ChannelSelectDrawer";
 import ChannelStackView, { type StackItem } from "../channel/ChannelStackView";
-import ChannelRowHeader from "../channel/ChannelRowHeader";
 import { ChannelWaveformCanvas, channelStats, type WaveformWindow } from "../channel/ChannelWaveformCanvas";
 
 // 채널 라이브 뷰가 화면에 유지하는 슬라이딩 윈도우 길이(초) — 이보다 오래된 샘플은 버려서
@@ -95,7 +80,22 @@ export default function ChartDetailOverlay({
   const accent = isTemp ? "#0B4171" : "#10B981";
 
   // 진입/이탈 애니메이션 (페이지 전환 느낌) — 마운트 후 show=true, 닫을 때 트랜지션 후 언마운트
-  const { show, close } = useOverlayTransition(onClose);
+  const [show, setShow] = useState(false);
+  useEffect(() => {
+    const id = requestAnimationFrame(() => setShow(true));
+    return () => cancelAnimationFrame(id);
+  }, []);
+  const close = () => {
+    setShow(false);
+    window.setTimeout(onClose, 250);
+  };
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && close();
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // ── 표시 항목 드로어 — 메인 차트(metric) + 캡처 버퍼의 채널들을 같은 방식으로 체크/해제한다.
   // 기본값은 메인 차트만 선택된 상태(기존 동작과 동일하게 열자마자 차트가 보인다).
@@ -156,7 +156,6 @@ export default function ChartDetailOverlay({
     if (wanted.length === 0) return;
 
     const view = new DataView(chunk);
-    const read = makeSampleReader(view, BYTES_PER_SAMPLE * 8)!; // 캡처 청크는 항상 int32 PCM
     const maxSamples = Math.round(LIVE_WINDOW_SEC * sampleRate);
     setWindows((prev) => {
       const next = new Map(prev);
@@ -164,7 +163,7 @@ export default function ChartDetailOverlay({
         if (!seededRef.current.has(ch)) continue; // 백필 전 — 백필이 곧 지금까지를 커버
         const incoming = new Float32Array(frameCount);
         for (let i = 0; i < frameCount; i++) {
-          incoming[i] = read(i * bytesPerFrame + ch * BYTES_PER_SAMPLE);
+          incoming[i] = view.getInt32(i * bytesPerFrame + ch * BYTES_PER_SAMPLE, true) / 0x80000000;
         }
         const existing = next.get(ch) ?? { data: new Float32Array(0), startSec: durationSec };
         const merged = appendWindowed(existing.data, incoming, maxSamples);
@@ -377,12 +376,19 @@ export default function ChartDetailOverlay({
       items.push({
         id: entry.id,
         header: (
-          <ChannelRowHeader
-            color={entry.color}
-            name={entry.name}
-            role={entry.role}
-            stats={liveWindow ? channelStats(liveWindow.data) : null}
-          />
+          <>
+            <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: entry.color }} />
+            <span className="text-xs font-semibold text-iron-800 font-mono">{entry.name}</span>
+            <span className="text-[11px] text-iron-400">{entry.role}</span>
+            {liveWindow && (
+              <span className="ml-auto text-[10px] font-mono text-iron-400">
+                {(() => {
+                  const { peak, rms } = channelStats(liveWindow.data);
+                  return `peak ${peak.toFixed(4)} · rms ${rms.toFixed(4)}`;
+                })()}
+              </span>
+            )}
+          </>
         ),
         content: liveWindow && header ? (
           <ChannelWaveformCanvas
@@ -409,7 +415,15 @@ export default function ChartDetailOverlay({
   ]);
 
   return (
-    <FullscreenOverlay show={show} ariaLabel={`${title} 자세히 보기`}>
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-label={`${title} 자세히 보기`}
+      className={`fixed inset-0 z-[60] flex flex-col bg-iron-50 transition-all duration-300 ease-out ${
+        show ? "opacity-100 translate-y-0" : "opacity-0 translate-y-4"
+      }`}
+      style={{ paddingTop: "env(safe-area-inset-top)" }}
+    >
       {/* 상단 바 */}
       <header className="shrink-0 h-14 px-3 sm:px-5 flex items-center gap-3 border-b border-iron-100 bg-white">
         <div className="flex items-center gap-2 min-w-0">
@@ -467,6 +481,6 @@ export default function ChartDetailOverlay({
         loading={headerLoading && !header}
         error={channelError}
       />
-    </FullscreenOverlay>
+    </div>
   );
 }

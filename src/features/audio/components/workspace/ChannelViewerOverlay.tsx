@@ -13,7 +13,7 @@ import { ChannelWaveformCanvas, channelStats } from "@/features/audio/components
 import ChannelRowHeader from "@/features/audio/components/channel/ChannelRowHeader";
 import { formatTime } from "@/shared/lib/utils";
 import { useOverlayTransition } from "@/shared/hooks/useOverlayTransition";
-import FullscreenOverlay from "@/shared/components/FullscreenOverlay";
+import FullscreenOverlay from "@/shared/components/overlay/FullscreenOverlay";
 
 interface Props {
   item: WorkspaceItemMeta;

@@ -101,7 +101,7 @@ export function buildDataZoom(
   ];
 }
 
-export function buildTimeAxis(opts: {
+function buildTimeAxis(opts: {
   windowFrames: AnalysisFrame[];
   zoomRef: ZoomStateRef;
 }) {
@@ -140,7 +140,21 @@ export function buildValueTooltip(opts: { unit: string; decimals: number; timeDe
   };
 }
 
-export function buildLegend(channelMode: ChannelMode) {
+// 확대(zoom)했을 때 화면에 보이는 데이터 포인트가 이 수 이하일 때만 프레임 점을 그린다 —
+// 그 이상이면 점이 서로 뭉개져 오히려 프레임 간격을 읽기 어렵고 드로우 비용도 커진다.
+export const SYMBOL_VISIBLE_MAX = 80;
+
+/**
+ * 현재 줌 상태에서 프레임별 점(symbol)을 표시할지 결정한다. 윈도우 전체 포인트 수 × 보이는
+ * 구간 비율로 "화면에 실제로 보이는 포인트 수"를 근사하고, 그 값이 SYMBOL_VISIBLE_MAX 이하로
+ * 충분히 확대됐을 때만 true. 각 차트가 datazoom 이벤트에서 호출해 점 표시를 토글한다.
+ */
+export function shouldShowFrameSymbols(pointCount: number, zoom: ZoomState): boolean {
+  const visible = pointCount * Math.max(0, zoom.end - zoom.start) / 100;
+  return visible > 0 && visible <= SYMBOL_VISIBLE_MAX;
+}
+
+function buildLegend(channelMode: ChannelMode) {
   return channelMode === "Both"
     ? { top: "auto" as const, bottom: 56, textStyle: { color: "#94A3B8", fontSize: 10 } }
     : { show: false as const };
@@ -188,6 +202,10 @@ export function buildValueYAxis(opts: {
 /**
  * 지표 선 series 하나. type/symbol/샘플링/lineStyle 골격은 공통이고, area(그라디언트)와
  * markLine은 지표·채널 모드에 따라 호출부가 넘긴다(area는 없으면 undefined, markLine은 생략).
+ *
+ * showSymbol=true(확대 상태)이면 각 프레임 위치에 원형 점을 그려 프레임 간격이 눈에 보이게 한다.
+ * 이때 large/LTTB 샘플링은 심볼을 무시하거나 포인트를 솎아내므로 끈다 — 확대 상태에서는
+ * dataZoom(filterMode:"filter")이 이미 보이는 포인트만 남겨 렌더 비용이 낮다.
  */
 export function buildLineSeries(opts: {
   name: string;
@@ -198,14 +216,20 @@ export function buildLineSeries(opts: {
   sampling: Record<string, unknown>;
   area?: object;
   markLine?: object;
+  showSymbol?: boolean;
+  symbolSize?: number;
 }) {
+  const showSymbol = opts.showSymbol ?? false;
   return {
     name: opts.name,
     type: "line" as const,
     data: opts.data,
     smooth: opts.smooth,
-    symbol: "none",
-    ...opts.sampling,
+    symbol: showSymbol ? "circle" : "none",
+    showSymbol,
+    symbolSize: opts.symbolSize ?? 4,
+    itemStyle: { color: opts.color },
+    ...(showSymbol ? {} : opts.sampling),
     lineStyle: { color: opts.color, width: opts.width },
     areaStyle: opts.area,
     ...(opts.markLine !== undefined ? { markLine: opts.markLine } : {}),

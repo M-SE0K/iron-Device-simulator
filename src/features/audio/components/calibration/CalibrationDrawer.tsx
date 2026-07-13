@@ -9,7 +9,7 @@
 // 클래스만 토글해 열기/닫기 양방향 슬라이드·페이드 애니메이션을 대칭적으로 재생한다.
 import { useCallback, useEffect } from "react";
 import { RefreshCw, RotateCcw, SlidersHorizontal, X } from "lucide-react";
-import AnimatedSelect from "@/shared/components/AnimatedSelect";
+import AnimatedSelect from "@/shared/components/ui/AnimatedSelect";
 import DeviceSelectField from "./DeviceSelectField";
 import { useActiveDrawer } from "@/features/audio/components/dashboard/ActiveDrawerContext";
 import {
@@ -23,8 +23,8 @@ import { useDeviceOptionAutoCorrect } from "./hooks/useDeviceOptionAutoCorrect";
 import { useCalibrationDraft } from "./hooks/useCalibrationDraft";
 import { useCalibrationApply } from "./hooks/useCalibrationApply";
 import { useEscapeKey } from "@/shared/hooks/useEscapeKey";
-import SideDrawer from "@/shared/components/SideDrawer";
-import LabeledField from "@/shared/components/LabeledField";
+import SideDrawer from "@/shared/components/overlay/SideDrawer";
+import LabeledField from "@/shared/components/ui/LabeledField";
 
 /** 드롭다운 선택 필드 */
 function SelectField({

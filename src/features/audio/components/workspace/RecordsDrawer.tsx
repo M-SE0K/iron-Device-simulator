@@ -13,8 +13,8 @@ import { cn, formatTime } from "@/shared/lib/utils";
 import type { WorkspaceItemMeta } from "@/features/audio/lib/cache/workspace";
 import ChannelViewerOverlay from "./ChannelViewerOverlay";
 import { useEscapeKey } from "@/shared/hooks/useEscapeKey";
-import SideDrawer from "@/shared/components/SideDrawer";
-import CountBadge from "@/shared/components/CountBadge";
+import SideDrawer from "@/shared/components/overlay/SideDrawer";
+import CountBadge from "@/shared/components/ui/CountBadge";
 
 function formatMm(raw: number | null | undefined): string {
   if (raw === null || raw === undefined || !Number.isFinite(raw)) return "—";
@@ -56,7 +56,6 @@ function RecordRow({ item }: { item: WorkspaceItemMeta }) {
     ...(item.audioFileName
       ? [
           { key: "audio", label: "오디오", onClick: () => downloadAudio(item) },
-          { key: "channels", label: "채널", onClick: () => setChannelView(true) },
         ]
       : []),
   ];
