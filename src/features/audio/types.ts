@@ -19,9 +19,9 @@ export interface InputParameterValues {
 export interface AnalysisFrame {
   /** 오디오 재생 시간(초) */
   time: number;
-  /** 스피커 온도 (°C) — [ch0(L), ch1(R)] */
+  /** 스피커 온도 (°C) — [ch0(V), ch1(I)] */
   temperature: [number, number];
-  /** 스피커 진폭 변위 — [ch0(L), ch1(R)] */
+  /** 스피커 진폭 변위 — [ch0(V), ch1(I)] */
   excursion: [number, number];
   // ── Step 5: Coalescing metadata (선택적) ──────────────────────────────
   /** 병합된 소스 프레임 수 (1이면 병합 없음) */
@@ -47,15 +47,15 @@ export interface AnalysisFrame {
 export type AppStatus =
   | "idle"       // 파일 업로드 전
   | "uploading"  // 파일 업로드 중
-  | "analyzing"  // 서버에서 분석 중
+  | "analyzing"  // 분석 엔진 처리 중
   | "ready"      // 분석 완료, 재생 가능
   | "playing"    // 재생 중
   | "paused"     // 일시정지
   | "error";     // 에러
 
-// ─── WebSocket 메시지 타입 ───────────────────────────────────────────────────
+// ─── SocketLike 메시지 타입 ───────────────────────────────────────────────────
 
-/** 서버 → 클라이언트 */
+/** 엔진 → 클라이언트 */
 export type WsServerMessage =
   | { type: "ready" }
   | { type: "frame"; time: number; temperature: [number, number]; excursion: [number, number]; processingMs: number }

@@ -1,6 +1,6 @@
 "use client";
 
-// Electron 네이티브 CoreAudio 캡처 경로 (MicrophonePlayer 전용).
+// Electron 네이티브 CoreAudio 캡처 경로 (useCaptureSession 공용 — 파일/마이크 모드 공통).
 // 상주 헬퍼(audio-device-helper capture)가 캡처 I/O(IOProc)를 직접 소유하므로
 // BufferFrameSize가 실제로 적용·유지된다 — getUserMedia 경로에서는 캡처를 여는
 // Chromium이 버퍼 크기의 주인이라(TN2321) 요청값을 강제할 수 없었다.
@@ -122,7 +122,7 @@ export function useNativeCapture(deps: NativeCaptureDeps) {
       },
       (rawFrame) => {
         // 저장용 원본 버퍼는 recordingActiveRef가 꺼져 있으면(재생 일시정지 중) 쌓지 않는다 —
-        // 분석(onFrame/WASM)은 계속 흘러가되, 저장 파일에는 무음 구간이 섞이지 않게 한다.
+        // 저장용 원본 버퍼는 recordingActiveRef로, WASM 전송은 analysisActiveRef로 별도 제어된다.
         if (!recordingActiveRef.current) return;
         // outRaw도 재사용 버퍼 → 복사본을 세션 메모리에 축적 (전 채널, 프레임 순서 보존).
         // 채널 뷰 실시간 구독자에게도 같은 복사본을 그대로 흘려보낸다(추가 복사 없음).
