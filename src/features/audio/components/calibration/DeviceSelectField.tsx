@@ -4,8 +4,8 @@
 // (연결 해제) 값이 사라지지 않게 보존 표시"하는 옵션 구성 로직을 하나로 묶었다. 헤더 우측
 // 버튼(새로고침 등)과 하단 안내 문구는 필드마다 달라 슬롯(headerRight/footnote)으로 남긴다.
 import type { ReactNode } from "react";
-import AnimatedSelect, { type SelectOption } from "@/shared/components/AnimatedSelect";
-import LabeledField from "@/shared/components/LabeledField";
+import AnimatedSelect, { type SelectOption } from "@/shared/components/ui/AnimatedSelect";
+import LabeledField from "@/shared/components/ui/LabeledField";
 
 interface DeviceSelectFieldProps {
   label: string;

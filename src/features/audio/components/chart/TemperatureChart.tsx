@@ -4,7 +4,7 @@ import dynamic from "next/dynamic";
 import { useMemo, useLayoutEffect, useRef, useCallback, useState, useEffect } from "react";
 import { Maximize2 } from "lucide-react";
 import { AnalysisFrame } from "@/features/audio/types";
-import SegmentedControl from "@/shared/components/SegmentedControl";
+import SegmentedControl from "@/shared/components/ui/SegmentedControl";
 import { DEFAULT_TEMP_WARN, DEFAULT_TEMP_DANGER } from "@/features/audio/lib/render/detect-events";
 import {
   computeStreamWindow, computeTemperatureYRange, WINDOW_SIZE, type ChannelMode,
@@ -12,6 +12,7 @@ import {
 import {
   buildValueTooltip, resolveTimeDecimals,
   buildAreaGradient, buildValueYAxis, buildLineSeries, buildBaseChartOption,
+  shouldShowFrameSymbols,
 } from "@/features/audio/lib/render/chart-option";
 
 const ReactECharts = dynamic(() => import("echarts-for-react"), { ssr: false });
@@ -50,8 +51,12 @@ export default function TemperatureChart({ frames, currentTime, isActive, stream
 
   // ── 줌 상태 보존 — ref로 관리해서 렌더 유발 없이 option에 반영 ────────────
   const zoomRef = useRef({ start: 0, end: 100 });
-  // 새 파일 로드(audioDuration 변경) 시 줌 초기화
-  useEffect(() => { zoomRef.current = { start: 0, end: 100 }; }, [audioDuration]);
+  // 확대해서 프레임이 충분히 벌어졌을 때만 각 프레임 위치에 점을 표시(프레임 간격 시인용).
+  // 임계값을 넘나들 때만 setState → 매 줌마다 리렌더하지 않는다.
+  const [showSymbols, setShowSymbols] = useState(false);
+  const pointCountRef = useRef(0);
+  // 새 파일 로드(audioDuration 변경) 시 줌 초기화 + 점 표시도 해제
+  useEffect(() => { zoomRef.current = { start: 0, end: 100 }; setShowSymbols(false); }, [audioDuration]);
 
   // ── React 렌더 완료 시각 측정 ────────────────────────────────────────────
   const prevFrameLenRef = useRef(0);
@@ -69,13 +74,15 @@ export default function TemperatureChart({ frames, currentTime, isActive, stream
       if (streaming && frames.length > 0) onEchartsRender?.(performance.now());
     // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [streaming, frames.length, onEchartsRender]),
-    // datazoom 이벤트에서 현재 줌 상태를 ref에 저장
+    // datazoom 이벤트에서 현재 줌 상태를 ref에 저장 + 프레임 점 표시 여부 갱신
     datazoom: useCallback((params: unknown) => {
       const p = params as { batch?: Array<{ start?: number; end?: number }>; start?: number; end?: number };
       const src = p.batch?.[0] ?? p;
       if (src.start !== undefined && src.end !== undefined) {
         zoomRef.current = { start: src.start, end: src.end };
       }
+      const next = shouldShowFrameSymbols(pointCountRef.current, zoomRef.current);
+      setShowSymbols((prev) => (prev === next ? prev : next));
     }, []),
   };
 
@@ -84,6 +91,7 @@ export default function TemperatureChart({ frames, currentTime, isActive, stream
     () => computeStreamWindow(frames, currentTime, isActive, streaming, audioDuration, WINDOW_SIZE, (f) => f.temperature),
     [frames, currentTime, isActive, streaming],
   );
+  pointCountRef.current = windowFrames.length;
 
   // ── 헤더 표시값 & 색상 ───────────────────────────────────────────────────
   const displayTemp = useMemo(() => {
@@ -127,7 +135,7 @@ export default function TemperatureChart({ frames, currentTime, isActive, stream
       data: windowFrames.map((f) => [f.time, f.temperature[0]]),
       color: colors.ch0, smooth: true, width: 2, sampling: samplingOpts,
       area: channelMode !== "Both" ? buildAreaGradient("rgba(11,65,113,0.18)", "rgba(11,65,113,0)") : undefined,
-      markLine,
+      markLine, showSymbol: showSymbols, symbolSize: 5,
     });
 
     const seriesR = buildLineSeries({
@@ -135,6 +143,7 @@ export default function TemperatureChart({ frames, currentTime, isActive, stream
       data: windowFrames.map((f) => [f.time, f.temperature[1]]),
       color: colors.ch1, smooth: true, width: 2, sampling: samplingOpts,
       area: channelMode !== "Both" ? buildAreaGradient("rgba(107,155,209,0.18)", "rgba(107,155,209,0)") : undefined,
+      showSymbol: showSymbols, symbolSize: 5,
     });
 
     const series =
@@ -150,7 +159,7 @@ export default function TemperatureChart({ frames, currentTime, isActive, stream
       series,
       tooltip: buildValueTooltip({ unit: "°C", decimals: 1, timeDecimals }),
     });
-  }, [windowFrames, channelMode, yMin, yMax, lttb, warnThreshold, dangerThreshold]);
+  }, [windowFrames, channelMode, yMin, yMax, lttb, warnThreshold, dangerThreshold, showSymbols]);
 
   const showChart = audioDuration != null || frames.length > 0;
 

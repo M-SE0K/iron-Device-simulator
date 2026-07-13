@@ -49,9 +49,6 @@ interface WorkspaceCtx {
 const Ctx = createContext<WorkspaceCtx | null>(null);
 
 export function WorkspaceProvider({ children }: { children: ReactNode }) {
-  // 우측 드로어 슬롯(Workspace/측정 기록/Calibration)은 ActiveDrawerContext가 배타적으로 관리한다 —
-  // open/setOpen은 그 위의 파생값일 뿐이다. 외부 호출부(SelectedFilePanel 등)는 이전과 동일하게
-  // setOpen(true|false) 리터럴만 호출하므로 시그니처는 그대로 유지된다.
   const activeDrawer = useActiveDrawer();
   const open = activeDrawer.active === "workspace";
   const setOpen = useCallback(
@@ -59,8 +56,6 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     [activeDrawer],
   );
 
-  // 저장 완료 후에는 (파일 브라우저인) Workspace 드로어가 아니라, 방금 저장된 항목이
-  // 실제로 보이는 "측정 기록" 드로어를 연다.
   const { items, saveCurrent, rename, remove, exportJson, exportCsv, downloadAudio } =
     useWorkspaceItems(() => activeDrawer.openDrawer("records"));
 

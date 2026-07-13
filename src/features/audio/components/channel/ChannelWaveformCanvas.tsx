@@ -9,7 +9,7 @@
 // ChannelStackView(ChartDetailOverlay의 실시간 채널 선택 뷰)가 공유한다.
 import dynamic from "next/dynamic";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { buildDataZoom, buildDynamicTimeFormatter, buildValueTooltip, timeDecimalsForInterval } from "@/features/audio/lib/render/chart-option";
+import { buildDataZoom, buildDynamicTimeFormatter, buildValueTooltip, timeDecimalsForInterval, SYMBOL_VISIBLE_MAX } from "@/features/audio/lib/render/chart-option";
 
 const ReactECharts = dynamic(() => import("echarts-for-react"), { ssr: false });
 
@@ -121,6 +121,10 @@ export function ChannelWaveformCanvas({
 }) {
   // ── 줌 상태 보존 — Temperature/ExcursionChart와 동일 패턴(ref로 관리해 렌더 유발 없이 반영) ──
   const zoomRef = useRef({ start: 0, end: 100 });
+  // 확대해서 보이는 포인트가 충분히 벌어졌을 때만 각 포인트에 점을 표시(샘플 간격 시인용).
+  // x축 도메인이 전체 세션 길이라 줌 비율만으로는 밀도를 알 수 없으므로, 보이는 시간 구간
+  // 안에 실제로 들어오는 포인트 수를 세어 판정한다.
+  const [showSymbols, setShowSymbols] = useState(false);
   // 과거 구간을 확대했을 때만 채워지는 온디맨드 스냅샷 — 라이브 윈도우로 돌아오면 비운다.
   const [historical, setHistorical] = useState<WaveformWindow | null>(null);
   const fetchSeqRef = useRef(0);
@@ -150,6 +154,26 @@ export function ChannelWaveformCanvas({
     if (debounceRef.current !== null) window.clearTimeout(debounceRef.current);
   }, []);
 
+  // 현재 렌더의 points/전체 길이를 이벤트·효과가 최신으로 읽을 수 있게 ref로 미러링한다.
+  const pointsRef = useRef<[number, number][]>([]);
+  const totalDurationRef = useRef(totalDurationSec);
+  totalDurationRef.current = totalDurationSec;
+
+  // 현재 줌 구간에 들어오는 포인트 수를 세어 점 표시 여부를 갱신 — 임계값을 넘나들 때만 setState.
+  const recomputeSymbols = useCallback(() => {
+    const total = totalDurationRef.current;
+    if (total <= 0) { setShowSymbols((prev) => (prev ? false : prev)); return; }
+    const z = zoomRef.current;
+    const startSec = (z.start / 100) * total;
+    const endSec = (z.end / 100) * total;
+    let count = 0;
+    for (const [t] of pointsRef.current) {
+      if (t >= startSec && t <= endSec) { count++; if (count > SYMBOL_VISIBLE_MAX) break; }
+    }
+    const next = count > 0 && count <= SYMBOL_VISIBLE_MAX;
+    setShowSymbols((prev) => (prev === next ? prev : next));
+  }, []);
+
   const echartsEvents = useRef<Record<string, (...args: unknown[]) => void>>({});
   echartsEvents.current = {
     datazoom: useCallback((params: unknown) => {
@@ -158,8 +182,9 @@ export function ChannelWaveformCanvas({
       if (src.start !== undefined && src.end !== undefined) {
         zoomRef.current = { start: src.start, end: src.end };
         resolveZoom(src.start, src.end);
+        recomputeSymbols();
       }
-    }, [resolveZoom]),
+    }, [resolveZoom, recomputeSymbols]),
   };
 
   const source = historical ?? liveWindow;
@@ -167,6 +192,9 @@ export function ChannelWaveformCanvas({
     () => buildLttb(source.data, sampleRate, source.startSec, LTTB_THRESHOLD),
     [source.data, source.startSec, sampleRate],
   );
+  pointsRef.current = points;
+  // 데이터(과거 스냅샷 로드 등)나 전체 길이가 바뀌면 밀도가 달라지므로 점 표시를 재판정한다.
+  useEffect(() => { recomputeSymbols(); }, [points, totalDurationSec, recomputeSymbols]);
 
   const { yMin, yMax } = useMemo(
     () => computeSymmetricYRange(source.data),
@@ -203,16 +231,19 @@ export function ChannelWaveformCanvas({
         name: "wave",
         type: "line" as const,
         data: points,
-        showSymbol: false,
+        // 확대 상태(showSymbols)면 각 포인트에 점을 찍어 샘플 간격이 보이게 한다. 이때는
+        // large/LTTB 샘플링이 심볼을 무시·솎아내므로 끈다(보이는 포인트가 이미 적음).
+        symbol: showSymbols ? "circle" : "none",
+        showSymbol: showSymbols,
+        symbolSize: 4,
+        itemStyle: { color },
         // 이미 LTTB로 사전 축소했지만 Temperature/Excursion과 동일하게 draw-cost 상한도 둔다.
-        sampling: "lttb" as const,
-        large: true,
-        largeThreshold: 2000,
+        ...(showSymbols ? {} : { sampling: "lttb" as const, large: true, largeThreshold: 2000 }),
         lineStyle: { color, width: 1 },
       },
     ],
     tooltip: buildValueTooltip({ unit: "", decimals: 4, timeDecimals }),
-  }), [points, totalDurationSec, color, yMin, yMax, timeDecimals]);
+  }), [points, totalDurationSec, color, yMin, yMax, timeDecimals, showSymbols]);
 
   return (
     <ReactECharts

@@ -45,6 +45,7 @@
     "electron-builder": "^26.15.3",
     "eslint": "^8",
     "eslint-config-next": "15.2.4",
+    "knip": "^6.25.0",
     "postcss": "^8",
     "puppeteer": "^24.41.0",
     "shadcn": "^4.13.0",

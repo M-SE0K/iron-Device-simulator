@@ -17,7 +17,7 @@ const DEFAULT_AMBIENT = 25;
 export const SAMPLE_RATE_OPTIONS = ["8000", "11025", "16000", "32000", "44100", "48000", "96000", "176400", "192000", "352800", "384000"];
 export const BUFFER_SIZE_OPTIONS = ["8", "16", "32", "64", "128", "256", "480", "512", "1024", "2048"];
 // 캡처 시 열 채널 수(전체 후보) — 네이티브 캡처(Electron)에서만 의미 있음. MCHStreamer 같은 다채널
-// 장치의 V/I 센싱 채널을 받으려면 늘린다. 분석 파이프라인은 항상 ch0/ch1(L/R)만 사용.
+// 장치의 V/I 센싱 채널을 받으려면 늘린다. 분석 파이프라인은 항상 ch0(V)/ch1(I)만 사용.
 // 실제 드롭다운은 useDeviceOptionAutoCorrect가 이 목록을 선택된 장치의 inputChannels 이하로
 // 필터링한 channelOptions를 쓴다 — 장치가 지원하지 않는 채널 수는 애초에 고를 수 없다.
 export const CHANNEL_OPTIONS = ["2", "4", "6", "8"];

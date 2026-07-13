@@ -9,7 +9,7 @@ export interface DebugLogEntry {
   frameIdx:          number;
   /** 클라이언트 왕복 지연 (ms) — send→recv */
   rttMs:             number | null;
-  /** 서버 ff_prot 처리 시간 (ms) */
+  /** WASM 엔진 처리 시간 (ms) */
   serverProcMs:      number;
   temperature:       number;
   excursion:         number;
@@ -72,7 +72,7 @@ export interface StreamDebugInfo {
   wsConnected:        boolean;
   framesSent:         number;
   framesReceived:     number;
-  /** 마지막 프레임 왕복 지연 (client→server→client, ms) */
+  /** 마지막 프레임 왕복 지연 (send→recv 지연, ms) */
   latestRttMs:        number | null;
   /** 최근 100프레임 평균 RTT (ms) */
   avgRttMs:           number | null;

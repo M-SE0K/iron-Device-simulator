@@ -8,8 +8,8 @@
 import type { LucideIcon } from "lucide-react";
 import { AudioLines } from "lucide-react";
 import { cn } from "@/shared/lib/utils";
-import SideDrawer from "@/shared/components/SideDrawer";
-import CountBadge from "@/shared/components/CountBadge";
+import SideDrawer from "@/shared/components/overlay/SideDrawer";
+import CountBadge from "@/shared/components/ui/CountBadge";
 
 export interface DrawerEntry {
   id: string;

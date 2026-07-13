@@ -1,8 +1,5 @@
 "use client";
 
-// 네이비 고정 사이드바 — Header.tsx를 대체한다. 로고 + 내비 4개(대시보드/Workspace/측정 기록/Calibration).
-// 실제 드로어 패널(Workspace/측정 기록/Calibration)은 DashboardClient가 #content-column 안에
-// 마운트한다 — 이 컴포넌트는 트리거(내비 항목)와 활성 상태 표시만 담당한다.
 import { LayoutDashboard, FolderOpen, History, SlidersHorizontal } from "lucide-react";
 import { useActiveDrawer, type DrawerKey } from "@/features/audio/components/dashboard/ActiveDrawerContext";
 import { useCalibration } from "@/features/audio/components/calibration/CalibrationContext";
@@ -14,10 +11,8 @@ const NAV_ITEMS: { key: DrawerKey; label: string; icon: typeof FolderOpen }[] = 
 ];
 
 interface SidebarProps {
-  /** lg 미만(모바일)에서 햄버거로 연 슬라이드 오버레이 여부 — lg 이상에서는 무시(항상 고정 표시). */
   mobileOpen?: boolean;
   onMobileClose?: () => void;
-  /** lg 이상(데스크톱)에서 Cmd/Ctrl+B로 접힌 상태 여부 — lg 미만에서는 무시(모바일은 mobileOpen으로만 제어). */
   collapsed?: boolean;
 }
 

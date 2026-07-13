@@ -1,8 +1,8 @@
 "use client";
 
 // WaveformPlayer→DashboardClient 렌더 파이프라인의 지연(RTT/react/echarts/freshness lag)을
-// 집계하고, METRICS_INTERVAL마다 디버그용 metrics 메시지를 소켓으로 역전송한다. 실패해도
-// 디버그 패널/콘솔 로그만 영향을 받고(현재 metrics 메시지를 소비하는 곳은 없음) 실시간
+// 집계하고, METRICS_INTERVAL마다 분석 소켓 호환 핸들로 metrics 메시지 전송(현재 소비자 없음). 실패해도
+// 디버그 패널/콘솔 로그만 영향을 받고 실시간
 // 온도/익스커션 표시 자체는 영향 없다. refs는 DashboardClient(부모)가 계속 소유하고,
 // 이 훅은 그 refs를 읽고 쓰는 핸들러 함수만 제공한다(MicrophonePlayer capture 훅과 동일 패턴).
 import { useCallback, type MutableRefObject, type RefObject } from "react";
@@ -17,7 +17,7 @@ interface RenderMetrics {
 }
 
 export interface RenderTelemetryDeps {
-  /** 서버로 metrics 메시지를 역전송할 대상 소켓 (realtime WaveformPlayer 핸들) */
+  /** 분석 소켓 호환 핸들로 metrics 메시지 전송(현재 소비자 없음) */
   realtimeWaveRef: RefObject<WaveformPlayerHandle | null>;
   frameRecvAtRef: MutableRefObject<number>;
   reactRenderAtRef: MutableRefObject<number>;
@@ -78,7 +78,7 @@ export function useRenderTelemetry(deps: RenderTelemetryDeps) {
       renderFreshnessLogsRef.current.push(freshnessLagMs);
     }
 
-    // ── 서버로 metrics 역전송 (METRICS_INTERVAL마다 1회) ─────────────────────
+    // ── 분석 소켓 호환 핸들로 metrics 메시지 전송(현재 소비자 없음) ───────────
     metricsCountRef.current++;
     if (metricsCountRef.current % METRICS_INTERVAL === 0) {
       realtimeWaveRef.current?.sendMessage({
