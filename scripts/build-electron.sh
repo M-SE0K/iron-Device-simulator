@@ -5,6 +5,8 @@
 # electron/main.js와 함께 electron-builder로 패키징한다. 마켓 배포가 아니므로
 # 코드 서명 없음 — macOS는 최초 실행 시 우클릭 → 열기, Windows는 SmartScreen에서
 # "추가 정보 → 실행"이 한 번 필요하다.
+#
+# 플랫폼별 산출물은 dist-electron/{mac, windows, linux}로 분리 저장된다.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -16,7 +18,74 @@ if [[ "$(uname)" == "Darwin" ]]; then
   ./electron/native/audio-device-helper/build-mac.sh
 fi
 
-echo "▶ Electron 패키징 (mac/win/linux)..."
-npx electron-builder --mac --win --linux
+# 플랫폼별 산출물 저장 디렉터리 초기화
+mkdir -p dist-electron/{mac,windows,linux}
+rm -rf dist-electron/{mac,windows,linux}/* dist-electron/*-unpacked dist-electron/mac-arm64 dist-electron/linux-arm64-unpacked 2>/dev/null || true
 
-echo "✓ Electron 패키징 완료: dist-electron/"
+echo "▶ Electron 패키징 시작 (플랫폼별 빌드)..."
+echo ""
+
+# ===== macOS 패키징 =====
+echo "▶ macOS 패키징 중..."
+TEMP_MAC="dist-electron-mac-build"
+rm -rf "$TEMP_MAC"
+mkdir -p "$TEMP_MAC"
+
+# 출력 디렉토리를 임시 폴더로 설정해서 다른 빌드와 격리
+npx electron-builder --mac --publish=never -c.directories.output="$TEMP_MAC"
+
+# 생성된 파일을 mac/ 폴더로 이동
+find "$TEMP_MAC" -maxdepth 1 -type f \( -name "*.dmg" -o -name "*.zip" -o -name "*.yml" -o -name "*.blockmap" \) -exec mv {} dist-electron/mac/ \;
+find "$TEMP_MAC" -maxdepth 1 -type d -name "*.app" -exec mv {} dist-electron/mac/ \; 2>/dev/null || true
+rm -rf "$TEMP_MAC"
+
+# ===== Windows 패키징 =====
+echo "▶ Windows 패키징 중..."
+TEMP_WIN="dist-electron-win-build"
+rm -rf "$TEMP_WIN"
+mkdir -p "$TEMP_WIN"
+
+npx electron-builder --win --publish=never -c.directories.output="$TEMP_WIN"
+
+find "$TEMP_WIN" -maxdepth 1 -type f \( -name "*.zip" -o -name "*.yml" -o -name "*.blockmap" \) -exec mv {} dist-electron/windows/ \;
+rm -rf "$TEMP_WIN"
+
+# ===== Linux 패키징 =====
+echo "▶ Linux 패키징 중..."
+TEMP_LINUX="dist-electron-linux-build"
+rm -rf "$TEMP_LINUX"
+mkdir -p "$TEMP_LINUX"
+
+npx electron-builder --linux --publish=never -c.directories.output="$TEMP_LINUX"
+
+find "$TEMP_LINUX" -maxdepth 1 -type f \( -name "*.AppImage" -o -name "*.yml" -o -name "*.blockmap" \) -exec mv {} dist-electron/linux/ \;
+rm -rf "$TEMP_LINUX"
+
+# ===== 결과 출력 =====
+echo ""
+echo "✓ Electron 패키징 완료:"
+echo ""
+
+echo "  macOS 산출물 (dist-electron/mac/):"
+if [[ -n "$(ls -A dist-electron/mac/ 2>/dev/null)" ]]; then
+  ls -lh dist-electron/mac/ | grep -v "^total" | awk '{printf "    %-60s %8s\n", $9, $5}'
+else
+  echo "    (없음)"
+fi
+echo ""
+
+echo "  Windows 산출물 (dist-electron/windows/):"
+if [[ -n "$(ls -A dist-electron/windows/ 2>/dev/null)" ]]; then
+  ls -lh dist-electron/windows/ | grep -v "^total" | awk '{printf "    %-60s %8s\n", $9, $5}'
+else
+  echo "    (없음)"
+fi
+echo ""
+
+echo "  Linux 산출물 (dist-electron/linux/):"
+if [[ -n "$(ls -A dist-electron/linux/ 2>/dev/null)" ]]; then
+  ls -lh dist-electron/linux/ | grep -v "^total" | awk '{printf "    %-60s %8s\n", $9, $5}'
+else
+  echo "    (없음)"
+fi
+echo ""

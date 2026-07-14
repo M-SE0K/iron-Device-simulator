@@ -329,14 +329,14 @@ export default function CalibrationDrawer({ projectName, onApply }: Props) {
               />
             )}
             {/* "적용" 시 capture probe(TN2321)로 확인한 실제 하드웨어 반영값 — CoreAudio가
-                돌려준 SampleRate/Buffer 를 요청값과 나란히 보여준다. */}
+                돌려준 SampleRate/Buffer/Channels 를 요청값과 나란히 보여준다. */}
             {hasAudioDeviceBridge && (
               <div className="text-xs">
                 {deviceStatus === "applying" && <p className="text-iron-400">디바이스에 적용 중…</p>}
                 {deviceStatus === "applied" && (
                   <p className="text-emerald-600">
-                    적용됨 — 요청 {draft.sampleRate}Hz/{draft.bufferSize} → 실제{" "}
-                    {deviceActual?.sampleRate ?? "?"}Hz/{deviceActual?.bufferSize ?? "?"}
+                    적용됨 — 요청 {draft.sampleRate}Hz/{draft.bufferSize}({draft.channels}ch) → 실제{" "}
+                    {deviceActual?.sampleRate ?? "?"}Hz/{deviceActual?.bufferSize ?? "?"}{deviceActual?.channels ? `(${deviceActual.channels}ch)` : ""}
                   </p>
                 )}
                 {deviceStatus === "error" && <p className="text-red-500">디바이스 적용 실패: {deviceError}</p>}
@@ -395,7 +395,16 @@ export default function CalibrationDrawer({ projectName, onApply }: Props) {
                         : `${deviceInfo.current?.sampleRate ?? "?"}Hz / ${deviceInfo.current?.bufferSize ?? "?"} frames`
                     }
                   />
-                  <DeviceRow label="입력 채널" value={`${deviceInfo.inputChannels ?? "?"} ch`} />
+                  {/* 장치의 총 입력 채널 "능력치"(고정값)가 아니라, "적용"으로 실제 캡처에
+                      반영된 채널 수를 보여준다 — 적용 전에는 장치 최대치를 기본값으로 표시. */}
+                  <DeviceRow
+                    label={appliedRuntime?.actual.channels != null ? "채널(적용값)" : "채널(기본값)"}
+                    value={
+                      appliedRuntime?.actual.channels != null
+                        ? `${appliedRuntime.actual.channels} ch`
+                        : `${deviceInfo.inputChannels ?? "?"} ch`
+                    }
+                  />
                   <DeviceRow
                     label="Buffer 범위"
                     value={
