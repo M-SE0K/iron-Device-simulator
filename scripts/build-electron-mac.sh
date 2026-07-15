@@ -16,6 +16,11 @@ fi
 
 ./scripts/build-static-local.sh
 
+# Electron 메인 프로세스(main.js/preload.js + ipc/*.js)를 electron-dist/ 로 번들링한다
+# (webpack.electron.config.js). electron-builder.yml의 files가 electron-dist/**/*만
+# 포함하므로 패키징 전에 반드시 있어야 한다.
+npm run build:electron:main
+
 # CoreAudio HAL 헬퍼(mac 전용, swiftc 필요)를 mac 타깃 패키징 전에 컴파일해둔다.
 # electron-builder.yml의 mac.extraResources가 이 산출물을 참조한다.
 ./electron/native/audio-device-helper/build-mac.sh

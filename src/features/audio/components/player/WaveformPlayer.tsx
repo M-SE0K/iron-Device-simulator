@@ -4,7 +4,6 @@ import { useEffect, useRef, useState, useCallback, forwardRef, useImperativeHand
 import { Play, Pause, Square, Save, X } from "lucide-react";
 import { cn, formatTime } from "@/shared/lib/utils";
 import { AppStatus, AnalysisFrame, InputParameterValues } from "@/features/audio/types";
-import { StreamDebugInfo, DebugLogEntry } from "@/features/audio/lib/debug/types";
 import { useCalibration } from "@/features/audio/components/calibration/CalibrationContext";
 import { useCaptureSession, type CaptureStreamListener } from "./capture/useCaptureSession";
 
@@ -20,10 +19,6 @@ interface Props {
   onFrameReceived: (frame: AnalysisFrame) => void;
   /** 새 캡처 세션 시작 시 — 누적 프레임 초기화 신호 */
   onStreamStart: () => void;
-  /** 디버그 메트릭 업데이트 (10fps 스로틀) */
-  onDebugUpdate?: (info: Partial<StreamDebugInfo>) => void;
-  /** 프레임 단위 로그 엔트리 (매 프레임 호출, 버퍼링은 호출자 책임) */
-  onDebugLog?: (entry: DebugLogEntry) => void;
   /** AMP 출력 전력 / 스피커 모델 파라미터 */
   inputParams?: InputParameterValues;
   /** 오디오 총 길이 확정 시 콜백 (초 단위) */
@@ -69,8 +64,6 @@ const WaveformPlayer = forwardRef<WaveformPlayerHandle, Props>(function Waveform
   onStatusChange,
   onFrameReceived,
   onStreamStart,
-  onDebugUpdate,
-  onDebugLog,
   inputParams,
   onDurationReady,
   onSave,
@@ -94,7 +87,7 @@ const WaveformPlayer = forwardRef<WaveformPlayerHandle, Props>(function Waveform
   // 실제 하드웨어(MCHStreamer 등)에서 캡처되는 ch0(V)/ch1(I)를 분석한다(마이크 모드와 동일 파이프라인).
   const captureSession = useCaptureSession({
     status, onStatusChange, onFrameReceived, onStreamStart,
-    onDebugUpdate, onDebugLog, inputParams,
+    inputParams,
   });
 
   // ── 파일 변경 시: WaveSurfer 재초기화 + 이전 캡처 세션 정리 ────────────────

@@ -6,7 +6,7 @@
 // 정지 후 "저장" 요청 시 WAV로 내보낸다. MicrophonePlayer.tsx에서 그대로 이관된 로직이다.
 import { useCallback, useEffect, useRef, useState } from "react";
 import { AppStatus, AnalysisFrame, InputParameterValues } from "@/features/audio/types";
-import { StreamDebugInfo, DebugLogEntry } from "@/features/audio/lib/debug/types";
+import { perf } from "@/features/audio/lib/perf/collector";
 import { createAnalysisSocket, type SocketLike } from "@/features/audio/lib/engine/protocol/local-socket";
 import { useCalibration } from "@/features/audio/components/calibration/CalibrationContext";
 import { pcmFramesToWavBlob } from "@/features/audio/lib/codec/wav-encoder";
@@ -17,14 +17,14 @@ import { buildInitMessage } from "../stream/buildInitMessage";
 
 /** 저장 요청 시 상위(DashboardClient)로 넘기는 전 채널 캡처 내보내기 */
 export interface CaptureRecordingExport {
-  blob: Blob; // N채널 인터리브 int32 WAV — ch0=V, ch1=I, ch2.. 확장 채널
+  blob: Blob; // N채널 인터리브 int16 WAV — ch0=V, ch1=I, ch2.. 확장 채널
   channels: number;
   sampleRate: number;
   durationSec: number;
 }
 
 /**
- * 원본 캡처 청크(N채널 인터리브 int32) 실시간 스트림 — ChartDetailOverlay의 채널 뷰가
+ * 원본 캡처 청크(N채널 인터리브 int16) 실시간 스트림 — ChartDetailOverlay의 채널 뷰가
  * Blob을 폴링하는 대신 이 이벤트를 구독해 청크가 들어오는 즉시(useNativeCapture의 rawFrame
  * 콜백과 같은 타이밍) 반영한다. "reset"은 새 세션이 시작돼 이전 누적 상태를 버려야 함을 알린다.
  */
@@ -39,8 +39,6 @@ export interface UseCaptureSessionDeps {
   onStatusChange: (s: AppStatus) => void;
   onFrameReceived: (frame: AnalysisFrame) => void;
   onStreamStart: () => void;
-  onDebugUpdate?: (info: Partial<StreamDebugInfo>) => void;
-  onDebugLog?: (entry: DebugLogEntry) => void;
   onSaveRecording?: (rec: CaptureRecordingExport) => Promise<void> | void;
   inputParams: InputParameterValues | undefined;
 }
@@ -48,7 +46,7 @@ export interface UseCaptureSessionDeps {
 export function useCaptureSession(deps: UseCaptureSessionDeps) {
   const {
     status, onStatusChange, onFrameReceived, onStreamStart,
-    onDebugUpdate, onDebugLog, onSaveRecording, inputParams,
+    onSaveRecording, inputParams,
   } = deps;
   const { values: calibration } = useCalibration();
 
@@ -77,7 +75,6 @@ export function useCaptureSession(deps: UseCaptureSessionDeps) {
   const analysisActiveRef = useRef(true);
   const isActiveRef    = useRef(false);
   const frameCountRef  = useRef(0);
-  const lastSendAtRef  = useRef(0);
   const framesRcvdRef  = useRef(0);
   // 원본 캡처 청크 실시간 구독자 목록 — ChartDetailOverlay의 채널 뷰가 여기에 등록해서
   // 폴링 없이 청크 도착 즉시 알림을 받는다.
@@ -92,15 +89,10 @@ export function useCaptureSession(deps: UseCaptureSessionDeps) {
 
   const isRecording = status === "playing";
 
-  // useNativeCapture/useWebAudioWorkletCapture는 onDebugUpdate를 필수 콜백으로 받는다
-  // (MicrophonePlayer 시절 그대로) — WaveformPlayer 등 선택적으로 넘기는 호출자를 위해 래핑.
-  const emitDebugUpdate = useCallback((info: Partial<StreamDebugInfo>) => {
-    onDebugUpdate?.(info);
-  }, [onDebugUpdate]);
-
   // ── 정리: 네이티브 캡처 / 스트림 / AudioContext / WebSocket 전부 종료 ──────
   const cleanup = useCallback(() => {
     isActiveRef.current = false;
+    perf.endSession();
 
     nativeOffsRef.current.forEach((off) => off());
     nativeOffsRef.current = [];
@@ -131,8 +123,7 @@ export function useCaptureSession(deps: UseCaptureSessionDeps) {
     setActualLatency(null);
     setDeviceName(null);
     setActualBufferSize(null);
-    onDebugUpdate?.({ wsConnected: false });
-  }, [onDebugUpdate]);
+  }, []);
 
   /** 정리 + 세션을 "idle"로 전이 — 독립형 캡처 세션(마이크 모드)의 "중지" 버튼용. */
   const stop = useCallback(() => {
@@ -146,12 +137,13 @@ export function useCaptureSession(deps: UseCaptureSessionDeps) {
     wsRef.current = ws;
 
     ws.onopen = () => {
-      onDebugUpdate?.({ wsConnected: true, framesSent: 0, framesReceived: 0 });
       ws.send(buildInitMessage(inputParams, { sampleRate: actualRate, samplesPerCh }));
     };
 
     ws.onmessage = (e) => {
       if (typeof e.data !== "string") return;
+      // 4. Decoding — 수신 메시지 도착(여기)부터 파싱 → AnalysisFrame 구성 완료까지를 잰다.
+      const recvAt = performance.now();
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const msg: Record<string, any> = JSON.parse(e.data);
 
@@ -164,35 +156,16 @@ export function useCaptureSession(deps: UseCaptureSessionDeps) {
         onStreamStart();
 
       } else if (msg.type === "frame") {
-        const recvAt  = performance.now();
-        const rttMs   = lastSendAtRef.current > 0
-          ? parseFloat((recvAt - lastSendAtRef.current).toFixed(2))
-          : null;
-
         framesRcvdRef.current++;
-        onFrameReceived({
+        const frame: AnalysisFrame = {
           time:        msg.time        as number,
           temperature: msg.temperature as [number, number],
           excursion:   msg.excursion   as [number, number],
-        });
-        onDebugUpdate?.({
-          framesReceived:     framesRcvdRef.current,
-          latestRttMs:        rttMs,
-          serverProcessingMs: msg.processingMs as number,
-        });
-        onDebugLog?.({
-          receivedAt:        recvAt,
-          audioTime:         msg.time        as number,
-          frameIdx:          framesRcvdRef.current - 1,
-          rttMs,
-          serverProcMs:      msg.processingMs as number,
-          temperature:       (msg.temperature as [number, number])[0],
-          excursion:         (msg.excursion   as [number, number])[0],
-          reactRenderMs:     null,
-          echartsRenderMs:   null,
-          totalRecvRenderMs: null,
-          freshnessLagMs:    null,
-        });
+        };
+        // 3. WASM 분석(processingMs) + 4. Decoding — 1·2단계(캡처/인코딩)는 send 시점에
+        // 큐잉된 값과 프레임 순서로 페어링된다(collector.markFrameSent 참고).
+        perf.recordFrame(frame.time, msg.processingMs as number, performance.now() - recvAt);
+        onFrameReceived(frame);
 
       } else if (msg.type === "error") {
         setMicError(msg.message as string);
@@ -215,17 +188,17 @@ export function useCaptureSession(deps: UseCaptureSessionDeps) {
     };
 
     return ws;
-  }, [inputParams, onStatusChange, onStreamStart, onFrameReceived, onDebugUpdate, onDebugLog, cleanup]);
+  }, [inputParams, onStatusChange, onStreamStart, onFrameReceived, cleanup]);
 
   // ── 캡처 경로 (네이티브 CoreAudio / 웹 getUserMedia 폴백) ────────────────────
   const { start: startNativeCapture } = useNativeCapture({
-    nativeOffsRef, nativeActiveRef, rawCaptureRef, recordingActiveRef, analysisActiveRef, isActiveRef, frameCountRef, lastSendAtRef,
-    onDebugUpdate: emitDebugUpdate, onStatusChange, setMicError, setSampleRate, setDeviceName,
+    nativeOffsRef, nativeActiveRef, rawCaptureRef, recordingActiveRef, analysisActiveRef, isActiveRef, frameCountRef,
+    onStatusChange, setMicError, setSampleRate, setDeviceName,
     setActualBufferSize, openAnalysisSocket, cleanup, emitStreamEvent,
   });
   const { start: startWebCapture } = useWebAudioWorkletCapture({
-    audioCtxRef, streamRef, workletRef, analysisActiveRef, isActiveRef, frameCountRef, lastSendAtRef,
-    onDebugUpdate: emitDebugUpdate, setSampleRate, setDeviceName, setActualBufferSize, setActualLatency,
+    audioCtxRef, streamRef, workletRef, analysisActiveRef, isActiveRef, frameCountRef,
+    setSampleRate, setDeviceName, setActualBufferSize, setActualLatency,
     openAnalysisSocket,
   });
 
@@ -305,8 +278,8 @@ export function useCaptureSession(deps: UseCaptureSessionDeps) {
     return pcmFramesToWavBlob(raw.frames, raw.sampleRate, raw.channels);
   }, []);
 
-  // 분석 소켓에 임의 JSON 메시지를 보낸다(현재는 렌더 텔레메트리 역전송 용도 — 소비하는
-  // 곳은 없고 실패해도 무해하다. MicrophonePlayer 시절 useAnalysisStream.sendMessage와 동일).
+  // 분석 소켓에 임의 JSON 제어 메시지를 보낸다(WaveformPlayerHandle.sendMessage 계약 유지 —
+  // MicrophonePlayer 시절 useAnalysisStream.sendMessage와 동일).
   const sendMessage = useCallback((msg: object) => {
     const ws = wsRef.current;
     if (ws?.readyState === WebSocket.OPEN) {

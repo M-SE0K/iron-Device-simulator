@@ -13,10 +13,10 @@
 import type { EngineParams } from "../../types";
 
 // ─── 프레임 포맷 ────────────────────────────────────────────────────────────
-// CHANNELS/BYTES_PER_SAMPLE은 ABI 레벨 고정값(항상 스테레오 int32). SAMPLE_RATE/SAMPLES_PER_CH는 기본값일 뿐 고정이 아니다 — 세션마다 EngineRuntimeConfig로 재정의되어 ff_prot_start_exec의 dt 계산과 와이어 프레임 크기에 그대로 반영된다(Calibration UI → 다음 세션 시작 시 적용).
+// CHANNELS/BYTES_PER_SAMPLE은 ABI 레벨 고정값(항상 스테레오 int16). SAMPLE_RATE/SAMPLES_PER_CH는 기본값일 뿐 고정이 아니다 — 세션마다 EngineRuntimeConfig로 재정의되어 ff_prot_start_exec의 dt 계산과 와이어 프레임 크기에 그대로 반영된다(Calibration UI → 다음 세션 시작 시 적용).
 export const SAMPLE_RATE      = 48000;
 export const CHANNELS         = 2;
-export const BYTES_PER_SAMPLE = 4;
+export const BYTES_PER_SAMPLE = 2;
 export const SAMPLES_PER_CH   = 480;
 
 /** 세션 단위 런타임 프레임 설정 — Calibration UI의 sampleRate/bufferSize로 채워진다 */
@@ -87,7 +87,7 @@ export interface MemoryLayout {
   /** PCM 버퍼 할당 (malloc 결과) */
   allocBuf(): number;
   /** 플래너 포맷 PCM을 메모리(HEAP)에 쓰기 */
-  writePlanar(bufPtr: number, planar: Int32Array): void;
+  writePlanar(bufPtr: number, planar: Int16Array): void;
   /** ff_prot_start_exec 호출 (메모리 주소 또는 planar는 writePlanar에서 저장됨) */
   execAnalysis(bufPtr: number, tempPtr: number, excPtr: number, ambientTemp: number): void;
   /** 결과 버퍼(온도·익스커션)에서 값 읽기 → [T0, T1, E0, E1] */

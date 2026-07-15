@@ -51,6 +51,38 @@ interface AudioCaptureStartResult {
   error?: string;
 }
 
+// audio-loopback:measure — duplex 헬퍼 1회 실행 헤더(첫 줄 JSON). mac.swift runDuplex 참조.
+export interface LoopbackHeaderBridge {
+  success: boolean;
+  error?: string;
+  device?: string;
+  deviceUID?: string;
+  channels: number;
+  requested?: { sampleRate: number; bufferSize: number };
+  actual: { sampleRate: number; bufferSize: number | null };
+  refLen: number;
+  emitFrames: number[];
+  maxDelayFrames: number;
+  totalFrames: number;
+  analysisChannel: number;
+}
+
+interface LoopbackMeasureOpts {
+  sampleRate: number;
+  bufferSize: number;
+  channels?: number;
+  deviceUID?: string; // 생략 시 OS 기본 — 단, duplex는 입출력 겸용 단일 장치 필요
+  burstCount?: number;
+  refPcm: Uint8Array; // raw little-endian Float32 mono 참조 신호(--ref로 전달)
+}
+
+interface LoopbackMeasureResultBridge {
+  success: boolean;
+  error?: string;
+  header?: LoopbackHeaderBridge;
+  pcm?: Uint8Array; // Int16 인터리브 입력 캡처
+}
+
 export interface LocalAudioFileEntry {
   name: string;
   path: string;
@@ -91,6 +123,11 @@ declare global {
       stop: () => Promise<{ success: boolean }>;
       onData: (callback: (chunk: Uint8Array) => void) => () => void;
       onEnded: (callback: (info: { code: number | null }) => void) => () => void;
+    };
+    audioLoopback?: {
+      // opts.refPcm(raw Float32 mono) 참조로 duplex 헬퍼가 한 번 돌아 헤더+캡처 PCM을 돌려준다.
+      measure: (opts: LoopbackMeasureOpts) => Promise<LoopbackMeasureResultBridge>;
+      stop: () => Promise<{ success: boolean }>;
     };
     localFolder?: {
       select: () => Promise<LocalFolderSelectResult>;

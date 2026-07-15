@@ -14,7 +14,7 @@ Next.js App Router의 앱 엔트리 도메인이다. 라우트는 `/` 하나뿐�
 | 파일 | 역할 |
 |------|------|
 | `page.tsx` | `/` 라우트. `USE_QUEUE` 환경변수를 읽어 `DashboardClient`에 `useQueue` prop으로 전달한다. `export const dynamic = "force-dynamic"` 선언(정적 빌드 시 스크립트가 임시 치환)을 담는다. |
-| `layout.tsx` | 루트 레이아웃. `globals.css` import, `metadata`(타이틀/설명), `viewport`(`viewportFit: "cover"` — iOS/Android 노치 영역까지 웹뷰를 그려 `env(safe-area-inset-*)`가 실제 값을 갖게 함, Capacitor 패키징용) export, `<html lang="ko">` 아래 `ActiveDrawerProvider` → `CalibrationProvider` → `WorkspaceProvider` 중첩. |
+| `layout.tsx` | 루트 레이아웃. `globals.css` import, `metadata`(타이틀/설명), `viewport`(`viewportFit: "cover"` — 모바일 브라우저에서 노치 영역까지 그려 `env(safe-area-inset-*)`가 실제 값을 갖게 함) export, `<html lang="ko">` 아래 `ActiveDrawerProvider` → `CalibrationProvider` → `WorkspaceProvider` 중첩. |
 | `globals.css` | 전역 스타일. Google Fonts(Inter, JetBrains Mono) import, Tailwind 3계층 지시자, CSS 변수 3종, 커스텀 스크롤바(6px), `@layer components`의 `.card`/`.card-header`/`.card-title`/`.badge`(blue/green/red 변형) 유틸리티를 정의한다. |
 
 ## 4. 의존성 및 흐름

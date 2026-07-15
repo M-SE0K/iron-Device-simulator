@@ -12,6 +12,11 @@ cd "$(dirname "$0")/.."
 
 ./scripts/build-static-local.sh
 
+# Electron 메인 프로세스(main.js/preload.js + ipc/*.js)를 electron-dist/ 로 번들링한다
+# (webpack.electron.config.js). electron-builder.yml의 files가 electron-dist/**/*만
+# 포함하므로 패키징 전에 반드시 있어야 한다.
+npm run build:electron:main
+
 # CoreAudio HAL 헬퍼(mac 전용, swiftc 필요)를 mac 타깃 패키징 전에 컴파일해둔다.
 # electron-builder.yml의 mac.extraResources가 이 산출물을 참조한다.
 if [[ "$(uname)" == "Darwin" ]]; then
@@ -26,18 +31,25 @@ echo "▶ Electron 패키징 시작 (플랫폼별 빌드)..."
 echo ""
 
 # ===== macOS 패키징 =====
-echo "▶ macOS 패키징 중..."
-TEMP_MAC="dist-electron-mac-build"
-rm -rf "$TEMP_MAC"
-mkdir -p "$TEMP_MAC"
+# mac.extraResources(electron-builder.yml)가 audio-device-helper(swiftc 산출물, 15~19행에서
+# Darwin에서만 빌드됨)를 요구하므로, macOS 패키징 자체도 Darwin 호스트에서만 시도한다 —
+# Windows/Linux에서 그대로 두면 여기서 즉시 실패해(set -e) 아래 win/linux 패키징까지 못 간다.
+if [[ "$(uname)" == "Darwin" ]]; then
+  echo "▶ macOS 패키징 중..."
+  TEMP_MAC="dist-electron-mac-build"
+  rm -rf "$TEMP_MAC"
+  mkdir -p "$TEMP_MAC"
 
-# 출력 디렉토리를 임시 폴더로 설정해서 다른 빌드와 격리
-npx electron-builder --mac --publish=never -c.directories.output="$TEMP_MAC"
+  # 출력 디렉토리를 임시 폴더로 설정해서 다른 빌드와 격리
+  npx electron-builder --mac --publish=never -c.directories.output="$TEMP_MAC"
 
-# 생성된 파일을 mac/ 폴더로 이동
-find "$TEMP_MAC" -maxdepth 1 -type f \( -name "*.dmg" -o -name "*.zip" -o -name "*.yml" -o -name "*.blockmap" \) -exec mv {} dist-electron/mac/ \;
-find "$TEMP_MAC" -maxdepth 1 -type d -name "*.app" -exec mv {} dist-electron/mac/ \; 2>/dev/null || true
-rm -rf "$TEMP_MAC"
+  # 생성된 파일을 mac/ 폴더로 이동
+  find "$TEMP_MAC" -maxdepth 1 -type f \( -name "*.dmg" -o -name "*.zip" -o -name "*.yml" -o -name "*.blockmap" \) -exec mv {} dist-electron/mac/ \;
+  find "$TEMP_MAC" -maxdepth 1 -type d -name "*.app" -exec mv {} dist-electron/mac/ \; 2>/dev/null || true
+  rm -rf "$TEMP_MAC"
+else
+  echo "▶ macOS 패키징 건너뜀 (Darwin 호스트에서만 가능 — CoreAudio 헬퍼 컴파일에 swiftc 필요)"
+fi
 
 # ===== Windows 패키징 =====
 echo "▶ Windows 패키징 중..."

@@ -1,341 +1,185 @@
 /**
- * measure.ts — Puppeteer 기반 자동 측정 스크립트
+ * measure.ts — 5단계 지연 측정 하네스 자동화 러너
  *
- * exp/music/ 디렉토리의 음원 파일 3개를 각각 60초씩 측정한다.
+ * 앱에 내장된 수집기(src/features/audio/lib/perf/, window.__ironPerf)가 세션 동안
+ * 프레임 단위로 재는 다섯 구간을 Puppeteer로 자동 수집한다:
  *
- * 사용법:
- *   npx tsx scripts/measure.ts [options]
+ *   1. HW capture  — 캡처 콜백 도착 간격 (버퍼 채움 시간 근사)
+ *   2. Encoding    — PCM → int32 와이어 프레임 패킹
+ *   3. WASM        — ff_prot_start_exec (processingMs)
+ *   4. Decoding    — frame 메시지 파싱 → AnalysisFrame 구성
+ *   5. Render      — 프레임 커밋 → ECharts rendered (차트별)
+ *
+ * 두 가지 실행 방식:
+ *   기본(launch)  — 가짜 마이크(fake device)를 단 헤드리스 Chromium을 띄워 웹 폴백
+ *                   (getUserMedia+AudioWorklet) 경로를 측정한다. dev 서버가 먼저 떠
+ *                   있어야 한다(npm run dev).
+ *   --attach      — 이미 실행 중인 브라우저/Electron(원격 디버깅 포트 개방)에 붙어
+ *                   네이티브 CoreAudio 경로를 실 하드웨어 기준으로 측정한다.
+ *                   예) IRON_REMOTE_DEBUG_PORT=9222 npm run electron:preview 후
+ *                       npx tsx scripts/measure.ts --attach http://127.0.0.1:9222 \
+ *                         --url http://127.0.0.1:17872
  *
  * 옵션:
- *   --label <name>       측정 라벨 (기본: "baseline")
- *   --duration <sec>     음원당 측정 시간 초 (기본: 60)
- *   --url <url>          서버 URL (기본: http://localhost:3000)
- *   --headless           헤드리스 모드 (기본: true)
- *   --no-headless        브라우저 표시
- *   --speaker <model>    스피커 모델 (기본: "Z3 SPK")
- *   --power <watt>       AMP 출력 (기본: "20")
+ *   --label <name>     출력 파일 라벨 (기본: "perf")
+ *   --duration <sec>   측정 시간 초 (기본: 30)
+ *   --url <url>        측정 페이지 URL (기본: http://localhost:3000)
+ *   --attach <url>     CDP 엔드포인트 — 지정 시 launch 대신 connect
+ *   --no-headless      launch 모드에서 브라우저 표시
  *
- * 출력:
- *   measurements/<label>_<trackName>_<timestamp>.json
+ * 출력: measurements/<label>_<mode>_<timestamp>.json (PerfExport 스키마,
+ *       lib/perf/types.ts 참고) + 콘솔 요약 표
  *
- * 주의: 서버가 미리 실행 중이어야 합니다 (npm run dev)
+ * 세션은 마이크 모드로 연다 — 파일 모드도 동일한 캡처 파이프라인(useCaptureSession)을
+ * 쓰므로 다섯 구간의 측정 지점이 같다. 파일 재생을 낀 측정(출력 라우팅 포함)이 필요하면
+ * 앱에서 직접 재생한 뒤 콘솔에서 window.__ironPerf.download()로 받는다.
  */
 
-import puppeteer from "puppeteer";
-import { existsSync, mkdirSync, writeFileSync, readdirSync } from "fs";
-import { resolve, basename, extname } from "path";
+import puppeteer, { type Browser, type Page } from "puppeteer";
+import { existsSync, mkdirSync, writeFileSync } from "fs";
+import { resolve } from "path";
 
-// ── 음원 파일 목록 ─────────────────────────────────────────────────────────
-const MUSIC_DIR = resolve(__dirname, "..", "..", "exp", "music");
-const AUDIO_EXTS = new Set([".mp3", ".wav", ".flac", ".ogg", ".aac"]);
-
-function getAudioFiles(): { path: string; name: string }[] {
-  if (!existsSync(MUSIC_DIR)) {
-    throw new Error(`음원 디렉토리를 찾을 수 없습니다: ${MUSIC_DIR}`);
-  }
-  const files = readdirSync(MUSIC_DIR)
-    .filter(f => AUDIO_EXTS.has(extname(f).toLowerCase()))
-    .sort()
-    .map(f => ({
-      path: resolve(MUSIC_DIR, f),
-      // 파일명에서 안전한 라벨 추출 (특수문자 제거)
-      name: basename(f, extname(f))
-        .replace(/[^a-zA-Z0-9가-힣\s-]/g, "")
-        .replace(/\s+/g, "_")
-        .slice(0, 30),
-    }));
-
-  if (files.length === 0) {
-    throw new Error(`음원 파일이 없습니다: ${MUSIC_DIR}`);
-  }
-  return files;
+interface Args {
+  label: string;
+  duration: number;
+  url: string;
+  attach: string | null;
+  headless: boolean;
 }
 
-// ── CLI 인자 파싱 ───────────────────────────────────────────────────────────
-function parseArgs() {
-  const args = process.argv.slice(2);
-  const opts = {
-    label:    "baseline",
-    duration: 60,
-    url:      "http://localhost:3000",
-    headless: true,
-    speaker:  "Z3 SPK",
-    power:    "20",
-    track:    "" as string, // 특정 파일명 필터 (빈 문자열 = 전체)
-  };
-
-  for (let i = 0; i < args.length; i++) {
-    switch (args[i]) {
-      case "--label":       opts.label    = args[++i]; break;
-      case "--duration":    opts.duration = parseInt(args[++i]); break;
-      case "--url":         opts.url      = args[++i]; break;
-      case "--headless":    opts.headless = true; break;
-      case "--no-headless": opts.headless = false; break;
-      case "--speaker":     opts.speaker  = args[++i]; break;
-      case "--power":       opts.power    = args[++i]; break;
-      case "--track":       opts.track    = args[++i]; break;
+function parseArgs(argv: string[]): Args {
+  const args: Args = { label: "perf", duration: 30, url: "http://localhost:3000", attach: null, headless: true };
+  for (let i = 0; i < argv.length; i++) {
+    const a = argv[i];
+    if (a === "--label") args.label = argv[++i];
+    else if (a === "--duration") args.duration = Number(argv[++i]) || 30;
+    else if (a === "--url") args.url = argv[++i];
+    else if (a === "--attach") args.attach = argv[++i];
+    else if (a === "--no-headless") args.headless = false;
+    else if (a === "--headless") args.headless = true;
+    else {
+      console.error(`알 수 없는 옵션: ${a}`);
+      process.exit(1);
     }
   }
-  return opts;
+  return args;
 }
 
-// ── 서버 응답 대기 ──────────────────────────────────────────────────────────
-async function waitForServer(url: string, timeoutMs = 30000): Promise<void> {
-  const start = Date.now();
-  while (Date.now() - start < timeoutMs) {
-    try {
-      const res = await fetch(url);
-      if (res.ok) return;
-    } catch { /* retry */ }
-    await new Promise(r => setTimeout(r, 1000));
+/** 표시 텍스트가 정확히 일치하는 버튼을 찾아 클릭 (SegmentedControl 등 라벨 기반) */
+async function clickButtonByText(page: Page, text: string): Promise<boolean> {
+  return page.evaluate((t) => {
+    const btn = [...document.querySelectorAll("button")].find((b) => b.textContent?.trim() === t);
+    if (!btn) return false;
+    (btn as HTMLButtonElement).click();
+    return true;
+  }, text);
+}
+
+async function clickButtonByAriaLabel(page: Page, label: string): Promise<boolean> {
+  return page.evaluate((l) => {
+    const btn = document.querySelector<HTMLButtonElement>(`button[aria-label="${l}"]`);
+    if (!btn) return false;
+    btn.click();
+    return true;
+  }, label);
+}
+
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+async function main() {
+  const args = parseArgs(process.argv.slice(2));
+  const outDir = resolve(process.cwd(), "measurements");
+  if (!existsSync(outDir)) mkdirSync(outDir, { recursive: true });
+
+  let browser: Browser;
+  if (args.attach) {
+    console.log(`▶ CDP attach: ${args.attach}`);
+    browser = await puppeteer.connect({ browserURL: args.attach, defaultViewport: null });
+  } else {
+    console.log("▶ Chromium launch (fake microphone, 웹 폴백 경로)");
+    browser = await puppeteer.launch({
+      headless: args.headless,
+      args: [
+        "--use-fake-ui-for-media-capture",     // 마이크 권한 프롬프트 자동 허용
+        "--use-fake-device-for-media-capture", // 가짜 오디오 입력 장치(톤 신호)
+        "--autoplay-policy=no-user-gesture-required",
+      ],
+    });
   }
-  throw new Error(`서버가 ${timeoutMs}ms 내에 응답하지 않습니다: ${url}`);
-}
-
-// ── 단일 음원 측정 ──────────────────────────────────────────────────────────
-async function runSingleTrack(
-  opts: ReturnType<typeof parseArgs>,
-  track: { path: string; name: string },
-  trackIndex: number,
-  totalTracks: number,
-): Promise<string | null> {
-  const outDir = resolve(__dirname, "..", "measurements");
-  mkdirSync(outDir, { recursive: true });
-
-  console.log(`\n${"=".repeat(60)}`);
-  console.log(`[measure] Track ${trackIndex + 1}/${totalTracks}: ${track.name}`);
-  console.log(`[measure] label: ${opts.label} | duration: ${opts.duration}s`);
-  console.log(`[measure] speaker: ${opts.speaker} | power: ${opts.power}W`);
-  console.log(`[measure] file: ${basename(track.path)}`);
-  console.log(`${"=".repeat(60)}\n`);
-
-  const browser = await puppeteer.launch({
-    headless: opts.headless,
-    args: [
-      "--no-sandbox",
-      "--disable-setuid-sandbox",
-      "--autoplay-policy=no-user-gesture-required",
-    ],
-  });
-
-  const page = await browser.newPage();
-
-  // 콘솔 로그 캡처
-  page.on("console", (msg) => {
-    if (msg.type() === "debug" || msg.type() === "log") {
-      const text = msg.text();
-      if (text.includes("[Pipeline]") || text.includes("[Latency]")) {
-        console.log(`  [browser] ${text}`);
-      }
-    }
-  });
 
   try {
-    // 1. 페이지 로드
-    console.log(`[measure] 페이지 로드 중...`);
-    await page.goto(opts.url, { waitUntil: "domcontentloaded", timeout: 30000 });
-    await page.waitForSelector("#dashboard-root", { timeout: 10000 });
-    console.log(`[measure] 페이지 로드 완료`);
-
-    // 2. 입력 파라미터 설정
-    console.log(`[measure] 입력 파라미터 설정`);
-    const powerInput = await page.$('input[placeholder*="AMP"], input[type="number"]');
-    if (powerInput) {
-      await powerInput.click({ clickCount: 3 });
-      await powerInput.type(opts.power);
-    }
-    const speakerSelect = await page.$("select");
-    if (speakerSelect) {
-      await speakerSelect.select(opts.speaker);
-    }
-
-    // 3. 파일 업로드
-    console.log(`[measure] 오디오 파일 업로드: ${basename(track.path)}`);
-    const fileInput = await page.$('input[type="file"]');
-    if (!fileInput) throw new Error("파일 업로드 input을 찾을 수 없습니다");
-    await fileInput.uploadFile(track.path);
-
-    // WaveSurfer 로드 대기
-    console.log(`[measure] WaveSurfer 로드 대기...`);
-    await page.waitForSelector("#play-pause-btn:not([disabled])", { timeout: 60000 });
-    await new Promise(r => setTimeout(r, 2000)); // PCM 디코딩 완료 대기
-    console.log(`[measure] WaveSurfer 준비 완료`);
-
-    // 4. Play 시작
-    console.log(`[measure] 재생 시작`);
-    const playBtn = await page.$("#play-pause-btn");
-    if (!playBtn) throw new Error("Play 버튼을 찾을 수 없습니다");
-    await playBtn.click();
-
-    // WebSocket 연결 + 초기 안정화 대기
-    await new Promise(r => setTimeout(r, 3000));
-
-    // 5. REC 측정 시작
-    console.log(`[measure] 측정 시작 (REC)`);
-    // 대시보드 상단의 REC 버튼 (title="측정 모드")
-    const recBtn = await page.$('button[title*="측정"]');
-    if (recBtn) {
-      await recBtn.click();
+    // attach 모드에선 이미 열린 앱 페이지를 찾고, launch 모드에선 새로 연다.
+    let page: Page;
+    if (args.attach) {
+      const pages = await browser.pages();
+      const found = pages.find((p) => p.url().startsWith(args.url));
+      if (!found) {
+        throw new Error(`열려 있는 페이지 중 ${args.url} 로 시작하는 페이지를 찾지 못했습니다.`);
+      }
+      page = found;
     } else {
-      const allButtons = await page.$$("button");
-      for (const btn of allButtons) {
-        const text = await page.evaluate(el => el.textContent, btn);
-        if (text?.includes("REC")) {
-          await btn.click();
-          break;
-        }
-      }
-    }
-    await new Promise(r => setTimeout(r, 500));
-    console.log(`[measure] 측정 중... ${opts.duration}초 대기`);
-
-    // 6. 지정 시간 대기
-    for (let elapsed = 0; elapsed < opts.duration; elapsed++) {
-      await new Promise(r => setTimeout(r, 1000));
-      if ((elapsed + 1) % 10 === 0 || elapsed + 1 === opts.duration) {
-        const frameCount = await page.evaluate(() => {
-          const el = document.querySelector('button[title*="측정"]');
-          return el?.textContent ?? "?";
-        });
-        console.log(`  [${elapsed + 1}/${opts.duration}s] ${frameCount}`);
-      }
+      // 헤드리스에선 fake-device 플래그만으로는 getUserMedia가 거부될 수 있어 권한을 명시 부여
+      await browser.defaultBrowserContext().overridePermissions(new URL(args.url).origin, ["microphone"]);
+      page = await browser.newPage();
+      await page.goto(args.url, { waitUntil: "networkidle2", timeout: 60_000 });
     }
 
-    // 7. 측정 중지 → 데이터 캡처
-    console.log(`[measure] 측정 중지`);
-    const measurementData = await page.evaluate(() => {
-      return new Promise<string>((resolve) => {
-        let captured = "";
-        const origCreateObjectURL = URL.createObjectURL.bind(URL);
-        URL.createObjectURL = (blob: Blob) => {
-          const url = origCreateObjectURL(blob);
-          const reader = new FileReader();
-          reader.onload = () => {
-            captured = reader.result as string;
-            resolve(captured);
-          };
-          reader.readAsText(blob);
-          return url;
-        };
+    // 수집기가 로드됐는지 확인
+    await page.waitForFunction(() => typeof window.__ironPerf !== "undefined", { timeout: 30_000 });
 
-        // STOP 버튼 클릭 (■ 포함된 버튼)
-        const buttons = document.querySelectorAll("button");
-        for (const btn of buttons) {
-          const text = btn.textContent ?? "";
-          if (text.includes("■") && (text.includes("fr") || text.includes("STOP"))) {
-            btn.click();
-            break;
-          }
-        }
-
-        setTimeout(() => { if (!captured) resolve(""); }, 5000);
-      });
-    });
-
-    if (!measurementData) {
-      console.error(`[measure] 측정 데이터 캡처 실패: ${track.name}`);
-      return null;
+    // 마이크 모드 전환 → 세션 시작
+    if (!(await clickButtonByText(page, "마이크"))) {
+      throw new Error('입력 소스 토글("마이크" 버튼)을 찾지 못했습니다.');
+    }
+    await sleep(300);
+    if (!(await clickButtonByAriaLabel(page, "녹음 시작"))) {
+      throw new Error('"녹음 시작" 버튼을 찾지 못했습니다.');
     }
 
-    // 8. 결과 저장
-    const timestamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
-    const outFile   = resolve(outDir, `${opts.label}_${track.name}_${timestamp}.json`);
+    // 프레임이 실제로 흐르기 시작할 때까지 대기
+    await page.waitForFunction(() => (window.__ironPerf?.frameCount() ?? 0) > 0, { timeout: 20_000 });
+    console.log(`▶ 세션 시작 — ${args.duration}s 측정`);
 
-    const data = JSON.parse(measurementData);
-    data.meta.label        = opts.label;
-    data.meta.trackName    = track.name;
-    data.meta.trackFile    = basename(track.path);
-    data.meta.speakerModel = opts.speaker;
-    data.meta.ampPower     = opts.power;
+    const startedAt = Date.now();
+    while (Date.now() - startedAt < args.duration * 1000) {
+      await sleep(2000);
+      const n = await page.evaluate(() => window.__ironPerf?.frameCount() ?? 0);
+      process.stdout.write(`\r  수집 프레임: ${n} (${Math.round((Date.now() - startedAt) / 1000)}s)`);
+    }
+    process.stdout.write("\n");
 
-    writeFileSync(outFile, JSON.stringify(data, null, 2));
-    console.log(`[measure] 결과 저장: ${outFile}`);
+    // 세션 종료 후 스냅샷 — endSession이 durationSec을 고정한다.
+    await clickButtonByAriaLabel(page, "녹음 중지");
+    await sleep(500);
+    const data = await page.evaluate(() => window.__ironPerf?.export() ?? null);
+    if (!data) throw new Error("측정 데이터가 비어 있습니다 (세션이 시작되지 않았을 수 있음).");
 
-    printSummary(data);
-    return outFile;
+    const stamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
+    const outPath = resolve(outDir, `${args.label}_${data.meta.mode}_${stamp}.json`);
+    writeFileSync(outPath, JSON.stringify(data, null, 2));
 
+    // ── 콘솔 요약 ──────────────────────────────────────────────────────────
+    console.log(`\n■ 측정 완료 — mode=${data.meta.mode}, device=${data.meta.deviceName ?? "?"}, ` +
+      `sr=${data.meta.sampleRate}, buf=${data.meta.samplesPerCh}, ch=${data.meta.channels}, ` +
+      `frames=${data.meta.frameCount}, ${data.meta.durationSec}s`);
+    const rows: Record<string, unknown>[] = [];
+    const push = (stage: string, s: { count: number; avg: number | null; p50: number | null; p95: number | null; p99: number | null; max: number | null }) =>
+      rows.push({ stage, count: s.count, avg: s.avg, p50: s.p50, p95: s.p95, p99: s.p99, max: s.max });
+    push("1. HW capture", data.summary.hwCapture);
+    push("2. Encoding", data.summary.encoding);
+    push("3. WASM", data.summary.wasm);
+    push("4. Decoding", data.summary.decoding);
+    push("5. Render(temp)", data.summary.render.temperature);
+    push("5. Render(exc)", data.summary.render.excursion);
+    console.table(rows);
+    console.log(`저장: ${outPath}`);
   } finally {
-    await browser.close();
+    if (args.attach) browser.disconnect();
+    else await browser.close();
   }
-}
-
-// ── 결과 요약 출력 ──────────────────────────────────────────────────────────
-function printSummary(data: Record<string, unknown>) {
-  const s    = data.summary as Record<string, Record<string, number | null>>;
-  const meta = data.meta as Record<string, unknown>;
-
-  console.log(`\n${"─".repeat(60)}`);
-  console.log(`  Summary: ${meta.label} / ${meta.trackName}`);
-  console.log(`  Frames: ${meta.frameCount} | Duration: ${meta.measurementDurationSec}s`);
-  console.log(`${"─".repeat(60)}`);
-
-  const fmt = (v: number | null) => v === null ? "     —" : v.toFixed(2).padStart(7);
-
-  for (const [name, stats] of Object.entries(s)) {
-    if (!stats || typeof stats !== "object") continue;
-    if ("p50" in stats) {
-      console.log(
-        `  ${name.padEnd(15)} avg:${fmt(stats.avg)} | p50:${fmt(stats.p50)} | p95:${fmt(stats.p95)} | p99:${fmt(stats.p99)} | max:${fmt(stats.max)}`
-      );
-    } else if ("avg" in stats && "min" in stats) {
-      console.log(
-        `  ${name.padEnd(15)} avg:${fmt(stats.avg)} | min:${fmt(stats.min)} | max:${fmt(stats.max)}`
-      );
-    } else if ("avg" in stats) {
-      console.log(`  ${name.padEnd(15)} avg:${fmt(stats.avg)}`);
-    }
-  }
-
-  const summary = data.summary as Record<string, unknown>;
-  if (typeof summary.maxStreamingFramesLen === "number") {
-    console.log(`  ${"bufferMax".padEnd(15)} ${summary.maxStreamingFramesLen} frames`);
-  }
-
-  console.log(`${"─".repeat(60)}\n`);
-}
-
-// ── 메인 ────────────────────────────────────────────────────────────────────
-async function main() {
-  const opts   = parseArgs();
-  let tracks = getAudioFiles();
-  if (opts.track) {
-    tracks = tracks.filter(t => basename(t.path).includes(opts.track));
-    if (tracks.length === 0) throw new Error(`--track "${opts.track}" 에 해당하는 파일이 없습니다`);
-  }
-
-  console.log(`\n${"█".repeat(60)}`);
-  console.log(`  Automated Measurement: ${opts.label}`);
-  console.log(`  Tracks: ${tracks.length} | Duration: ${opts.duration}s each`);
-  tracks.forEach((t, i) => console.log(`    ${i + 1}. ${basename(t.path)}`));
-  console.log(`${"█".repeat(60)}\n`);
-
-  // 서버 대기
-  console.log(`[measure] 서버 대기 중: ${opts.url}`);
-  await waitForServer(opts.url);
-  console.log(`[measure] 서버 응답 확인\n`);
-
-  const results: string[] = [];
-
-  for (let i = 0; i < tracks.length; i++) {
-    const outFile = await runSingleTrack(opts, tracks[i], i, tracks.length);
-    if (outFile) results.push(outFile);
-
-    // 트랙 간 쿨다운
-    if (i < tracks.length - 1) {
-      console.log(`[measure] 다음 트랙까지 5초 대기...\n`);
-      await new Promise(r => setTimeout(r, 5000));
-    }
-  }
-
-  // 최종 요약
-  console.log(`\n${"█".repeat(60)}`);
-  console.log(`  측정 완료: ${results.length}/${tracks.length} 트랙`);
-  results.forEach((f, i) => console.log(`    ${i + 1}. ${basename(f)}`));
-  console.log(`\n  비교 명령: npm run compare`);
-  console.log(`${"█".repeat(60)}\n`);
 }
 
 main().catch((err) => {
-  console.error("[measure] 오류:", err);
+  console.error(err instanceof Error ? err.message : err);
   process.exit(1);
 });

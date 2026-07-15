@@ -1,10 +1,11 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import { useMemo, useState, useRef, useCallback, useEffect } from "react";
+import { useMemo, useState, useRef, useCallback, useEffect, useLayoutEffect } from "react";
 import { Maximize2 } from "lucide-react";
 import { AnalysisFrame } from "@/features/audio/types";
 import SegmentedControl from "@/shared/components/ui/SegmentedControl";
+import { perf } from "@/features/audio/lib/perf/collector";
 import {
   computeStreamWindow, computeExcursionYRange, WINDOW_SIZE, type ChannelMode,
 } from "@/features/audio/lib/render/chart-window";
@@ -26,6 +27,11 @@ interface Props {
   audioDuration?: number | null;
   /** LTTB 다운샘플링 on/off (측정 A/B용, 기본 on) */
   lttb?: boolean;
+  /**
+   * true면 5단계 지연 측정(lib/perf)의 "ECharts 렌더" 표본을 이 인스턴스가 기록한다 —
+   * 대시보드 본체 차트만 켠다(ChartDetailOverlay가 재사용하는 인스턴스는 중복 집계 방지로 끔).
+   */
+  perfTrack?: boolean;
   /** 설정 시 헤더에 "자세히 보기" 확대 버튼을 렌더 → 클릭 시 상세 뷰 전환 */
   onExpand?: () => void;
 }
@@ -42,7 +48,7 @@ const CH_COLOR: Record<ChannelMode, { ch0: string; ch1: string }> = {
   Both: { ch0: "#10B981", ch1: "#F59E0B" },
 };
 
-export default function ExcursionChart({ frames, currentTime, isActive, streaming = false, audioDuration, lttb = true, onExpand }: Props) {
+export default function ExcursionChart({ frames, currentTime, isActive, streaming = false, audioDuration, lttb = true, perfTrack = false, onExpand }: Props) {
   const [channelMode, setChannelMode] = useState<ChannelMode>("Both");
 
   // ── 줌 상태 보존 ─────────────────────────────────────────────────────────
@@ -52,8 +58,25 @@ export default function ExcursionChart({ frames, currentTime, isActive, streamin
   const pointCountRef = useRef(0);
   useEffect(() => { zoomRef.current = { start: 0, end: 100 }; setShowSymbols(false); }, [audioDuration]);
 
+  // ── 5. ECharts 렌더 측정 — 새 프레임 커밋(useLayoutEffect) 시각을 찍고, 그 커밋에 이어지는
+  // 첫 "rendered" 이벤트(캔버스 드로잉 완료)에서 경과를 기록한다. 렌더 틱당 표본 1개.
+  const prevFrameLenRef  = useRef(0);
+  const renderStartAtRef = useRef(0);
+  useLayoutEffect(() => {
+    if (perfTrack && streaming && frames.length !== prevFrameLenRef.current) {
+      prevFrameLenRef.current = frames.length;
+      renderStartAtRef.current = performance.now();
+    }
+  });
+
   const echartsEvents = useRef<Record<string, (...args: unknown[]) => void>>({});
   echartsEvents.current = {
+    rendered: useCallback(() => {
+      if (perfTrack && renderStartAtRef.current > 0) {
+        perf.recordRender("excursion", performance.now() - renderStartAtRef.current);
+        renderStartAtRef.current = 0; // 줌/리사이즈 등 프레임 커밋 없는 redraw는 집계하지 않는다
+      }
+    }, [perfTrack]),
     datazoom: useCallback((params: unknown) => {
       const p = params as { batch?: Array<{ start?: number; end?: number }>; start?: number; end?: number };
       const src = p.batch?.[0] ?? p;

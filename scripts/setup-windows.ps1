@@ -153,11 +153,15 @@ Write-Host @"
 다음 단계:
   npm run dev              # http://localhost:3000 (브라우저 WASM 엔진)
   npm run build:desktop    # 정적 번들 (out/)
-  npm run build:electron   # Electron 패키징 (dist-electron/, Windows는 zip 포터블)
+  npm run build:electron   # Electron 패키징 (dist-electron/windows/*.zip — 포터블)
+                            #   Windows 호스트에서는 macOS 패키징 단계를 자동으로 건너뜁니다
+                            #   (CoreAudio 헬퍼 컴파일에 swiftc/macOS가 필요하기 때문)
 
 참고:
   - macOS 전용 네이티브 오디오 캡처(window.audioDevice/audioCapture, CoreAudio 헬퍼)는
     Windows 빌드에 포함되지 않습니다 — 실시간 마이크는 브라우저 getUserMedia로 동작하고,
     장치별 SampleRate/Buffer 세부 설정은 아직 macOS 전용입니다 (docs/windows-plan.md 참고).
   - 파일 업로드 분석은 모든 플랫폼에서 동일하게 동작합니다.
+  - mac용 .dmg/.zip까지 한 번에 만들려면 macOS 호스트에서 npm run build:electron을
+    실행하세요 (Windows/Linux 산출물도 그 호스트에서 함께 크로스 빌드됩니다).
 "@

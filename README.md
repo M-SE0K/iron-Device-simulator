@@ -14,7 +14,7 @@ Visualizes **speaker temperature** and **excursion displacement** in real-time v
 
 There is no backend for the analysis pipeline — everything runs client-side. `native/ff_prot.c` (a reference/stub implementation matching the real vendor `libirontune.so`'s `ff_prot_*` signature; the real vendor source hasn't been provided yet, see `native/README.md`) is compiled with Emscripten to browser-target WebAssembly (`public/wasm/ff_prot.{js,wasm}`) and executed directly in the browser's `WebAssembly` runtime via `src/features/audio/lib/engine/adapters/wasm-client.ts`. `engine/protocol/local-socket.ts` wraps this in a `WebSocket`-shaped interface so the player components (`WaveformPlayer.tsx` / `MicrophonePlayer.tsx`) don't need to know the analysis is in-process.
 
-This means the app is a plain static site — the same build works as a normal web deployment, a desktop standalone bundle, an Electron desktop app, or a Capacitor mobile app; see [Building](#building) below.
+This means the app is a plain static site — the same build works as a normal web deployment, a desktop standalone bundle, or an Electron desktop app; see [Building](#building) below.
 
 ---
 
@@ -23,7 +23,6 @@ This means the app is a plain static site — the same build works as a normal w
 - Node.js 20+
 - npm 9+
 - [Emscripten](https://emscripten.org/docs/getting_started/downloads.html) (`emcc`) — to build the WASM engine (`npm run wasm:build`)
-- Mobile packaging only: Xcode (iOS) and/or Android Studio (Android) installed and configured for Capacitor. `@capacitor/cli` is already a devDependency, so no separate install is needed for the `npx cap ...` commands themselves.
 - Electron packaging only: `electron` / `electron-builder` are already devDependencies — no separate install needed. Cross-compiling a Windows NSIS installer from macOS/Linux would require Wine, which is why the Windows target here is a signing/Wine-free portable `.zip` instead (see [Desktop App Packaging (Electron)](#desktop-app-packaging-electron)).
 
 ---
@@ -74,7 +73,7 @@ This runs the same static core build as `build:desktop`, then wraps it with [ele
 | Windows | `.zip` portable (x64 + arm64) |
 | Linux | `.AppImage` (x64 + arm64) |
 
-`electron/main.js` starts a small local HTTP server bound to `127.0.0.1` and serves `out/` to a `BrowserWindow` — a plain `file://` load doesn't work for the same absolute-asset-path reason as the web build above. No backend, no `ws://` connection; the WASM engine still runs entirely in-process inside the Electron renderer, same as the web/mobile builds.
+`electron/main.js` starts a small local HTTP server bound to `127.0.0.1` and serves `out/` to a `BrowserWindow` — a plain `file://` load doesn't work for the same absolute-asset-path reason as the web build above. No backend, no `ws://` connection; the WASM engine still runs entirely in-process inside the Electron renderer, same as the web build.
 
 **These builds are unsigned** (intended for internal team distribution, not app-store/public release — see `electron-builder.yml`). First launch requires one manual step:
 
@@ -87,16 +86,6 @@ To preview without a full package build (after `out/` already exists from any st
 ```bash
 npm run electron:preview   # electron . — launches electron/main.js against the current out/
 ```
-
-### Mobile Packaging (Capacitor iOS/Android)
-
-```bash
-npm run build:mobile    # → out/ (same static + WASM build as the web build)
-npm run cap:sync        # npx cap sync — copies out/ into the ios/ and android/ native projects
-npx cap open ios        # or: npx cap open android
-```
-
-Then build and run from Xcode / Android Studio as usual. `capacitor.config.ts` (`webDir: "out"`) is what tells Capacitor where to pull the bundle from.
 
 ---
 
@@ -120,17 +109,18 @@ npm run wasm:build    # Compile native/ff_prot.c to browser-target WASM, require
 npm run build:desktop # Static web build → out/ (see Building above)
 npm run build:electron # Static build + Electron packaging → out/ + dist-electron/ (see Building above)
 npm run electron:preview # electron . — launch electron/main.js against the current out/, no packaging
-npm run build:mobile  # Static, Capacitor-ready mobile build → out/ (see Building above)
-npm run cap:sync      # npx cap sync — sync out/ into the Capacitor ios/android native projects
 ```
 
 ### Measurement Harness (dev server must already be running)
 
 ```bash
-npm run measure              # Puppeteer auto-measurement → measurements/*.json
-npm run measure:baseline     # label=baseline, 60s/track
-npm run compare              # Summarize / diff measurements/*.json
+npm run measure                                                # Puppeteer + fake mic, auto-measures the web fallback path → measurements/*.json
+npx tsx scripts/measure.ts --label case1 --duration 60          # custom label / duration
+npx tsx scripts/measure.ts --attach http://127.0.0.1:9222 \
+  --url http://127.0.0.1:17872                                 # attach to a running Electron instance — native CoreAudio path
 ```
+
+Manual: play a session in the app, then run `window.__ironPerf.summary()` / `.download()` in the browser console.
 
 ### WASM Build (`native/`)
 
@@ -144,12 +134,12 @@ make selftest         # pure-C self-test of the reference model (temperature ris
 
 ## Features
 
-- **File Mode** — Upload WAV / MP3 and get real-time analysis synced to playback
-- **Microphone Mode** — Real-time analysis from browser microphone input
+- **File Mode** — Upload WAV / MP3; playback drives a real hardware capture loop (V/I sense) that's analyzed live, not just the decoded file audio
+- **Microphone Mode** — Real-time analysis from live microphone / hardware capture input
 - **Temperature / Excursion Charts** — L / R / Both channel toggle, ECharts-based live rendering
-- **Realtime / Batch modes** — Stream synced to playback, or analyze the whole file up front
-- **Debug Panel** — RTT, processing time, React/ECharts render pipeline metrics
-- **Measurement Mode** — Record a session and export as JSON
+- **Calibration** — Speaker profile, amp power, ambient temperature, warn/danger thresholds, sample rate/buffer size, and input/output device routing
+- **Workspace** — Save a session's captured audio + chart data locally (IndexedDB), export per-item as JSON/CSV, inspect per-channel waveforms
+- **Performance Harness** — Console-exposed latency instrumentation (`window.__ironPerf`) across capture → encode → WASM → decode → render stages
 
 ---
 
@@ -163,7 +153,6 @@ make selftest         # pure-C self-test of the reference model (temperature ris
 | Waveform | wavesurfer.js |
 | Analysis Engine | Emscripten (`emcc`) — `native/ff_prot.c` → WebAssembly, browser target, run in-process (no server) |
 | Desktop Packaging | Electron + electron-builder (macOS / Windows / Linux) |
-| Mobile Packaging | Capacitor (iOS / Android) |
 
 ---
 

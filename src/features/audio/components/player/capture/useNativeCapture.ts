@@ -6,7 +6,7 @@
 // Chromium이 버퍼 크기의 주인이라(TN2321) 요청값을 강제할 수 없었다.
 import { useCallback, type MutableRefObject } from "react";
 import type { AppStatus } from "@/features/audio/types";
-import type { StreamDebugInfo } from "@/features/audio/lib/debug/types";
+import { perf } from "@/features/audio/lib/perf/collector";
 import type { SocketLike } from "@/features/audio/lib/engine/protocol/local-socket";
 import type { CaptureStreamEvent } from "./useCaptureSession";
 import { createNativeFrameReframer } from "./reframeNativeChunk";
@@ -21,7 +21,7 @@ export interface NativeCaptureParams {
 }
 
 /**
- * 캡처 세션 동안 메모리에 보존하는 N채널 인터리브 int32 원본 PCM.
+ * 캡처 세션 동안 메모리에 보존하는 N채널 인터리브 int16 원본 PCM.
  * 엔진에는 ch0(V)/ch1(I)만 나가지만, Calibration에서 확장한 나머지 채널도 여기 남아
  * 사용자가 저장을 요청하면 전 채널이 WAV로 내보내진다. 다음 캡처 시작 시 교체된다.
  * (메모리 사용: 8ch·48kHz 기준 약 1.5MB/s — 명시적 저장 전까지만 유지되는 세션 버퍼)
@@ -29,7 +29,7 @@ export interface NativeCaptureParams {
 export interface NativeRawCapture {
   channels: number;
   sampleRate: number;
-  frames: ArrayBuffer[]; // wireSamplesPerCh sample-frame × channels, int32 인터리브
+  frames: ArrayBuffer[]; // wireSamplesPerCh sample-frame × channels, int16 인터리브
 }
 
 export interface NativeCaptureDeps {
@@ -50,8 +50,6 @@ export interface NativeCaptureDeps {
   analysisActiveRef: MutableRefObject<boolean>;
   isActiveRef: MutableRefObject<boolean>;
   frameCountRef: MutableRefObject<number>;
-  lastSendAtRef: MutableRefObject<number>;
-  onDebugUpdate: (info: Partial<StreamDebugInfo>) => void;
   onStatusChange: (s: AppStatus) => void;
   setMicError: (msg: string | null) => void;
   setSampleRate: (v: number | null) => void;
@@ -68,8 +66,8 @@ export interface NativeCaptureDeps {
 
 export function useNativeCapture(deps: NativeCaptureDeps) {
   const {
-    nativeOffsRef, nativeActiveRef, rawCaptureRef, recordingActiveRef, analysisActiveRef, isActiveRef, frameCountRef, lastSendAtRef,
-    onDebugUpdate, onStatusChange, setMicError, setSampleRate, setDeviceName,
+    nativeOffsRef, nativeActiveRef, rawCaptureRef, recordingActiveRef, analysisActiveRef, isActiveRef, frameCountRef,
+    onStatusChange, setMicError, setSampleRate, setDeviceName,
     setActualBufferSize, openAnalysisSocket, cleanup, emitStreamEvent,
   } = deps;
 
@@ -106,6 +104,16 @@ export function useNativeCapture(deps: NativeCaptureDeps) {
     recordingActiveRef.current = true;
     emitStreamEvent({ type: "reset", channels: captureChannels, sampleRate: actualRate });
 
+    // 5단계 지연 측정 세션 시작 — 이전 세션의 측정 데이터를 버리고 새로 수집한다.
+    perf.startSession({
+      mode: "native", sampleRate: actualRate, samplesPerCh: wireSamplesPerCh,
+      channels: captureChannels, deviceName: res.device || null,
+    });
+
+    // 2. Encoding 시작점 — onData(청크 도착)가 찍고, 와이어 프레임이 완성돼 send 직전인
+    // 아래 onFrame에서 경과를 잰다. send() 안에서 WASM analyze가 동기 실행되므로 반드시
+    // send "이전"에 재야 3단계(WASM)가 섞이지 않는다.
+    let encStartAt = 0;
     const reframe = createNativeFrameReframer(
       captureChannels,
       wireSamplesPerCh,
@@ -113,12 +121,11 @@ export function useNativeCapture(deps: NativeCaptureDeps) {
         // 재생 일시정지 중에는 분석 프레임을 보내지 않는다 — 소켓 frameCount(차트 시간축)와
         // WASM 온도 누적을 정지 지점에 고정해, 재개 시 시간축이 튀지 않고 그대로 이어지게 한다.
         if (!analysisActiveRef.current) return;
-        lastSendAtRef.current = performance.now();
-        // Int32Array.buffer는 ArrayBuffer | SharedArrayBuffer → 명시적 캐스트. outPcm은
+        perf.markFrameSent(encStartAt > 0 ? performance.now() - encStartAt : null);
+        // Int16Array.buffer는 ArrayBuffer | SharedArrayBuffer → 명시적 캐스트. outPcm은
         // 재사용하므로 slice(0)로 복사본 전송.
         ws.send((frame.buffer as ArrayBuffer).slice(0));
-        const sent = ++frameCountRef.current;
-        if (sent % 10 === 0) onDebugUpdate({ framesSent: sent });
+        ++frameCountRef.current;
       },
       (rawFrame) => {
         // 저장용 원본 버퍼는 recordingActiveRef가 꺼져 있으면(재생 일시정지 중) 쌓지 않는다 —
@@ -134,6 +141,9 @@ export function useNativeCapture(deps: NativeCaptureDeps) {
 
     const offData = nativeCapture.onData((chunk) => {
       if (!isActiveRef.current || ws.readyState !== WebSocket.OPEN) return;
+      // 1. HW capture — 캡처 콜백 도착 간격(버퍼 채움 시간 근사) + 2. Encoding 시작점.
+      perf.markChunkArrival();
+      encStartAt = performance.now();
       reframe(chunk);
     });
     const offEnded = nativeCapture.onEnded(() => {
@@ -144,8 +154,8 @@ export function useNativeCapture(deps: NativeCaptureDeps) {
     });
     nativeOffsRef.current = [offData, offEnded];
   }, [
-    nativeOffsRef, nativeActiveRef, rawCaptureRef, recordingActiveRef, analysisActiveRef, isActiveRef, frameCountRef, lastSendAtRef,
-    onDebugUpdate, onStatusChange, setMicError, setSampleRate, setDeviceName,
+    nativeOffsRef, nativeActiveRef, rawCaptureRef, recordingActiveRef, analysisActiveRef, isActiveRef, frameCountRef,
+    onStatusChange, setMicError, setSampleRate, setDeviceName,
     setActualBufferSize, openAnalysisSocket, cleanup, emitStreamEvent,
   ]);
 

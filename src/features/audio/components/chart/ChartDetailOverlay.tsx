@@ -163,7 +163,7 @@ export default function ChartDetailOverlay({
         if (!seededRef.current.has(ch)) continue; // 백필 전 — 백필이 곧 지금까지를 커버
         const incoming = new Float32Array(frameCount);
         for (let i = 0; i < frameCount; i++) {
-          incoming[i] = view.getInt32(i * bytesPerFrame + ch * BYTES_PER_SAMPLE, true) / 0x80000000;
+          incoming[i] = view.getInt16(i * bytesPerFrame + ch * BYTES_PER_SAMPLE, true) / 0x8000;
         }
         const existing = next.get(ch) ?? { data: new Float32Array(0), startSec: durationSec };
         const merged = appendWindowed(existing.data, incoming, maxSamples);

@@ -16,8 +16,9 @@ export interface StreamWindowResult {
 
 /**
  * 실시간(streaming)/비실시간(seek) 공용 표시 윈도우 계산.
- *   - streaming + audioDuration 있음(파일 모드): 전체 누적 프레임
- *   - streaming + audioDuration 없음(마이크): 최근 windowSize 프레임만
+ *   - streaming(파일/마이크 공통): 0초부터 전체 누적 프레임 — 왼쪽 끝(0초)을 고정한 채
+ *     오른쪽만 늘어나는 뷰. 표시 윈도우를 최근 N개로 자르면 왼쪽 끝이 스크롤돼 0초가 밀리므로
+ *     자르지 않는다(버퍼 상한 제거는 DashboardClient 쪽 정책).
  *   - 비streaming(seek): currentTime 위치까지 최대 windowSize 프레임 — 배치 분석 제거로
  *     현재 앱에서는 이 분기를 호출하는 곳이 없다(항상 streaming=true). 함수는 재사용
  *     가능성을 위해 남겨둔다.
@@ -36,9 +37,9 @@ export function computeStreamWindow(
   }
 
   if (streaming) {
-    const windowFrames = audioDuration != null ? frames : frames.slice(-windowSize);
+    // 파일/마이크 모두 전체 누적 프레임을 그린다 — 0초 원점 고정(왼쪽 끝 스크롤 방지).
     const lastFrame = frames[frames.length - 1];
-    return { current: lastFrame ? pick(lastFrame) : null, windowFrames };
+    return { current: lastFrame ? pick(lastFrame) : null, windowFrames: frames };
   }
 
   const frameIdx = findFrameIndex(frames.map((f) => f.time), currentTime);

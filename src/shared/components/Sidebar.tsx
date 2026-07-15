@@ -1,12 +1,13 @@
 "use client";
 
-import { LayoutDashboard, FolderOpen, History, SlidersHorizontal } from "lucide-react";
+import { LayoutDashboard, FolderOpen, History, SlidersHorizontal, Timer } from "lucide-react";
 import { useActiveDrawer, type DrawerKey } from "@/features/audio/components/dashboard/ActiveDrawerContext";
 
 const NAV_ITEMS: { key: DrawerKey; label: string; icon: typeof FolderOpen }[] = [
   { key: "workspace",   label: "Workspace",  icon: FolderOpen },
   { key: "records",     label: "측정 기록",   icon: History },
   { key: "calibration", label: "Calibration", icon: SlidersHorizontal },
+  { key: "loopback",    label: "루프백 측정",  icon: Timer },
 ];
 
 interface SidebarProps {

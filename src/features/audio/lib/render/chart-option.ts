@@ -106,13 +106,14 @@ function buildTimeAxis(opts: {
   zoomRef: ZoomStateRef;
 }) {
   const { windowFrames, zoomRef } = opts;
-  const dataMin = windowFrames[0]?.time ?? 0;
+  // 왼쪽 끝(원점)은 항상 0초로 고정하고 오른쪽만 최신 프레임까지 늘어난다 —
+  // 파일/마이크 공통. 이렇게 하면 "0초~현재" 구간이 그대로 유지되고 왼쪽이 스크롤되지 않는다
+  // (전체 이력을 버리지 않고 유지하는 DashboardClient의 버퍼 정책과 짝을 이룬다).
+  const dataMin = 0;
   const dataMax = windowFrames[windowFrames.length - 1]?.time ?? 10;
   const dataDecimals = resolveTimeDecimals(windowFrames);
   return {
     type: "value" as const,
-    // 항상 현재 윈도우 범위를 따라 스크롤한다(파일 재생/마이크 캡처 공통 — 분석은 항상
-    // 캡처 파이프라인의 실시간 스트림이라 "전체 곡선 고정 축"은 없다).
     min: dataMin,
     max: dataMax,
     axisLabel: {
@@ -256,7 +257,7 @@ export function buildBaseChartOption(opts: {
     grid: { top: 8, right: 16, bottom: 52, left: opts.gridLeft },
     legend: buildLegend(opts.channelMode),
     dataZoom: buildDataZoom(opts.zoomRef, opts.zoomColors, {
-      dataMin: opts.windowFrames[0]?.time ?? 0,
+      dataMin: 0, // 시간축 원점 고정과 동일 — 슬라이더 라벨도 0 기준
       dataMax: opts.windowFrames[opts.windowFrames.length - 1]?.time ?? 10,
       dataDecimals: opts.timeDecimals,
     }),

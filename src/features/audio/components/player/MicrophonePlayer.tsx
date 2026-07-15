@@ -4,7 +4,6 @@ import { useEffect, forwardRef, useImperativeHandle } from "react";
 import { Mic, Save, Square } from "lucide-react";
 import { cn } from "@/shared/lib/utils";
 import { AppStatus, AnalysisFrame, InputParameterValues } from "@/features/audio/types";
-import { StreamDebugInfo, DebugLogEntry } from "@/features/audio/lib/debug/types";
 import { useCaptureSession, type CaptureRecordingExport, type CaptureStreamListener } from "./capture/useCaptureSession";
 
 /** 저장 요청 시 상위(DashboardClient)로 넘기는 전 채널 캡처 내보내기 */
@@ -23,8 +22,6 @@ interface Props {
   onStatusChange: (s: AppStatus) => void;
   onFrameReceived: (frame: AnalysisFrame) => void;
   onStreamStart: () => void;
-  onDebugUpdate: (info: Partial<StreamDebugInfo>) => void;
-  onDebugLog?: (entry: DebugLogEntry) => void;
   onSaveRecording?: (rec: MicRecordingExport) => Promise<void> | void;
   inputParams: InputParameterValues;
   /** ChartDetailOverlay(z-[60])가 열려 있을 때 플로팅 독을 그 위로 끌어올린다 — WaveformPlayer와 동일 계약. */
@@ -36,8 +33,6 @@ const MicrophonePlayer = forwardRef<MicrophonePlayerHandle, Props>(function Micr
   onStatusChange,
   onFrameReceived,
   onStreamStart,
-  onDebugUpdate,
-  onDebugLog,
   onSaveRecording,
   inputParams,
   elevated = false,
@@ -49,7 +44,7 @@ const MicrophonePlayer = forwardRef<MicrophonePlayerHandle, Props>(function Micr
     getRecordedBlob, subscribeCaptureStream, frameCountRef, framesRcvdRef,
   } = useCaptureSession({
     status, onStatusChange, onFrameReceived, onStreamStart,
-    onDebugUpdate, onDebugLog, onSaveRecording, inputParams,
+    onSaveRecording, inputParams,
   });
 
   useImperativeHandle(ref, () => ({

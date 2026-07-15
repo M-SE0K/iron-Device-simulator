@@ -5,6 +5,7 @@ import { useMemo, useLayoutEffect, useRef, useCallback, useState, useEffect } fr
 import { Maximize2 } from "lucide-react";
 import { AnalysisFrame } from "@/features/audio/types";
 import SegmentedControl from "@/shared/components/ui/SegmentedControl";
+import { perf } from "@/features/audio/lib/perf/collector";
 import { DEFAULT_TEMP_WARN, DEFAULT_TEMP_DANGER } from "@/features/audio/lib/render/detect-events";
 import {
   computeStreamWindow, computeTemperatureYRange, WINDOW_SIZE, type ChannelMode,
@@ -27,10 +28,11 @@ interface Props {
   audioDuration?: number | null;
   /** LTTB 다운샘플링 on/off (측정 A/B용, 기본 on) */
   lttb?: boolean;
-  /** React 렌더 완료 시각 콜백 (useLayoutEffect) */
-  onReactRender?: (ts: number) => void;
-  /** ECharts 캔버스 드로우 완료 시각 콜백 */
-  onEchartsRender?: (ts: number) => void;
+  /**
+   * true면 5단계 지연 측정(lib/perf)의 "ECharts 렌더" 표본을 이 인스턴스가 기록한다 —
+   * 대시보드 본체 차트만 켠다(ChartDetailOverlay가 재사용하는 인스턴스는 중복 집계 방지로 끔).
+   */
+  perfTrack?: boolean;
   /** 설정 시 헤더에 "자세히 보기" 확대 버튼을 렌더 → 클릭 시 상세 뷰 전환 */
   onExpand?: () => void;
   /** 온도 WARN 임계값(°C) — Calibration.tempWarn. 미지정 시 기본값(65°C) */
@@ -46,7 +48,7 @@ const CH_COLOR: Record<ChannelMode, { ch0: string; ch1: string }> = {
   Both: { ch0: "#0B4171", ch1: "#6B9BD1" },
 };
 
-export default function TemperatureChart({ frames, currentTime, isActive, streaming = false, audioDuration, lttb = true, onReactRender, onEchartsRender, onExpand, warnThreshold = DEFAULT_TEMP_WARN, dangerThreshold = DEFAULT_TEMP_DANGER }: Props) {
+export default function TemperatureChart({ frames, currentTime, isActive, streaming = false, audioDuration, lttb = true, perfTrack = false, onExpand, warnThreshold = DEFAULT_TEMP_WARN, dangerThreshold = DEFAULT_TEMP_DANGER }: Props) {
   const [channelMode, setChannelMode] = useState<ChannelMode>("Both");
 
   // ── 줌 상태 보존 — ref로 관리해서 렌더 유발 없이 option에 반영 ────────────
@@ -58,12 +60,14 @@ export default function TemperatureChart({ frames, currentTime, isActive, stream
   // 새 파일 로드(audioDuration 변경) 시 줌 초기화 + 점 표시도 해제
   useEffect(() => { zoomRef.current = { start: 0, end: 100 }; setShowSymbols(false); }, [audioDuration]);
 
-  // ── React 렌더 완료 시각 측정 ────────────────────────────────────────────
-  const prevFrameLenRef = useRef(0);
+  // ── 5. ECharts 렌더 측정 — 새 프레임 커밋(useLayoutEffect) 시각을 찍고, 그 커밋에 이어지는
+  // 첫 "rendered" 이벤트(캔버스 드로잉 완료)에서 경과를 기록한다. 렌더 틱당 표본 1개.
+  const prevFrameLenRef  = useRef(0);
+  const renderStartAtRef = useRef(0);
   useLayoutEffect(() => {
-    if (streaming && frames.length !== prevFrameLenRef.current) {
+    if (perfTrack && streaming && frames.length !== prevFrameLenRef.current) {
       prevFrameLenRef.current = frames.length;
-      onReactRender?.(performance.now());
+      renderStartAtRef.current = performance.now();
     }
   });
 
@@ -71,9 +75,11 @@ export default function TemperatureChart({ frames, currentTime, isActive, stream
   const echartsEvents = useRef<Record<string, (...args: unknown[]) => void>>({});
   echartsEvents.current = {
     rendered: useCallback(() => {
-      if (streaming && frames.length > 0) onEchartsRender?.(performance.now());
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [streaming, frames.length, onEchartsRender]),
+      if (perfTrack && renderStartAtRef.current > 0) {
+        perf.recordRender("temperature", performance.now() - renderStartAtRef.current);
+        renderStartAtRef.current = 0; // 줌/리사이즈 등 프레임 커밋 없는 redraw는 집계하지 않는다
+      }
+    }, [perfTrack]),
     // datazoom 이벤트에서 현재 줌 상태를 ref에 저장 + 프레임 점 표시 여부 갱신
     datazoom: useCallback((params: unknown) => {
       const p = params as { batch?: Array<{ start?: number; end?: number }>; start?: number; end?: number };
