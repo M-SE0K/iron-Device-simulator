@@ -15,7 +15,6 @@ import ChartDetailOverlay, { type DetailMetric } from "@/features/audio/componen
 import WorkspaceDrawer from "@/features/audio/components/workspace/WorkspaceDrawer";
 import RecordsDrawer from "@/features/audio/components/workspace/RecordsDrawer";
 import CalibrationDrawer from "@/features/audio/components/calibration/CalibrationDrawer";
-import LoopbackDrawer from "@/features/audio/components/measure/LoopbackDrawer";
 import { AppStatus, AnalysisFrame, InputParameterValues } from "@/features/audio/types";
 import type { SessionStatus } from "@/features/audio/lib/cache/workspace";
 import { useCalibration } from "../calibration/CalibrationContext";
@@ -456,7 +455,6 @@ export default function DashboardPage({ useQueue }: DashboardPageProps) {
         <WorkspaceDrawer />
         <RecordsDrawer />
         <CalibrationDrawer />
-        <LoopbackDrawer />
 
         {/* 플로팅 플레이어 독 — 파일 모드는 재생/파형/저장, 마이크 모드는 녹음/저장.
             Electron 파일 모드는 재생+캡처를 단일 IOProc으로 합친 DuplexFilePlayer(진행바만),

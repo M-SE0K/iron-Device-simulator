@@ -5,7 +5,7 @@
 // (WorkspaceContext.open, CalibrationDrawer 로컬 open 이 각각 이 값을 감싸는 얇은 wrapper가 됨).
 import { createContext, useCallback, useContext, useMemo, useState, type ReactNode } from "react";
 
-export type DrawerKey = "workspace" | "records" | "calibration" | "loopback";
+export type DrawerKey = "workspace" | "records" | "calibration";
 
 interface ActiveDrawerCtx {
   active: DrawerKey | null;
