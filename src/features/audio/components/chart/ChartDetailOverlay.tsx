@@ -10,6 +10,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Activity, Rows3, Thermometer, X } from "lucide-react";
 import type { AnalysisFrame } from "@/features/audio/types";
 import { cn } from "@/shared/lib/utils";
+import { useOverlayTransition } from "@/shared/hooks/useOverlayTransition";
+import FullscreenOverlay from "@/shared/components/overlay/FullscreenOverlay";
 import { BYTES_PER_SAMPLE } from "@/features/audio/lib/engine/core";
 import { appendWindowed, decodeWavRange, peekWavHeader } from "@/features/audio/lib/codec/wav-incremental";
 import type { CaptureStreamEvent, CaptureStreamListener } from "@/features/audio/components/player/capture/useCaptureSession";
@@ -79,23 +81,8 @@ export default function ChartDetailOverlay({
   const Icon = isTemp ? Thermometer : Activity;
   const accent = isTemp ? "#0B4171" : "#10B981";
 
-  // 진입/이탈 애니메이션 (페이지 전환 느낌) — 마운트 후 show=true, 닫을 때 트랜지션 후 언마운트
-  const [show, setShow] = useState(false);
-  useEffect(() => {
-    const id = requestAnimationFrame(() => setShow(true));
-    return () => cancelAnimationFrame(id);
-  }, []);
-  const close = () => {
-    setShow(false);
-    window.setTimeout(onClose, 250);
-  };
-
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => e.key === "Escape" && close();
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  // 진입/이탈 애니메이션 + ESC 닫기 — FullscreenOverlay 공용 셸과 함께 사용한다.
+  const { show, close } = useOverlayTransition(onClose);
 
   // ── 표시 항목 드로어 — 메인 차트(metric) + 캡처 버퍼의 채널들을 같은 방식으로 체크/해제한다.
   // 기본값은 메인 차트만 선택된 상태(기존 동작과 동일하게 열자마자 차트가 보인다).
@@ -415,15 +402,7 @@ export default function ChartDetailOverlay({
   ]);
 
   return (
-    <div
-      role="dialog"
-      aria-modal="true"
-      aria-label={`${title} 자세히 보기`}
-      className={`fixed inset-0 z-[60] flex flex-col bg-iron-50 transition-all duration-300 ease-out ${
-        show ? "opacity-100 translate-y-0" : "opacity-0 translate-y-4"
-      }`}
-      style={{ paddingTop: "env(safe-area-inset-top)" }}
-    >
+    <FullscreenOverlay show={show} ariaLabel={`${title} 자세히 보기`}>
       {/* 상단 바 */}
       <header className="shrink-0 h-14 px-3 sm:px-5 flex items-center gap-3 border-b border-iron-100 bg-white">
         <div className="flex items-center gap-2 min-w-0">
@@ -481,6 +460,6 @@ export default function ChartDetailOverlay({
         loading={headerLoading && !header}
         error={channelError}
       />
-    </div>
+    </FullscreenOverlay>
   );
 }
