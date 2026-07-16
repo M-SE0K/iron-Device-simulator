@@ -5,7 +5,7 @@
  * 프레임 단위로 재는 다섯 구간을 Puppeteer로 자동 수집한다:
  *
  *   1. HW capture  — 캡처 콜백 도착 간격 (버퍼 채움 시간 근사)
- *   2. Encoding    — PCM → int32 와이어 프레임 패킹
+ *   2. Encoding    — PCM → int16 와이어 프레임 패킹
  *   3. WASM        — ff_prot_start_exec (processingMs)
  *   4. Decoding    — frame 메시지 파싱 → AnalysisFrame 구성
  *   5. Render      — 프레임 커밋 → ECharts rendered (차트별)
