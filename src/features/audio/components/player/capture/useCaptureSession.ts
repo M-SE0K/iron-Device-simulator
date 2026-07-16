@@ -236,7 +236,11 @@ export function useCaptureSession(deps: UseCaptureSessionDeps) {
           channels:         calibration.channels,
           captureDeviceUID: calibration.captureDeviceUID ?? "",
           playback: options?.playbackPcm
-            ? { pcm: options.playbackPcm, onEnded: options.onPlaybackEnded ?? (() => {}) }
+            ? {
+                pcm: options.playbackPcm,
+                onEnded: options.onPlaybackEnded ?? (() => {}),
+                outputChannel: Number(calibration.outputChannel) || 0,
+              }
             : undefined,
         });
         return;

@@ -136,6 +136,16 @@ const DuplexFilePlayer = forwardRef<WaveformPlayerHandle, Props>(function Duplex
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [audioFile]);
 
+  // ── 에러 전이 시 세션 재시작 가능하게 리셋 ─────────────────────────────────
+  // useCaptureSession이 에러(예: 디스커넥트 exit 3)에서 이미 cleanup()으로 세션을 정리했지만,
+  // captureStartedRef는 이 컴포넌트 소유라 훅이 직접 못 건드린다 — 리셋 안 하면 다음 "재생"
+  // 클릭이 handlePlayPause의 "재개(resumeRecording)" 분기로 빠져 죽은 세션에 재개 신호만
+  // 보내고 끝난다(captureSession.start()가 안 불리므로 micError도 안 지워짐 — 새로고침
+  // 없이는 재시작 불가능해지는 버그).
+  useEffect(() => {
+    if (status === "error") captureStartedRef.current = false;
+  }, [status]);
+
   // ── 진행바: 캡처 스트림 구독 — chunk 프레임 수 누적 = 재생 위치 (단일 클록) ──────
   useEffect(() => {
     const off = captureSession.subscribeCaptureStream((ev) => {

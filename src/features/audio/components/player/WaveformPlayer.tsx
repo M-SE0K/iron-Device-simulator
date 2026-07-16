@@ -160,6 +160,16 @@ const WaveformPlayer = forwardRef<WaveformPlayerHandle, Props>(function Waveform
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [audioFile]);
 
+  // ── 에러 전이 시 세션 재시작 가능하게 리셋 ─────────────────────────────────
+  // useCaptureSession이 에러에서 이미 cleanup()으로 세션을 정리했지만, captureStartedRef는
+  // 이 컴포넌트 소유라 훅이 직접 못 건드린다 — 리셋 안 하면 다음 "재생" 클릭이
+  // handlePlayPause의 "재개(resumeRecording)" 분기로 빠져 죽은 세션에 재개 신호만 보내고
+  // 끝난다(captureSession.start()가 안 불리므로 micError도 안 지워짐 — 새로고침 없이는
+  // 재시작 불가능해지는 버그. DuplexFilePlayer.tsx와 동일 패턴).
+  useEffect(() => {
+    if (status === "error") captureStartedRef.current = false;
+  }, [status]);
+
   // ── 재생 출력 라우팅 (setSinkId) ─────────────────────────────────────────
   // 캘리브레이션의 outputDeviceId로 재생을 특정 출력(예: 앰프/스피커가 물린 MCHStreamer 출력)에
   // 보낸다. WaveSurfer(미디어 엘리먼트)가 준비된 뒤 + 값이 바뀔 때마다 적용. 표준 웹 setSinkId라

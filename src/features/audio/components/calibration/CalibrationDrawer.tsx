@@ -123,7 +123,7 @@ export default function CalibrationDrawer({ projectName, onApply }: Props) {
     refreshInputDevices, revealDeviceNames,
   } = useMediaDevices();
   const {
-    sampleRateOptions, bufferSizeOptions, channelOptions, deviceOptionsLoading, adjustedNote, clearAdjustedNote,
+    sampleRateOptions, bufferSizeOptions, channelOptions, outputChannelOptions, deviceOptionsLoading, adjustedNote, clearAdjustedNote,
   } = useDeviceOptionAutoCorrect({ deviceInfo, deviceInfoLoading, hasAudioDeviceBridge, draft, set });
   const {
     deviceStatus, deviceActual, deviceError, appliedRuntime, apply, resetStatus,
@@ -326,6 +326,19 @@ export default function CalibrationDrawer({ projectName, onApply }: Props) {
                 value={draft.channels}
                 options={channelOptions}
                 onChange={(v) => { clearAdjustedNote(); set({ channels: v }); }}
+                disabled={deviceOptionsLoading}
+              />
+            )}
+            {/* 파일 재생(play-capture)이 --ref 신호를 내보낼 출력 채널 — 멀티채널 앰프 구성에서
+                ch0이 아닌 다른 출력으로 라우팅할 때 쓴다. 출력 채널이 없는 장치는 애초에 파일
+                재생이 불가하므로(위 경고 참고) 필드 자체를 숨긴다. */}
+            {hasAudioDeviceBridge && (deviceInfo?.outputChannels ?? 0) > 0 && (
+              <SelectField
+                label="Output Channel (파일 재생)"
+                unit="ch"
+                value={draft.outputChannel}
+                options={outputChannelOptions}
+                onChange={(v) => { clearAdjustedNote(); set({ outputChannel: v }); }}
                 disabled={deviceOptionsLoading}
               />
             )}

@@ -30,6 +30,8 @@ export interface NativeCaptureParams {
   playback?: {
     pcm: Float32Array;
     onEnded: () => void;
+    /** ref를 내보낼 출력 채널 인덱스(calibration.outputChannel) — 생략/0이면 ch0(기본). */
+    outputChannel?: number;
   };
 }
 
@@ -79,6 +81,36 @@ export interface NativeCaptureDeps {
   emitStreamEvent: (ev: CaptureStreamEvent) => void;
 }
 
+// IPC 왕복 단위 — refPcm 전체를 한 번의 구조화 복제로 넘기면(수 분 파일 기준 수십 MB)
+// 메인 프로세스가 fs.writeFileSync 동안 통째로 멎으므로, 작은 조각으로 나눠 순차 전송한다.
+const REF_UPLOAD_CHUNK_BYTES = 4 * 1024 * 1024;
+
+/** 재생 파일 PCM을 청크 핸드셰이크로 메인에 업로드하고, play-capture:start가 소비할 writeId를 반환한다. */
+async function uploadPlaybackRef(
+  bridge: NonNullable<Window["audioPlayCapture"]>,
+  pcm: Float32Array,
+): Promise<string> {
+  const bytes = new Uint8Array(pcm.buffer, pcm.byteOffset, pcm.byteLength);
+  const started = await bridge.startWrite({ totalBytes: bytes.byteLength });
+  if (!started.success || !started.writeId) {
+    throw new Error(`재생 파일 전송 시작 실패: ${started.error ?? "unknown"}`);
+  }
+  const { writeId } = started;
+  try {
+    for (let offset = 0; offset < bytes.byteLength; offset += REF_UPLOAD_CHUNK_BYTES) {
+      const chunk = bytes.subarray(offset, Math.min(offset + REF_UPLOAD_CHUNK_BYTES, bytes.byteLength));
+      const res = await bridge.writeChunk({ writeId, chunk });
+      if (!res.success) throw new Error(`재생 파일 전송 실패: ${res.error ?? "unknown"}`);
+    }
+    const finalized = await bridge.finalizeWrite({ writeId });
+    if (!finalized.success) throw new Error(`재생 파일 전송 마무리 실패: ${finalized.error ?? "unknown"}`);
+  } catch (err) {
+    bridge.cancelWrite({ writeId });
+    throw err;
+  }
+  return writeId;
+}
+
 export function useNativeCapture(deps: NativeCaptureDeps) {
   const {
     nativeOffsRef, nativeActiveRef, playCaptureActiveRef, rawCaptureRef, recordingActiveRef, analysisActiveRef,
@@ -107,10 +139,8 @@ export function useNativeCapture(deps: NativeCaptureDeps) {
     if (playback) {
       const playCapture = window.audioPlayCapture;
       if (!playCapture) throw new Error("파일 재생(play-capture) 브리지를 사용할 수 없습니다.");
-      res = await playCapture.start({
-        ...baseOpts,
-        refPcm: new Uint8Array(playback.pcm.buffer, playback.pcm.byteOffset, playback.pcm.byteLength),
-      });
+      const refWriteId = await uploadPlaybackRef(playCapture, playback.pcm);
+      res = await playCapture.start({ ...baseOpts, refWriteId, outputChannel: playback.outputChannel });
       if (!res.success && res.error?.includes("device-has-no-output")) {
         throw new Error(
           "선택한 캡처 장치에 출력 채널이 없어 파일 재생이 불가합니다. " +
@@ -203,6 +233,15 @@ export function useNativeCapture(deps: NativeCaptureDeps) {
       // 사용자 stop은 main이 ended 이벤트 자체를 억제하므로 여기 오지 않는다) — 에러가 아니다.
       if (playback && info.code === 0) {
         playback.onEnded();
+        return;
+      }
+      // exit 3 = 헬퍼가 kAudioDevicePropertyDeviceIsAlive 리스너로 장치 연결 해제(USB 분리 등)를
+      // 감지해 스스로 종료한 것 — 이 신호가 없으면 IOProc이 조용히 멈춰 차트가 얼어붙은 채
+      // 사용자가 직접 정지할 때까지 아무 안내도 없었다(mac.swift installDeviceIsAliveListener 참고).
+      if (info.code === 3) {
+        setMicError("캡처 장치와의 연결이 끊겼습니다(USB 분리 등). 장치를 다시 연결한 뒤 재시작하세요.");
+        cleanup();
+        onStatusChange("error");
         return;
       }
       setMicError("네이티브 캡처가 예기치 않게 종료되었습니다.");
