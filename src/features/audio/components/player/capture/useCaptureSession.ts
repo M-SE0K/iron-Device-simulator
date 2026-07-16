@@ -10,7 +10,7 @@ import { perf } from "@/features/audio/lib/perf/collector";
 import { createAnalysisSocket, type SocketLike } from "@/features/audio/lib/engine/protocol/local-socket";
 import { useCalibration } from "@/features/audio/components/calibration/CalibrationContext";
 import { pcmFramesToWavBlob } from "@/features/audio/lib/codec/wav-encoder";
-import { BYTES_PER_SAMPLE } from "@/features/audio/lib/engine/core";
+import { BYTES_PER_SAMPLE, SAMPLE_RATE, SAMPLES_PER_CH } from "@/features/audio/lib/engine/core";
 import { useNativeCapture, type NativeRawCapture } from "./useNativeCapture";
 import { useWebAudioWorkletCapture } from "./useWebAudioWorkletCapture";
 import { buildInitMessage } from "../stream/buildInitMessage";
@@ -221,8 +221,8 @@ export function useCaptureSession(deps: UseCaptureSessionDeps) {
     setMicError(null);
 
     try {
-      const reqSampleRate = Number(calibration.sampleRate) || 48000;
-      const reqBufferSize = Number(calibration.bufferSize) || 480;
+      const reqSampleRate = Number(calibration.sampleRate) || SAMPLE_RATE;
+      const reqBufferSize = Number(calibration.bufferSize) || SAMPLES_PER_CH;
 
       // Electron(네이티브 브리지 존재)에서는 항상 네이티브 CoreAudio 캡처를 쓴다 — 헬퍼가
       // Capture Device(CoreAudio UID, 예: MCHStreamer)로 임의 입력 장치를 열 수 있어(버퍼 크기

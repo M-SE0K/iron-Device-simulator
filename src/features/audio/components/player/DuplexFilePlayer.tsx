@@ -13,6 +13,7 @@ import { Play, Pause, Square, Save, X } from "lucide-react";
 import { cn, formatTime } from "@/shared/lib/utils";
 import { AppStatus, AnalysisFrame, InputParameterValues } from "@/features/audio/types";
 import { useCalibration } from "@/features/audio/components/calibration/CalibrationContext";
+import { SAMPLE_RATE } from "@/features/audio/lib/engine/core";
 import { useCaptureSession } from "./capture/useCaptureSession";
 import type { WaveformPlayerHandle } from "./WaveformPlayer";
 
@@ -115,7 +116,7 @@ const DuplexFilePlayer = forwardRef<WaveformPlayerHandle, Props>(function Duplex
 
     (async () => {
       try {
-        const reqRate = Number(calibration.sampleRate) || 48000;
+        const reqRate = Number(calibration.sampleRate) || SAMPLE_RATE;
         const decoded = await decodeFileToMono(audioFile, reqRate);
         if (cancelled) return;
         decodedRef.current = decoded;
@@ -200,7 +201,7 @@ const DuplexFilePlayer = forwardRef<WaveformPlayerHandle, Props>(function Duplex
     // 분석 소켓의 ready 메시지가 담당한다(마이크 모드와 동일).
     let decoded = decodedRef.current;
     if (!decoded) return;
-    const reqRate = Number(calibration.sampleRate) || 48000;
+    const reqRate = Number(calibration.sampleRate) || SAMPLE_RATE;
     if (decoded.rate !== reqRate && audioFile) {
       try {
         decoded = await decodeFileToMono(audioFile, reqRate);

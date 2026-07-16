@@ -7,9 +7,8 @@
 // 향후 ff_prot_set_param 연동을 위한 선행 필드다(현재 모델별 SPEAKER_PROFILES 로 후처리).
 import { createContext, useContext, useEffect, useMemo, useState, type Dispatch, type ReactNode, type SetStateAction } from "react";
 import { loadCalibrationCache, saveCalibrationCache } from "@/features/audio/lib/cache/calibration";
+import { DEFAULT_AMBIENT_TEMP, SAMPLE_RATE, SAMPLES_PER_CH } from "@/features/audio/lib/engine/core";
 import { DEFAULT_TEMP_WARN, DEFAULT_TEMP_DANGER } from "@/features/audio/lib/render/detect-events";
-
-const DEFAULT_AMBIENT = 25;
 
 // 파일 업로드(WaveformPlayer)/마이크(MicrophonePlayer, 네이티브+getUserMedia 폴백) 두 경로 모두
 // 이 값을 실제로 사용한다 — WASM 엔진(native/ff_prot.c)의 dt 계산과 와이어 프레임 크기에 그대로
@@ -46,9 +45,9 @@ export interface CalibrationValues {
 export const CALIBRATION_EMPTY: CalibrationValues = {
   speakerModel: "",
   ampOutputPower: "20",
-  ambientTemp: String(DEFAULT_AMBIENT),
-  sampleRate: "48000",
-  bufferSize: "480",
+  ambientTemp: String(DEFAULT_AMBIENT_TEMP),
+  sampleRate: String(SAMPLE_RATE),
+  bufferSize: String(SAMPLES_PER_CH),
   channels: "2",
   inputDeviceId: "",
   inputDeviceLabel: "",
