@@ -260,7 +260,7 @@ export function useCaptureSession(deps: UseCaptureSessionDeps) {
     }
   }, [calibration, startNativeCapture, startWebCapture, cleanup]);
 
-  // ── 저장 — 세션 버퍼의 전 채널(int32 인터리브) PCM을 WAV로 인코딩해 상위로 넘긴다 ──────
+  // ── 저장 — 세션 버퍼의 전 채널(int16 인터리브) PCM을 WAV로 인코딩해 상위로 넘긴다 ──────
   // 엔진에 나간 ch0(V)/ch1(I)뿐 아니라 Calibration에서 확장한 모든 채널이 담긴다.
   const saveRecording = useCallback(async () => {
     const raw = rawCaptureRef.current;

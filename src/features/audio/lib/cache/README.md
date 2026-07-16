@@ -14,14 +14,14 @@
 ## 2. 프로젝트 전반에서의 역할
 이 프로젝트는 서버·DB가 없는 브라우저 단독 대시보드라서, 세션 간 상태 보존 수단이 브라우저 저장소뿐이다. `lib/cache/`는 그 저장소 접근을 도메인별 모듈 4개로 모은 유일한 영속화 계층이다.
 
-- **대시보드**: 재생을 멈추거나 탭이 가려질 때 `DashboardClient`의 `useFrameCachePersistence`가 realtime/batch 프레임 버퍼를 저장하고 마운트 시 복원해 차트와 파형을 F5 이후에도 유지한다.
+- **대시보드**: 재생을 멈추거나 탭이 가려질 때 `DashboardClient`의 `useFrameCachePersistence`가 단일 실시간 프레임 버퍼를 저장하고 마운트 시 복원해 차트와 파형을 F5 이후에도 유지한다.
 - **캘리브레이션**: `CalibrationContext`가 "적용"으로 커밋된 파라미터를 저장/복원한다. Electron 전용으로, 캡처 probe가 확인한 실제 SampleRate/BufferFrameSize(`DeviceActualCache`)도 함께 보존한다 — BufferFrameSize는 per-client 속성(TN2321)이라 `query`로는 장치 기본값만 보이기 때문에, "적용" 시점 실측값을 캐시해야 F5 후에도 "연결된 장치" 패널이 마지막 적용값을 보여줄 수 있다.
 - **Workspace**: 좌측 WorkspaceDrawer의 저장 목록(메타)과 항목별 프레임+오디오(페이로드)를 영구 보관하고 JSON/CSV/오디오 내보내기용 헬퍼를 제공한다.
 
 ## 3. 파일별 역할
 | 파일 | 역할 |
 |------|------|
-| `frame.ts` | 차트 프레임 스냅샷(`FrameCacheSnapshot`: 파일명·길이·현재 모드·realtime/batch 프레임)을 sessionStorage 키 `irondevice:chart-cache:v1`에 저장/복원/삭제한다. `slim()`으로 `time`/`temperature`/`excursion`만 직렬화하고 용량 초과 시 batch(전체 곡선)를 버리고 realtime만 재시도한다. |
+| `frame.ts` | 차트 프레임 스냅샷(`FrameCacheSnapshot`)의 파일명·길이·단일 realtimeFrames를 sessionStorage 키 `irondevice:chart-cache:v1`에 저장/복원/삭제한다. `slim()`으로 time/temperature/excursion만 직렬화한다. |
 | `audio-blob.ts` | 오디오 원본 File을 IndexedDB(`irondevice` DB, `audio` 스토어, 고정 키 `"current"`)에 저장하고 메타데이터 포인터(`irondevice:audio-ptr:v1`)를 sessionStorage에 둔다. 복원 시 name/type/lastModified를 보존해 File로 재구성하며 포인터가 없으면 stale 블롭을 정리하고 null을 반환한다. |
 | `calibration.ts` | 두 캐시를 담는다. (1) `CalibrationValues` 전체를 `irondevice:calibration:v1`에 저장하고 `Partial`로 읽어 필드 추가에도 깨지지 않게 한다. (2) `DeviceActualCache`(requested/actual SampleRate·BufferFrameSize)를 `irondevice:device-actual:v1`에 저장한다. 둘 다 sessionStorage, 수명은 탭. |
 | `workspace.ts` | 별도 IndexedDB(`irondevice-workspace` DB, 버전 1)에 `meta` 스토어(목록용 경량 메타)와 `payload` 스토어(slim 프레임 배열 + 오디오 Blob)를 분리 보관한다. 목록/저장/이름변경/삭제/페이로드 조회 CRUD와 `framesToCsv()`, `sanitizeFileName()` 내보내기 헬퍼를 제공한다. id는 `crypto.randomUUID()`, 목록은 `createdAt` 내림차순. |

@@ -22,8 +22,7 @@
 | `ActiveDrawerContext.tsx` | 우측 드로어 배타 전환 컨텍스트(앱 전역 단일 소스). `active: DrawerKey \| null`과 `openDrawer`/`closeDrawer`를 노출한다. `DrawerKey`는 `"workspace" \| "records" \| "calibration"`. Provider 밖에서 `useActiveDrawer()`를 호출하면 예외를 던진다. |
 | `SelectedFilePanel.tsx` | "파일 없음" 안내 전용 컴포넌트. 클릭하면 좌측 Workspace 드로어를 여는 진입점 버튼 하나만 렌더한다(prop 없음). 파일 선택 자체는 Workspace 드로어의 "폴더" 섹션이 맡고, 선택 뒤의 미리보기/저장 버튼은 플로팅 플레이어 독(`WaveformPlayer`)으로 옮겼다. |
 | `hooks/useFrameCachePersistence.ts` | sessionStorage 프레임 캐시(`lib/cache/frame.ts`) 저장/복원 + IndexedDB 오디오 blob(`lib/cache/audio-blob.ts`) 복원. 마운트 시 캐시를 복원하고 재생 정지(`paused`/`ready`)와 `pagehide`/`visibilitychange`(hidden) 시점에 `persistCache()`를 호출한다. F5 새로고침·탭 전환 후에도 파형/차트가 유지되는 이유가 이 훅이다. 저장/복원 대상은 실시간 버퍼(`streamingFrames`) 하나다. |
-| `hooks/useMeasurementCapture.ts` | 내부 측정 하네스(`scripts/measure.ts`) 전용 토글 `handleMeasureToggle`. 시작 시 raw/rendered 프레임·이벤트 로그 refs를 초기화하고 종료 시 RTT/렌더 지연/드롭율 요약 통계(avg/min/max/p50/p95/p99)를 계산해 `MeasurementExport` JSON을 다운로드한다. 측정 중에는 200ms 간격으로 프레임 카운트 UI를 갱신한다. |
-| `hooks/useRenderTelemetry.ts` | 렌더 파이프라인 지연(RTT/react/echarts/freshness lag) 집계 핸들러 4종을 제공한다. `handleEchartsRender`가 ECharts 렌더 완료 시각 기준으로 구간별 ms를 계산하고 `METRICS_INTERVAL`(10)회마다 1회 realtime `WaveformPlayer` 소켓으로 `type:"metrics"` 메시지를 역전송한다(현재 이 메시지를 소비하는 곳은 없다). |
+| perf telemetry | 렌더/차트 성능 수집은 `lib/perf/collector.ts`와 각 차트의 `perfTrack` 인스턴스가 담당한다. |
 
 ## 4. 의존성 및 흐름
 

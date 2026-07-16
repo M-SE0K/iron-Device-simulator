@@ -37,7 +37,7 @@
 - `lib/engine/protocol/local-socket.ts` — `createAnalysisSocket()`/`SocketLike`. PCM 프레임을 보내고 `frame` 메시지를 받는 유일한 분석 창구.
 - `lib/engine/core.ts` — `BYTES_PER_SAMPLE`, `frameBytes()`, `EngineRuntimeConfig`.
 - `lib/engine/utils.ts` — `encodeToInt16()` (Float32 플래너 → Int16 인터리브, 웹 캡처 경로용).
-- `lib/wav-encoder.ts` — `pcmFramesToWavBlob()` (저장/내보내기용 WAV 인코딩).
+- `lib/codec/wav-encoder.ts` — `pcmFramesToWavBlob()` (저장/내보내기용 WAV 인코딩).
 - `components/calibration/CalibrationContext.tsx` — `useCalibration()`으로 `sampleRate`/`bufferSize`/`channels`/`captureDeviceUID`/`inputDeviceId`/`inputDeviceLabel`/`outputDeviceId`를 읽는다 (읽기 전용).
 - `features/audio/types.ts` — `AnalysisFrame`/`AppStatus`/`InputParameterValues`, `lib/debug/types.ts` — `StreamDebugInfo`/`DebugLogEntry`.
 - `shared/lib/utils.ts`(`cn`/`formatTime`), `wavesurfer.js`(동적 import), `lucide-react`, `public/mic-processor.js`(워클릿 모듈 URL 로드).

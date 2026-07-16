@@ -4,7 +4,7 @@
 
 스피커 보호 알고리즘이 계산한 분석 프레임(`AnalysisFrame`)을 개발자가 눈으로 확인할 수 있는 실시간 차트로 바꾼다. 온도(°C)와 익스커션(콘 변위, mm) 두 지표를 ECharts 라인 차트로 그리고 임계값 초과·현재값·전체 구간 통계를 한 화면에서 읽게 한다.
 
-이 도메인은 세 가지 화면 단위를 제공한다. `TemperatureChart`는 WARN/DANGER 임계선(markLine)과 채널별(L/R/Both) 온도 곡선을, `ExcursionChart`는 raw 값을 mm 단위로 환산한 변위 곡선을 그린다. `ChartDetailOverlay`는 두 차트 중 하나를 전체 화면 오버레이로 확대한다. 단순 확대가 아니라 메인 지표 차트와 캡처된 오디오 채널을 "표시 항목" 드로어에서 함께 체크/해제·재배치·리사이즈하는 스택으로 묶는다. 세 컴포넌트 모두 데이터를 소유하지 않는다. `DashboardClient`가 프레임 버퍼를 props로 내려주면 차트는 표시 윈도우·Y축 범위 계산을 `lib/render/`의 순수 함수에 맡기고 ECharts 옵션만 조립한다.
+이 도메인은 세 가지 화면 단위를 제공한다. `TemperatureChart`는 WARN/DANGER 임계선(markLine)과 채널별(ch0(V)/ch1(I)/Both) 온도 곡선을, `ExcursionChart`는 raw 값을 mm 단위로 환산한 변위 곡선을 그린다. `ChartDetailOverlay`는 두 차트 중 하나를 전체 화면 오버레이로 확대한다. 단순 확대가 아니라 메인 지표 차트와 캡처된 오디오 채널을 "표시 항목" 드로어에서 함께 체크/해제·재배치·리사이즈하는 스택으로 묶는다. 세 컴포넌트 모두 데이터를 소유하지 않는다. `DashboardClient`가 프레임 버퍼를 props로 내려주면 차트는 표시 윈도우·Y축 범위 계산을 `lib/render/`의 순수 함수에 맡기고 ECharts 옵션만 조립한다.
 
 ## 2. 프로젝트 전반에서의 역할
 
