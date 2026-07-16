@@ -29,16 +29,8 @@ export interface LoopbackHeader {
   analysisChannel: number; // 왕복 검출에 쓸 입력 채널(보통 0)
 }
 
-/** window.audioLoopback.measure() 반환 형태 */
-export interface LoopbackMeasureResult {
-  success: boolean;
-  error?: string;
-  header?: LoopbackHeader;
-  pcm?: Uint8Array; // Int16 인터리브
-}
-
 /** 방출 1회(버스트)의 왕복 지연 */
-export interface BurstLatency {
+interface BurstLatency {
   emitFrame: number;
   delayFrames: number;
   delayMs: number;
@@ -80,7 +72,7 @@ export function refToBytes(ref: Float32Array): Uint8Array {
 }
 
 /** Int16 인터리브 PCM(Uint8Array)에서 한 채널만 Float 평면으로 (byteOffset 홀수여도 안전) */
-export function extractChannelInt16(
+function extractChannelInt16(
   pcm: Uint8Array,
   channels: number,
   ch: number,
