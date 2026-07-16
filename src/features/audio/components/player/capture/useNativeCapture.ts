@@ -4,6 +4,9 @@
 // 상주 헬퍼(audio-device-helper capture)가 캡처 I/O(IOProc)를 직접 소유하므로
 // BufferFrameSize가 실제로 적용·유지된다 — getUserMedia 경로에서는 캡처를 여는
 // Chromium이 버퍼 크기의 주인이라(TN2321) 요청값을 강제할 수 없었다.
+// params.playback이 있으면(파일 모드) capture 대신 play-capture 헬퍼를 쓴다 — 같은 IOProc이
+// 재생 파일을 출력 ch0으로 내보내며 캡처하므로 재생과 캡처가 단일 클록에 놓인다. 두 헬퍼의
+// 스트리밍 프로토콜이 동일해 이 훅의 나머지 로직(reframe/원본 버퍼/perf 계측)은 전부 공유된다.
 import { useCallback, type MutableRefObject } from "react";
 import type { AppStatus } from "@/features/audio/types";
 import { perf } from "@/features/audio/lib/perf/collector";
@@ -18,6 +21,16 @@ export interface NativeCaptureParams {
   channels: string;
   /** calibration.captureDeviceUID — 빈 문자열이면 OS 기본 입력 */
   captureDeviceUID: string;
+  /**
+   * 파일 모드 재생 — 있으면 capture 대신 play-capture 헬퍼(window.audioPlayCapture)를 쓴다:
+   * 같은 IOProc의 출력 ch0으로 pcm(요청 SR·mono로 디코드된 재생 파일 전체)을 연속 재생하며
+   * 캡처한다(단일 클록 — 수신 캡처 프레임 수 = 재생 프레임 수). onEnded는 재생이 끝까지
+   * 도달해 헬퍼가 exit 0으로 자기 종료했을 때 불린다(WaveSurfer "finish" 대응).
+   */
+  playback?: {
+    pcm: Float32Array;
+    onEnded: () => void;
+  };
 }
 
 /**
@@ -35,6 +48,8 @@ export interface NativeRawCapture {
 export interface NativeCaptureDeps {
   nativeOffsRef: MutableRefObject<Array<() => void>>;
   nativeActiveRef: MutableRefObject<boolean>;
+  /** play-capture(파일 재생+캡처) 헬퍼가 활성인지 — cleanup이 audioPlayCapture.stop()을 부를지 판단 */
+  playCaptureActiveRef: MutableRefObject<boolean>;
   /** 전 채널 원본 PCM 보존 버퍼 — 캡처 시작 시 새로 초기화되고 세션 내내 축적된다. */
   rawCaptureRef: MutableRefObject<NativeRawCapture | null>;
   /**
@@ -66,29 +81,63 @@ export interface NativeCaptureDeps {
 
 export function useNativeCapture(deps: NativeCaptureDeps) {
   const {
-    nativeOffsRef, nativeActiveRef, rawCaptureRef, recordingActiveRef, analysisActiveRef, isActiveRef, frameCountRef,
+    nativeOffsRef, nativeActiveRef, playCaptureActiveRef, rawCaptureRef, recordingActiveRef, analysisActiveRef,
+    isActiveRef, frameCountRef,
     onStatusChange, setMicError, setSampleRate, setDeviceName,
     setActualBufferSize, openAnalysisSocket, cleanup, emitStreamEvent,
   } = deps;
 
   const start = useCallback(async (params: NativeCaptureParams) => {
-    const nativeCapture = window.audioCapture;
-    if (!nativeCapture) throw new Error("네이티브 캡처 브리지를 사용할 수 없습니다.");
+    const { playback } = params;
 
     // 캡처 채널 수 — Calibration에서 장치 스펙(inputChannels) 이하로 지정한다.
     // 엔진 분석에는 ch0(V)/ch1(I)만 쓰이고, 나머지 채널은 rawCaptureRef에 보존된다.
     const captureChannels = Math.max(2, Number(params.channels) || 2);
-    const res = await nativeCapture.start({
+    const baseOpts = {
       sampleRate: params.sampleRate,
       bufferSize: params.bufferSize,
       channels:   captureChannels,
       deviceUID:  params.captureDeviceUID?.trim() || undefined,
-    });
+    };
+
+    // 파일 재생이 딸려 있으면 play-capture(재생+캡처 단일 IOProc), 아니면 순수 capture.
+    // 두 브리지는 start 결과·onData/onEnded 프로토콜이 같아 이후 로직(actual 우선 원칙,
+    // 분석 소켓, reframe, perf 계측)을 전부 공유한다.
+    let res;
+    if (playback) {
+      const playCapture = window.audioPlayCapture;
+      if (!playCapture) throw new Error("파일 재생(play-capture) 브리지를 사용할 수 없습니다.");
+      res = await playCapture.start({
+        ...baseOpts,
+        refPcm: new Uint8Array(playback.pcm.buffer, playback.pcm.byteOffset, playback.pcm.byteLength),
+      });
+      if (!res.success && res.error?.includes("device-has-no-output")) {
+        throw new Error(
+          "선택한 캡처 장치에 출력 채널이 없어 파일 재생이 불가합니다. " +
+          "입·출력 겸용 장치(예: MCHStreamer)를 Capture Device로 선택하세요."
+        );
+      }
+    } else {
+      const nativeCapture = window.audioCapture;
+      if (!nativeCapture) throw new Error("네이티브 캡처 브리지를 사용할 수 없습니다.");
+      res = await nativeCapture.start(baseOpts);
+    }
     if (!res.success) {
       throw new Error(`네이티브 캡처 시작 실패: ${res.error ?? "unknown"}`);
     }
-    nativeActiveRef.current = true;
+
     const actualRate = res.actual?.sampleRate ?? params.sampleRate;
+    // 재생 ref는 요청 SR로 미리 디코드돼 있다 — 장치가 다른 SR로 열리면 피치/클록이 왜곡되므로
+    // 세션을 거부한다(useDeviceOptionAutoCorrect가 지원 SR만 고르게 해 실제로는 드묾).
+    if (playback && Math.abs(actualRate - params.sampleRate) >= 1) {
+      window.audioPlayCapture?.stop();
+      throw new Error(
+        `장치가 요청 샘플레이트(${params.sampleRate} Hz)를 적용하지 못했습니다(실제 ${actualRate} Hz) — ` +
+        "Calibration에서 장치가 지원하는 샘플레이트를 선택하세요."
+      );
+    }
+    if (playback) playCaptureActiveRef.current = true;
+    else nativeActiveRef.current = true;
     // 와이어로 나가는 프레임 크기 — 장치가 실제 적용한 bufferSize를 우선한다(sampleRate와
     // 동일한 "actual 우선" 원칙). 이 값이 그대로 init 메시지의 bufferSize로 실려
     // ff_prot_start_exec의 dt 계산에 쓰인다.
@@ -139,22 +188,31 @@ export function useNativeCapture(deps: NativeCaptureDeps) {
       },
     );
 
-    const offData = nativeCapture.onData((chunk) => {
+    // onData/onEnded 프로토콜은 두 브리지가 동일 — 활성 브리지에만 리스너를 건다.
+    const bridge = playback ? window.audioPlayCapture! : window.audioCapture!;
+    const offData = bridge.onData((chunk) => {
       if (!isActiveRef.current || ws.readyState !== WebSocket.OPEN) return;
       // 1. HW capture — 캡처 콜백 도착 간격(버퍼 채움 시간 근사) + 2. Encoding 시작점.
       perf.markChunkArrival();
       encStartAt = performance.now();
       reframe(chunk);
     });
-    const offEnded = nativeCapture.onEnded(() => {
+    const offEnded = bridge.onEnded((info) => {
       if (!isActiveRef.current) return;
+      // play-capture의 exit 0 = 재생이 끝까지 도달해 헬퍼가 자기 종료한 것("재생 완료" 신호,
+      // 사용자 stop은 main이 ended 이벤트 자체를 억제하므로 여기 오지 않는다) — 에러가 아니다.
+      if (playback && info.code === 0) {
+        playback.onEnded();
+        return;
+      }
       setMicError("네이티브 캡처가 예기치 않게 종료되었습니다.");
       cleanup();
       onStatusChange("error");
     });
     nativeOffsRef.current = [offData, offEnded];
   }, [
-    nativeOffsRef, nativeActiveRef, rawCaptureRef, recordingActiveRef, analysisActiveRef, isActiveRef, frameCountRef,
+    nativeOffsRef, nativeActiveRef, playCaptureActiveRef, rawCaptureRef, recordingActiveRef, analysisActiveRef,
+    isActiveRef, frameCountRef,
     onStatusChange, setMicError, setSampleRate, setDeviceName,
     setActualBufferSize, openAnalysisSocket, cleanup, emitStreamEvent,
   ]);

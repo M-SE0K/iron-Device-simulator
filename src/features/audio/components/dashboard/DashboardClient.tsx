@@ -6,6 +6,7 @@ import Sidebar from "@/shared/components/Sidebar";
 import SegmentedControl from "@/shared/components/ui/SegmentedControl";
 import SelectedFilePanel from "@/features/audio/components/dashboard/SelectedFilePanel";
 import WaveformPlayer, { WaveformPlayerHandle } from "@/features/audio/components/player/WaveformPlayer";
+import DuplexFilePlayer from "@/features/audio/components/player/DuplexFilePlayer";
 import MicrophonePlayer, { type MicRecordingExport, type MicrophonePlayerHandle } from "@/features/audio/components/player/MicrophonePlayer";
 import type { CaptureStreamListener } from "@/features/audio/components/player/capture/useCaptureSession";
 import TemperatureChart from "@/features/audio/components/chart/TemperatureChart";
@@ -84,6 +85,14 @@ export default function DashboardPage({ useQueue }: DashboardPageProps) {
     thresholdsRef.current = tempThresholds;
   }, [tempThresholds]);
   const [inputMode, setInputMode] = useState<"file" | "mic">("file");
+
+  // Electron(네이티브 브리지 존재) 파일 모드는 항상 duplex 플레이어(play-capture 단일
+  // IOProc) — useCaptureSession의 경로 선택과 같은 감지 기준. 정적 export의 hydration
+  // 불일치를 피하려고 마운트 후 effect에서 판정한다(서버 렌더 시점엔 window가 없다).
+  const [isElectron, setIsElectron] = useState(false);
+  useEffect(() => {
+    setIsElectron(typeof window !== "undefined" && typeof window.audioCapture !== "undefined");
+  }, []);
 
   // ── 차트 상세(자세히 보기) 뷰 — 어느 차트를 전체화면으로 열었는지 (null = 대시보드) ──
   const [detailChart, setDetailChart] = useState<DetailMetric | null>(null);
@@ -449,8 +458,27 @@ export default function DashboardPage({ useQueue }: DashboardPageProps) {
         <CalibrationDrawer />
         <LoopbackDrawer />
 
-        {/* 플로팅 플레이어 독 — 파일 모드는 재생/파형/저장, 마이크 모드는 녹음/저장 */}
+        {/* 플로팅 플레이어 독 — 파일 모드는 재생/파형/저장, 마이크 모드는 녹음/저장.
+            Electron 파일 모드는 재생+캡처를 단일 IOProc으로 합친 DuplexFilePlayer(진행바만),
+            웹 파일 모드는 WaveSurfer 재생 + 별도 캡처의 WaveformPlayer — 핸들 계약은 동일. */}
         {inputMode === "file" ? (
+          isElectron ? (
+            <DuplexFilePlayer
+              ref={realtimeWaveRef}
+              audioFile={audioFile}
+              status={realtimeStatus}
+              onTimeUpdate={handleRealtimeTime}
+              onStatusChange={handleRealtimeStatus}
+              onFrameReceived={handleFrameReceived}
+              onStreamStart={handleStreamStart}
+              inputParams={inputParams}
+              onDurationReady={setAudioDuration}
+              onSave={handleSaveToWorkspace}
+              canSave={!!audioFile && streamingFrames.length > 0}
+              onReset={handleReset}
+              elevated={detailChart !== null}
+            />
+          ) : (
           <WaveformPlayer
             ref={realtimeWaveRef}
             audioFile={audioFile}
@@ -466,6 +494,7 @@ export default function DashboardPage({ useQueue }: DashboardPageProps) {
             onReset={handleReset}
             elevated={detailChart !== null}
           />
+          )
         ) : (
           <MicrophonePlayer
             ref={micWaveRef}

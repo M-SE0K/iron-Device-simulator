@@ -38,6 +38,7 @@ interface AudioDeviceQueryResult {
   supportedSampleRates?: number[];
   bufferRange?: { min: number; max: number };
   inputChannels?: number;
+  outputChannels?: number; // 0이면 입력 전용 — play-capture(파일 재생) 불가
   error?: string;
 }
 
@@ -49,6 +50,22 @@ interface AudioCaptureStartResult {
   requested?: { sampleRate: number; bufferSize: number };
   actual?: AudioDeviceActual;
   error?: string;
+}
+
+// audio-playcapture:start 옵션 — 파일 재생 + 캡처 (mac.swift runPlayCapture 참조)
+interface PlayCaptureStartOpts {
+  sampleRate: number;
+  bufferSize: number;
+  channels?: number;
+  deviceUID?: string; // 생략 시 OS 기본 입력 — 단, play-capture는 입출력 겸용 장치 필요
+  refPcm: Uint8Array; // 재생할 파일 전체를 요청 SR·mono로 디코드한 raw little-endian Float32
+}
+
+// play-capture 헤더 = capture 헤더 + 재생 메타 (mode/refLen/playbackChannel)
+interface PlayCaptureStartResult extends AudioCaptureStartResult {
+  mode?: "play-capture";
+  refLen?: number; // 재생 총 프레임 수 (테일 제외)
+  playbackChannel?: number; // ref가 나가는 출력 채널 (현재 0 고정)
 }
 
 // audio-loopback:measure — duplex 헬퍼 1회 실행 헤더(첫 줄 JSON). mac.swift runDuplex 참조.
@@ -122,6 +139,16 @@ declare global {
       }) => Promise<AudioCaptureStartResult>;
       stop: () => Promise<{ success: boolean }>;
       onData: (callback: (chunk: Uint8Array) => void) => () => void;
+      onEnded: (callback: (info: { code: number | null }) => void) => () => void;
+    };
+    audioPlayCapture?: {
+      // refPcm을 출력 ch0으로 연속 재생하며 캡처를 onData로 스트리밍 (단일 IOProc, 단일 클록)
+      start: (opts: PlayCaptureStartOpts) => Promise<PlayCaptureStartResult>;
+      // 재생 위치 동결/재개 — 캡처 스트림은 계속 흐른다 (게이트는 렌더러 몫)
+      control: (action: "pause" | "resume") => Promise<{ success: boolean; error?: string }>;
+      stop: () => Promise<{ success: boolean }>;
+      onData: (callback: (chunk: Uint8Array) => void) => () => void;
+      // code 0 = 재생 완료(자기 종료), 그 외 = 비정상 종료. 사용자 stop 시에는 오지 않는다.
       onEnded: (callback: (info: { code: number | null }) => void) => () => void;
     };
     audioLoopback?: {

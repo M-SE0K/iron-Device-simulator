@@ -226,10 +226,11 @@ export default function CalibrationDrawer({ projectName, onApply }: Props) {
               />
             )}
 
-            {/* 출력 장치 — 재생을 어느 출력으로 보낼지(WaveSurfer setSinkId). 입력과 달리 웹·Electron
-                양쪽 모두 노출한다(setSinkId는 표준 웹 API라 CoreAudio 헬퍼가 필요 없다). V/I 센싱
+            {/* 출력 장치 — 재생을 어느 출력으로 보낼지(WaveSurfer setSinkId). 웹 전용:
+                Electron 파일 모드는 play-capture 단일 IOProc이 Capture Device의 출력 ch0으로
+                직접 재생하므로 별도 출력 선택이 없다(출력 = 캡처 장치). 웹에서는 V/I 센싱
                 루프에서 음원을 앰프/스피커(예: MCHStreamer 출력)로 라우팅하는 데 쓴다. */}
-            {hasMediaDevices && (
+            {hasMediaDevices && !hasAudioDeviceBridge && (
               <DeviceSelectField
                 label="Output Device"
                 aria-label="Output Device"
@@ -405,6 +406,12 @@ export default function CalibrationDrawer({ projectName, onApply }: Props) {
                         : `${deviceInfo.inputChannels ?? "?"} ch`
                     }
                   />
+                  {/* 출력 채널 — 파일 모드(play-capture 단일 IOProc)가 이 장치의 출력 ch0으로
+                      재생하므로, 0이면 파일 재생이 불가능함을 미리 알린다. */}
+                  <DeviceRow
+                    label="출력 채널"
+                    value={deviceInfo.outputChannels != null ? `${deviceInfo.outputChannels} ch` : "—"}
+                  />
                   <DeviceRow
                     label="Buffer 범위"
                     value={
@@ -422,6 +429,12 @@ export default function CalibrationDrawer({ projectName, onApply }: Props) {
                     }
                   />
                 </dl>
+              )}
+              {deviceInfo?.outputChannels === 0 && (
+                <p className="text-[11px] text-amber-600 leading-relaxed">
+                  이 장치는 출력 채널이 없어 파일 재생(단일 IOProc 듀플렉스)이 불가합니다 —
+                  마이크 모드만 사용할 수 있습니다.
+                </p>
               )}
               <p className="text-[10px] text-iron-300 leading-relaxed">
                 ⚠️ Buffer Size는 per-client(TN2321)라 이 조회만으로는 장치 기본값이 보입니다.

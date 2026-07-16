@@ -66,7 +66,7 @@ const MicrophonePlayer = forwardRef<MicrophonePlayerHandle, Props>(function Micr
       style={{ bottom: "calc(28px + env(safe-area-inset-bottom))" }}
     >
       <button
-        onClick={isRecording ? stop : start}
+        onClick={isRecording ? stop : () => start()}
         aria-label={isRecording ? "녹음 중지" : "녹음 시작"}
         className={cn(
           "flex items-center justify-center w-12 h-12 rounded-full shrink-0 transition-colors text-white",

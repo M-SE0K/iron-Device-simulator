@@ -63,6 +63,9 @@ export function useCaptureSession(deps: UseCaptureSessionDeps) {
   const workletRef     = useRef<AudioWorkletNode | null>(null);
   const nativeOffsRef  = useRef<Array<() => void>>([]); // 네이티브 캡처 IPC 리스너 해제 함수들
   const nativeActiveRef = useRef(false);
+  // play-capture(파일 재생+캡처 단일 IOProc) 헬퍼 활성 여부 — cleanup/pause/resume가
+  // window.audioPlayCapture를 제어할지 판단한다 (nativeActiveRef의 재생판).
+  const playCaptureActiveRef = useRef(false);
   // 전 채널 원본 PCM 세션 버퍼 — 정지 후에도 유지되어 "저장" 시 전 채널 WAV로 내보낸다.
   // 다음 세션 시작 시 useNativeCapture가 새 버퍼로 교체한다.
   const rawCaptureRef  = useRef<NativeRawCapture | null>(null);
@@ -99,6 +102,10 @@ export function useCaptureSession(deps: UseCaptureSessionDeps) {
     if (nativeActiveRef.current) {
       nativeActiveRef.current = false;
       window.audioCapture?.stop();
+    }
+    if (playCaptureActiveRef.current) {
+      playCaptureActiveRef.current = false;
+      window.audioPlayCapture?.stop();
     }
 
     workletRef.current?.port.close();
@@ -192,7 +199,8 @@ export function useCaptureSession(deps: UseCaptureSessionDeps) {
 
   // ── 캡처 경로 (네이티브 CoreAudio / 웹 getUserMedia 폴백) ────────────────────
   const { start: startNativeCapture } = useNativeCapture({
-    nativeOffsRef, nativeActiveRef, rawCaptureRef, recordingActiveRef, analysisActiveRef, isActiveRef, frameCountRef,
+    nativeOffsRef, nativeActiveRef, playCaptureActiveRef, rawCaptureRef, recordingActiveRef, analysisActiveRef,
+    isActiveRef, frameCountRef,
     onStatusChange, setMicError, setSampleRate, setDeviceName,
     setActualBufferSize, openAnalysisSocket, cleanup, emitStreamEvent,
   });
@@ -203,7 +211,13 @@ export function useCaptureSession(deps: UseCaptureSessionDeps) {
   });
 
   // ── 세션 시작 ───────────────────────────────────────────────────────────────
-  const start = useCallback(async () => {
+  // options.playbackPcm이 있으면(Electron 파일 모드) play-capture 헬퍼로 재생+캡처를 단일
+  // IOProc에서 돌린다 — onPlaybackEnded는 재생이 끝까지 도달했을 때(헬퍼 exit 0) 불린다.
+  // 웹 폴백 경로에는 재생 개념이 없으므로 무시된다(웹 파일 모드는 WaveSurfer가 재생 담당).
+  const start = useCallback(async (options?: {
+    playbackPcm?: Float32Array;
+    onPlaybackEnded?: () => void;
+  }) => {
     setMicError(null);
 
     try {
@@ -221,6 +235,9 @@ export function useCaptureSession(deps: UseCaptureSessionDeps) {
           bufferSize:       reqBufferSize,
           channels:         calibration.channels,
           captureDeviceUID: calibration.captureDeviceUID ?? "",
+          playback: options?.playbackPcm
+            ? { pcm: options.playbackPcm, onEnded: options.onPlaybackEnded ?? (() => {}) }
+            : undefined,
         });
         return;
       }
@@ -291,13 +308,18 @@ export function useCaptureSession(deps: UseCaptureSessionDeps) {
   // 축적만 함께 멈춘다. 세션을 통째로 끊고 재개 시 다시 열면 WASM 온도 누적 상태가 리셋되고
   // 차트도 지워지므로, 대신 데이터 흐름만 멈춘다. 분석을 멈추면 소켓 frameCount(= 차트 시간축)와
   // WASM 온도가 정지 지점에 고정되어, 재개 시 시간축이 튀지 않고 그 지점부터 이어진다.
+  // play-capture 세션이면 헬퍼의 재생 위치도 함께 동결/재개한다(출력 무음 + playPos 정지).
+  // 헬퍼의 캡처 스트림은 pause 중에도 계속 흐르지만 위 두 게이트가 버리므로, 차트·저장 버퍼·
+  // 진행바(캡처 프레임 수 기반)가 모두 정지 지점에 고정된다.
   const pauseRecording = useCallback(() => {
     recordingActiveRef.current = false;
     analysisActiveRef.current = false;
+    if (playCaptureActiveRef.current) window.audioPlayCapture?.control("pause");
   }, []);
   const resumeRecording = useCallback(() => {
     recordingActiveRef.current = true;
     analysisActiveRef.current = true;
+    if (playCaptureActiveRef.current) window.audioPlayCapture?.control("resume");
   }, []);
 
   // 언마운트 시 정리
