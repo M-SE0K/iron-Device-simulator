@@ -4,6 +4,7 @@
 //   · 수명: 탭이 살아있는 동안(새로고침 포함). 탭을 닫으면 사라진다.
 //   · 차트가 실제로 그리는 필드(time/temperature/excursion)만 저장해 직렬화 크기를 줄인다.
 import { AnalysisFrame } from "@/features/audio/types";
+import { slimAnalysisFrames } from "./frame-utils";
 
 const KEY = "irondevice:chart-cache:v1";
 
@@ -13,22 +14,13 @@ export interface FrameCacheSnapshot {
   realtimeFrames: AnalysisFrame[];
 }
 
-// 차트 렌더에 필요한 필드만 남긴다 (coalescing/event 메타데이터는 정적 뷰에 불필요).
-function slim(frames: AnalysisFrame[]): AnalysisFrame[] {
-  return frames.map((f) => ({
-    time:        f.time,
-    temperature: f.temperature,
-    excursion:   f.excursion,
-  }));
-}
-
 export function saveFrameCache(snap: FrameCacheSnapshot): void {
   if (typeof window === "undefined") return;
   try {
     window.sessionStorage.setItem(KEY, JSON.stringify({
       fileName:       snap.fileName,
       audioDuration:  snap.audioDuration,
-      realtimeFrames: slim(snap.realtimeFrames),
+      realtimeFrames: slimAnalysisFrames(snap.realtimeFrames),
     }));
   } catch {
     // 용량 초과(QuotaExceededError) 등: 캐시 포기 (조용히)
