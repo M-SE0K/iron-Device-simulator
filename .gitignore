@@ -8,15 +8,13 @@ node_modules/
 /.next/
 /out/
 
-# Capacitor 모바일 패키징 산출물 (npx cap add android/ios 로 재생성 — 용량이 커서 저장소에 올리지 않음)
-/android/
-/ios/
-
 # Production build
 /build
 
 # Electron 패키징 산출물 (scripts/build-electron.sh 로 재생성)
 /dist-electron/
+# Electron 메인 프로세스 웹팩 번들 (npm run build:electron:main 으로 재생성)
+/electron-dist/
 
 # 로컬 전용 소스 — 원격 레포에는 올리지 않음 (각자 로컬에서만 보관/빌드)
 /electron/
@@ -56,6 +54,11 @@ next-env.d.ts
 # Measurement
 measurements/
 test-audio.wav
+실험결과-1/
+build.log
+
+# 로컬 전용 도구/실험 디렉터리 (프로젝트와 무관)
+im-not-ai/
 
 #CLAUDE & iron-device
 CLAUDE.md

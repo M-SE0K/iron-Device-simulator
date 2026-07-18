@@ -13,6 +13,7 @@ export interface DeviceInfo {
   supportedSampleRates?: number[];
   bufferRange?: { min: number; max: number };
   inputChannels?: number;
+  outputChannels?: number; // 0이면 입력 전용 — play-capture(파일 재생) 불가
 }
 
 /**

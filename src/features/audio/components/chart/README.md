@@ -4,7 +4,7 @@
 
 스피커 보호 알고리즘이 계산한 분석 프레임(`AnalysisFrame`)을 개발자가 눈으로 확인할 수 있는 실시간 차트로 바꾼다. 온도(°C)와 익스커션(콘 변위, mm) 두 지표를 ECharts 라인 차트로 그리고 임계값 초과·현재값·전체 구간 통계를 한 화면에서 읽게 한다.
 
-이 도메인은 세 가지 화면 단위를 제공한다. `TemperatureChart`는 WARN/DANGER 임계선(markLine)과 채널별(L/R/Both) 온도 곡선을, `ExcursionChart`는 raw 값을 mm 단위로 환산한 변위 곡선을 그린다. `ChartDetailOverlay`는 두 차트 중 하나를 전체 화면 오버레이로 확대하고 라이브 통계 타일(현재 L/R, 최대/평균/최소)을 붙인다. 세 컴포넌트 모두 데이터를 소유하지 않는다 — `DashboardClient`가 프레임 버퍼를 props로 내려주고 차트는 표시 윈도우·Y축 범위 계산을 `lib/render/`의 순수 함수에 위임한 뒤 ECharts 옵션만 조립한다.
+이 도메인은 세 가지 화면 단위를 제공한다. `TemperatureChart`는 WARN/DANGER 임계선(markLine)과 채널별(ch0(V)/ch1(I)/Both) 온도 곡선을, `ExcursionChart`는 raw 값을 mm 단위로 환산한 변위 곡선을 그린다. `ChartDetailOverlay`는 두 차트 중 하나를 전체 화면 오버레이로 확대한다. 단순 확대가 아니라 메인 지표 차트와 캡처된 오디오 채널을 "표시 항목" 드로어에서 함께 체크/해제·재배치·리사이즈하는 스택으로 묶는다. 세 컴포넌트 모두 데이터를 소유하지 않는다. `DashboardClient`가 프레임 버퍼를 props로 내려주면 차트는 표시 윈도우·Y축 범위 계산을 `lib/render/`의 순수 함수에 맡기고 ECharts 옵션만 조립한다.
 
 ## 2. 프로젝트 전반에서의 역할
 
@@ -14,14 +14,15 @@
 - Calibration의 `tempWarn`/`tempDanger` 값이 `TemperatureChart`의 markLine과 헤더 현재값 색상(주황 `#F59E0B`/빨강 `#EF4444`)에 반영된다. 기본값은 `lib/render/detect-events.ts`의 `DEFAULT_TEMP_WARN`(65°C)/`DEFAULT_TEMP_DANGER`(75°C)로, 이벤트 감지(`detectEvents`)와 차트가 같은 상수를 공유한다.
 - `TemperatureChart`의 `onReactRender`/`onEchartsRender` 콜백은 렌더 지연 측정 텔레메트리(React 커밋 시각·ECharts 캔버스 드로우 완료 시각, `performance.now()` ms 단위)를 `DashboardClient` 쪽 핸들러로 올려보낸다.
 - 다량 포인트 드로우 비용은 LTTB(Largest-Triangle-Three-Buckets) 다운샘플링 + ECharts large 모드(`largeThreshold: 2000`)로 제한한다. `lttb` prop은 측정 A/B 비교용 스위치로 기본 on이다.
+- 확대(dataZoom)로 화면에 보이는 프레임 수가 충분히 줄면(≤ 80, `lib/render/chart-option.ts`의 `SYMBOL_VISIBLE_MAX`) 두 차트가 각 프레임 위치에 원형 점을 찍어 프레임 간격이 눈에 보이게 한다. 판정은 `shouldShowFrameSymbols()`가 dataZoom 이벤트마다 내리며 점을 켜는 동안에는 large/LTTB 샘플링을 끈다(TemperatureChart symbolSize 5, ExcursionChart 4). 새 파일을 로드해 `audioDuration`이 바뀌면 점 표시는 다시 꺼진다.
 
 ## 3. 파일별 역할
 
 | 파일 | 역할 |
 |------|------|
-| `TemperatureChart.tsx` | 스피커 온도 라인 차트. 채널 모드(L/R/Both) 토글(공용 `SegmentedControl`), WARN/DANGER markLine, 임계값 초과 시 헤더 현재값 색상 변경, Y축 동적 범위(기본 0~100°C, 초과 시 확장), 렌더 텔레메트리 콜백(`onReactRender`/`onEchartsRender`), 줌 상태 ref 보존. |
-| `ExcursionChart.tsx` | 콘 변위 라인 차트. 채널 모드(L/R/Both) 토글(공용 `SegmentedControl`), raw 값 × `MM_SCALE`(1/1000)로 mm 환산, `SCALE_PADDING`(1.15) 대칭 패딩의 Y축 동적 범위, 현재값이 표시 범위 상단 85%를 넘으면 헤더를 빨강으로 표시. envelope(`excursionMin`/`excursionMax`)는 Y축 범위 계산에만 쓰고 series로는 그리지 않는다(ECharts 부하 3배 방지). |
-| `ChartDetailOverlay.tsx` | "자세히 보기" 전체 화면 오버레이(`role="dialog"`). 별도 라우트가 아니라 `DashboardClient`의 라이브 데이터를 그대로 재사용해 정적 export/모바일 셸에서도 동작한다. 위의 두 차트 컴포넌트를 그대로 재사용하고 전체 구간 통계 타일(현재 L/R·최대·평균·최소, 두 채널 결합)을 붙인다. ESC 키로 닫히고 진입/이탈에 250ms 트랜지션을 쓴다. `DetailMetric` 타입(`"temperature" \| "excursion"`)을 export한다. |
+| `TemperatureChart.tsx` | 스피커 온도 라인 차트. 채널 모드(L/R/Both) 토글(공용 `SegmentedControl`), WARN/DANGER markLine, 임계값 초과 시 헤더 현재값 색상 변경, Y축 동적 범위(기본 0~100°C, 초과 시 확장), 확대 시 프레임 점 표시(`shouldShowFrameSymbols`, symbolSize 5), 렌더 텔레메트리 콜백(`onReactRender`/`onEchartsRender`), 줌 상태 ref 보존. |
+| `ExcursionChart.tsx` | 콘 변위 라인 차트. 채널 모드(L/R/Both) 토글(공용 `SegmentedControl`), raw 값 × `MM_SCALE`(1/1000)로 mm 환산, `SCALE_PADDING`(1.15) 대칭 패딩의 Y축 동적 범위, 확대 시 프레임 점 표시(`shouldShowFrameSymbols`, symbolSize 4), 현재값이 표시 범위 상단 85%를 넘으면 헤더를 빨강으로 표시. envelope(`excursionMin`/`excursionMax`)는 Y축 범위 계산에만 쓰고 series로는 그리지 않는다(ECharts 부하 3배 방지). |
+| `ChartDetailOverlay.tsx` | "자세히 보기" 전체 화면 오버레이(`role="dialog"`). 별도 라우트가 아니라 `DashboardClient`의 라이브 데이터를 그대로 재사용해 정적 export/모바일 셸에서도 동작한다. 메인 지표 차트 + 캡처 채널들을 "표시 항목" 드로어(`ChannelSelectDrawer`)에서 체크/해제·재배치하고 `ChannelStackView`가 스택으로 렌더한다. 채널 파형은 캡처 청크 스트림(`subscribeChannelStream`)을 폴링 없이 구독해 실시간 갱신하고, 새로 선택한 채널의 최근 30초와 과거 확대 구간은 `getChannelsBlob()`의 WAV를 `lib/codec/wav-incremental`로 온디맨드 디코딩한다. 진입/이탈 전환(rAF + 250ms)과 ESC·Ctrl/Cmd+B(드로어 토글)는 컴포넌트가 직접 처리한다. `DetailMetric` 타입(`"temperature" \| "excursion"`)을 export한다. |
 
 ## 4. 의존성 및 흐름
 
@@ -35,7 +36,8 @@
 - `lib/render/chart-window.ts` — `computeStreamWindow`(표시 윈도우 + 현재값 계산), `computeTemperatureYRange`, `computeExcursionYRange`, `ChannelMode` 타입.
 - `lib/render/chart-option.ts` — 공유 ECharts 옵션 빌더. 축·툴팁·범례(`buildDataZoom`/`buildTimeAxis`/`buildValueTooltip`/`buildLegend`)에 더해 series·Y축·그라디언트·옵션 골격까지 `buildLineSeries`/`buildValueYAxis`/`buildAreaGradient`/`buildBaseChartOption`으로 뽑았다. 두 차트는 지표별로 다른 색·smooth·폭·markLine·grid 좌측 여백만 인자로 넘긴다.
 - `lib/render/chart-window.ts` — 두 차트 공용 표시 윈도우 프레임 수 상수 `WINDOW_SIZE`(1000)도 여기서 온다(과거 각 차트에 중복 선언하던 것을 단일화).
-- `components/channel/*` — `ChartDetailOverlay`의 채널 상세 스택 UI(`ChannelSelectDrawer`/`ChannelStackView`/`ChannelWaveformCanvas`/`ChannelRowHeader`)는 이 도메인이 아니라 별도 `components/channel` 도메인에 있다(`workspace/ChannelViewerOverlay`와 공유하기 위해 분리). `ChartDetailOverlay`가 이를 조립해 쓴다.
+- `components/channel/*` — `ChartDetailOverlay`가 조립하는 표시 항목 스택 UI(`ChannelSelectDrawer`/`ChannelStackView`/`ChannelWaveformCanvas`)는 이 도메인이 아니라 별도 `components/channel` 도메인에 있다(`workspace/ChannelViewerOverlay`와 공유하려고 분리했다). 채널 라벨/색은 `lib/render/channel-meta`(`channelLabel`/`channelColor`)에서 온다.
+- `lib/codec/wav-incremental.ts` — `ChartDetailOverlay` 채널 뷰의 온디맨드 디코딩(`peekWavHeader`/`decodeWavRange`/`appendWindowed`): 저장/세션 WAV의 헤더만 엿보거나 과거 확대 구간·라이브 윈도우만 잘라 읽는다.
 - `lib/render/detect-events.ts` — `DEFAULT_TEMP_WARN`(65°C)/`DEFAULT_TEMP_DANGER`(75°C) (TemperatureChart만).
 - `shared/lib/utils.ts` — `cn`, `findFrameIndex`, `formatTime`.
 - 외부 패키지 — `echarts-for-react`(`next/dynamic`, `ssr: false`로 지연 로드), `lucide-react`(아이콘).
@@ -64,8 +66,8 @@ frames(props) → computeStreamWindow(WINDOW_SIZE=1000)
   - `(props: { frames: AnalysisFrame[]; currentTime: number; isActive: boolean; streaming?: boolean; audioDuration?: number | null; lttb?: boolean; onExpand?: () => void }) => JSX`
   - 변위 차트 카드 한 장을 그린다. 입력 `excursion`은 raw 값이고 표시 직전에 1/1000을 곱해 mm로 환산한다(축·툴팁·헤더 모두 mm, 소수 3자리).
 - `ChartDetailOverlay` (default export)
-  - `(props: { metric: DetailMetric; frames: AnalysisFrame[]; currentTime: number; isActive: boolean; audioDuration?: number | null; lttb?: boolean; warnThreshold?: number; dangerThreshold?: number; onClose: () => void }) => JSX`
-  - 지정 지표의 전체 화면 상세 뷰를 띄운다. `onClose`는 이탈 트랜지션 250ms 뒤에 호출된다.
+  - `(props: { metric: DetailMetric; frames: AnalysisFrame[]; currentTime: number; isActive: boolean; audioDuration?: number | null; lttb?: boolean; warnThreshold?: number; dangerThreshold?: number; getChannelsBlob?: () => Blob | null; subscribeChannelStream?: (fn: CaptureStreamListener) => () => void; onClose: () => void }) => JSX`
+  - 지정 지표의 전체 화면 상세 뷰와 채널 스택을 띄운다. `getChannelsBlob`/`subscribeChannelStream`은 활성 플레이어 핸들(`DashboardClient`가 파일/마이크에 따라 연결)에서 온다. 이 핸들이 없으면 드로어에는 메인 차트 항목만 나온다. `onClose`는 이탈 트랜지션 250ms 뒤에 호출된다.
 - `DetailMetric` (type export, `ChartDetailOverlay.tsx`)
   - `"temperature" | "excursion"` — `DashboardClient`의 상세 뷰 선택 상태 타입.
 
@@ -75,3 +77,4 @@ frames(props) → computeStreamWindow(WINDOW_SIZE=1000)
 - 2026-07-09: 최초 작성 (기준 커밋: 1fbbf44, 커밋되지 않은 워크트리 변경 반영)
 - 2026-07-09: 분석 모드 제거 + 디자인 마이그레이션 반영 — 세 컴포넌트에서 `followWindow` prop 삭제(realtime/batch X축 이원 모드 폐기, X축은 항상 표시 윈도우를 따라감), `audioDuration`은 X축 계산에서 빠지고 표시용으로만 사용, 채널(L/R/Both) 토글을 커스텀 버튼 → 공용 `SegmentedControl`로 교체. 섹션 2·3·4·5 부분 갱신 (색상 팔레트 변경은 표기 대상 아님) (커밋 범위: e0add14..HEAD, 워크트리 포함)
 - 2026-07-10: 리팩터 반영 — 채널 파형 뷰 부품(`Channel*`)을 `components/channel` 도메인으로 분리(`ChartDetailOverlay`는 그곳을 조립해 쓴다), `chart-option.ts`에 series·값 축·그라디언트·옵션 골격 빌더가 추가되고 두 차트가 이를 소비, `WINDOW_SIZE`를 `chart-window.ts` 단일 상수로. `ChartDetailOverlay`의 진입/이탈 전환은 공용 `shared/components/overlay/FullscreenOverlay` + `hooks/useOverlayTransition`으로 위임. 섹션 4 부분 갱신 (커밋 범위: 537099f..HEAD, 워크트리 포함)
+- 2026-07-13: 프레임 심볼 줌 + `ChartDetailOverlay` 채널 스택 반영 — 두 차트가 확대 시 `shouldShowFrameSymbols`로 프레임별 원형 점을 표시(large/LTTB는 그동안 off). `ChartDetailOverlay`는 메인 차트 + 캡처 채널을 "표시 항목" 드로어(`channel/*`)로 함께 다루는 스택이 됐고 채널 파형은 `subscribeChannelStream` 구독 + `lib/codec/wav-incremental` 온디맨드 디코딩으로 갱신한다. `getChannelsBlob`/`subscribeChannelStream` prop이 추가됐다. 진입/이탈 전환은 공용 오버레이 위임 대신 컴포넌트 인라인(rAF+250ms)으로 되돌렸다. 섹션 1·2·3·4·5 부분 갱신 (커밋 범위: 9f08d59..HEAD, 워크트리 포함)

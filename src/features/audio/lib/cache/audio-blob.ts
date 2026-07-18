@@ -3,6 +3,7 @@
 // File/Blob은 sessionStorage(문자열·~5MB)에 담기 부적합하므로 IndexedDB에 보관한다.
 //   · 수명 일치: IndexedDB 자체는 탭을 닫아도 남지만, "현재 세션에 캐시가 있다"는 포인터를 sessionStorage에 둔다. 탭을 닫으면 포인터가 사라지고, 다음 마운트 시 stale 블롭을 정리(clear)하므로 차트 캐시(sessionStorage)와 같은 수명이 된다.
 //   · 비동기 + 대용량 OK → 직렬화/용량 초과(QuotaExceeded) 걱정이 없다.
+import { hasIndexedDb, openIndexedDb } from "./idb";
 
 const DB_NAME     = "irondevice";
 const STORE       = "audio";
@@ -16,24 +17,18 @@ interface AudioPointer {
 }
 
 function openDb(): Promise<IDBDatabase> {
-  return new Promise((resolve, reject) => {
-    const req = window.indexedDB.open(DB_NAME, 1);
-    req.onupgradeneeded = () => {
-      const db = req.result;
+  return openIndexedDb({
+    name: DB_NAME,
+    version: 1,
+    upgrade: (db) => {
       if (!db.objectStoreNames.contains(STORE)) db.createObjectStore(STORE);
-    };
-    req.onsuccess = () => resolve(req.result);
-    req.onerror   = () => reject(req.error);
+    },
   });
-}
-
-function hasIdb(): boolean {
-  return typeof window !== "undefined" && !!window.indexedDB;
 }
 
 /** 오디오 원본을 IndexedDB에 저장하고 세션 포인터를 기록한다. */
 export async function putAudio(file: File): Promise<void> {
-  if (!hasIdb()) return;
+  if (!hasIndexedDb()) return;
   try {
     const db = await openDb();
     await new Promise<void>((resolve, reject) => {
@@ -55,7 +50,7 @@ export async function putAudio(file: File): Promise<void> {
  * 포인터가 없으면(탭이 닫혔던 세션) stale 블롭을 정리하고 null을 반환한다.
  */
 export async function getCachedAudio(): Promise<File | null> {
-  if (!hasIdb()) return null;
+  if (!hasIndexedDb()) return null;
   try {
     const raw = window.sessionStorage.getItem(POINTER_KEY);
     if (!raw) {
@@ -81,7 +76,7 @@ export async function getCachedAudio(): Promise<File | null> {
 
 /** 캐시된 오디오와 세션 포인터를 모두 제거한다. */
 export async function clearAudio(): Promise<void> {
-  if (!hasIdb()) return;
+  if (!hasIndexedDb()) return;
   try {
     window.sessionStorage.removeItem(POINTER_KEY);
     const db = await openDb();

@@ -7,12 +7,11 @@
 // 향후 ff_prot_set_param 연동을 위한 선행 필드다(현재 모델별 SPEAKER_PROFILES 로 후처리).
 import { createContext, useContext, useEffect, useMemo, useState, type Dispatch, type ReactNode, type SetStateAction } from "react";
 import { loadCalibrationCache, saveCalibrationCache } from "@/features/audio/lib/cache/calibration";
+import { DEFAULT_AMBIENT_TEMP, SAMPLE_RATE, SAMPLES_PER_CH } from "@/features/audio/lib/engine/core";
 import { DEFAULT_TEMP_WARN, DEFAULT_TEMP_DANGER } from "@/features/audio/lib/render/detect-events";
 
-const DEFAULT_AMBIENT = 25;
-
 // 파일 업로드(WaveformPlayer)/마이크(MicrophonePlayer, 네이티브+getUserMedia 폴백) 두 경로 모두
-// 이 값을 실제로 사용한다 — WASM 엔진(native/ff_prot.c)의 dt 계산과 와이어 프레임 크기에 그대로
+// 이 값을 실제로 사용한다 — WASM 엔진(electron/native/wasm-engine/ff_prot.c)의 dt 계산과 와이어 프레임 크기에 그대로
 // 반영되며, 다음 세션 시작 시점(다음 재생/다음 녹음 시작)에 적용된다(engine/core.ts EngineRuntimeConfig).
 export const SAMPLE_RATE_OPTIONS = ["8000", "11025", "16000", "32000", "44100", "48000", "96000", "176400", "192000", "352800", "384000"];
 export const BUFFER_SIZE_OPTIONS = ["8", "16", "32", "64", "128", "256", "480", "512", "1024", "2048"];
@@ -34,6 +33,7 @@ export interface CalibrationValues {
   captureDeviceUID: string; // CoreAudio 장치 UID ("" = OS 기본 입력) — 네이티브 캡처/조회 대상(Electron 전용)
   outputDeviceId: string; // MediaDevices deviceId ("" = 시스템 기본 출력) — 재생 라우팅 대상(WaveSurfer setSinkId). V/I 센싱 루프에서 앰프/스피커(MCHStreamer)로 음원을 보내는 출력.
   outputDeviceLabel: string; // 선택 출력 장치 이름(표시/재연결 대조용)
+  outputChannel: string; // play-capture가 재생을 내보낼 출력 채널 인덱스("0"=ch0, 네이티브 전용). 멀티채널 앰프 구성 대응.
   tempBase: string; // °C (프로파일)
   excAmp: string; // mm (프로파일)
   tempMult: string; // 승수
@@ -45,15 +45,16 @@ export interface CalibrationValues {
 export const CALIBRATION_EMPTY: CalibrationValues = {
   speakerModel: "",
   ampOutputPower: "20",
-  ambientTemp: String(DEFAULT_AMBIENT),
-  sampleRate: "48000",
-  bufferSize: "480",
+  ambientTemp: String(DEFAULT_AMBIENT_TEMP),
+  sampleRate: String(SAMPLE_RATE),
+  bufferSize: String(SAMPLES_PER_CH),
   channels: "2",
   inputDeviceId: "",
   inputDeviceLabel: "",
   captureDeviceUID: "",
   outputDeviceId: "",
   outputDeviceLabel: "",
+  outputChannel: "0",
   tempBase: "",
   excAmp: "",
   tempMult: "",

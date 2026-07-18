@@ -2,10 +2,9 @@
 # build-static-local.sh — 정적 export + 브라우저 WASM 엔진 빌드 (공용 코어)
 #
 # 정적 번들을 만든다. 분석은 항상 브라우저(WebView) 안의 WASM 엔진이 직접 수행한다
-# (engine/protocol/local-socket.ts). Capacitor 모바일 패키징(build-mobile.sh)과
-# 데스크톱 독립 웹앱(build-desktop.sh)이 공유하는 코어 빌드 로직 — 두 산출물은
-# 동일하며(out/), 그 뒤에 Capacitor로 감싸느냐 정적 호스팅으로 그대로 서빙하느냐만
-# 다르다.
+# (engine/protocol/local-socket.ts). 데스크톱 독립 웹앱(npm run build:desktop, package.json이
+# 이 스크립트를 직접 호출)과 Electron 패키징(build-electron.sh)이 공유하는 코어 빌드 로직 —
+# 산출물(out/)은 동일하며, 그 뒤에 Electron으로 감싸느냐 정적 호스팅으로 그대로 서빙하느냐만 다르다.
 #
 # src/app/page.tsx 의 `export const dynamic = "force-dynamic"` 은 런타임 서버가 있는
 # 일반 배포용(USE_QUEUE를 재빌드 없이 재정의하기 위함)이라 정적 export와 호환되지

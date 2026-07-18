@@ -5,6 +5,8 @@
 //   · meta 스토어: 목록 렌더용 가벼운 메타데이터(이름/생성일/길이/프레임수 등)
 //   · payload 스토어: 실제 프레임 배열 + 오디오 Blob — 목록에는 안 실어 무거운 로드를 피한다.
 import { AnalysisFrame } from "@/features/audio/types";
+import { slimAnalysisFrames } from "./frame-utils";
+import { hasIndexedDb, openIndexedDb } from "./idb";
 
 const DB_NAME       = "irondevice-workspace";
 const DB_VERSION    = 1;
@@ -46,30 +48,19 @@ export interface SaveWorkspaceInput {
   status: SessionStatus | null;
 }
 
-function hasIdb(): boolean {
-  return typeof window !== "undefined" && !!window.indexedDB;
-}
-
 function openDb(): Promise<IDBDatabase> {
-  return new Promise((resolve, reject) => {
-    const req = window.indexedDB.open(DB_NAME, DB_VERSION);
-    req.onupgradeneeded = () => {
-      const db = req.result;
+  return openIndexedDb({
+    name: DB_NAME,
+    version: DB_VERSION,
+    upgrade: (db) => {
       if (!db.objectStoreNames.contains(META_STORE))    db.createObjectStore(META_STORE, { keyPath: "id" });
       if (!db.objectStoreNames.contains(PAYLOAD_STORE)) db.createObjectStore(PAYLOAD_STORE);
-    };
-    req.onsuccess = () => resolve(req.result);
-    req.onerror   = () => reject(req.error);
+    },
   });
 }
 
-// 차트 렌더 필드만 남겨 저장 용량을 줄인다 (lib/cache/frame.ts의 slim()과 동일 정책).
-function slim(frames: AnalysisFrame[]): AnalysisFrame[] {
-  return frames.map((f) => ({ time: f.time, temperature: f.temperature, excursion: f.excursion }));
-}
-
 export async function listWorkspaceItems(): Promise<WorkspaceItemMeta[]> {
-  if (!hasIdb()) return [];
+  if (!hasIndexedDb()) return [];
   try {
     const db = await openDb();
     const items = await new Promise<WorkspaceItemMeta[]>((resolve, reject) => {
@@ -86,8 +77,8 @@ export async function listWorkspaceItems(): Promise<WorkspaceItemMeta[]> {
 }
 
 export async function saveWorkspaceItem(input: SaveWorkspaceInput): Promise<WorkspaceItemMeta | null> {
-  if (!hasIdb()) return null;
-  const frames = slim(input.frames);
+  if (!hasIndexedDb()) return null;
+  const frames = slimAnalysisFrames(input.frames);
   const now = Date.now();
   const meta: WorkspaceItemMeta = {
     id: crypto.randomUUID(),
@@ -124,7 +115,7 @@ export async function saveWorkspaceItem(input: SaveWorkspaceInput): Promise<Work
 }
 
 export async function renameWorkspaceItem(id: string, name: string): Promise<void> {
-  if (!hasIdb()) return;
+  if (!hasIndexedDb()) return;
   try {
     const db = await openDb();
     await new Promise<void>((resolve, reject) => {
@@ -145,7 +136,7 @@ export async function renameWorkspaceItem(id: string, name: string): Promise<voi
 }
 
 export async function deleteWorkspaceItem(id: string): Promise<void> {
-  if (!hasIdb()) return;
+  if (!hasIndexedDb()) return;
   try {
     const db = await openDb();
     await new Promise<void>((resolve, reject) => {
@@ -162,7 +153,7 @@ export async function deleteWorkspaceItem(id: string): Promise<void> {
 }
 
 export async function getWorkspacePayload(id: string): Promise<WorkspacePayload | null> {
-  if (!hasIdb()) return null;
+  if (!hasIndexedDb()) return null;
   try {
     const db = await openDb();
     const payload = await new Promise<WorkspacePayload | undefined>((resolve, reject) => {

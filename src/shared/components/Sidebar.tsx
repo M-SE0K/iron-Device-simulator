@@ -2,7 +2,6 @@
 
 import { LayoutDashboard, FolderOpen, History, SlidersHorizontal } from "lucide-react";
 import { useActiveDrawer, type DrawerKey } from "@/features/audio/components/dashboard/ActiveDrawerContext";
-import { useCalibration } from "@/features/audio/components/calibration/CalibrationContext";
 
 const NAV_ITEMS: { key: DrawerKey; label: string; icon: typeof FolderOpen }[] = [
   { key: "workspace",   label: "Workspace",  icon: FolderOpen },
@@ -18,7 +17,6 @@ interface SidebarProps {
 
 export default function Sidebar({ mobileOpen = false, onMobileClose, collapsed = false }: SidebarProps) {
   const { active, openDrawer, closeDrawer } = useActiveDrawer();
-  const { values: calibration } = useCalibration();
 
   const handleNav = (fn: () => void) => {
     fn();

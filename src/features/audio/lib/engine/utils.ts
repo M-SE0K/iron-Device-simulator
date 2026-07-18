@@ -10,15 +10,15 @@ import {
   type MemoryLayout, type FrameResult, type EngineRuntimeConfig,
 } from "./core";
 
-// ─── PCM 변환: 플래너(Float32, ch0/ch1) → 인터리브 Int32(L R L R) ────────────
+// ─── PCM 변환: 플래너(Float32, ch0/ch1) → 인터리브 Int16(L R L R) ────────────
 /**
- * 마이크/파일 캡처의 플래너 Float32 채널 쌍을 분석 소켓 전송용 인터리브 형태를 Int32 PCM으로 변환한다 (WaveformPlayer/MicrophonePlayer 공용).
+ * 마이크/파일 캡처의 플래너 Float32 채널 쌍을 분석 소켓 전송용 인터리브 형태를 Int16 PCM으로 변환한다 (WaveformPlayer/MicrophonePlayer 공용).
  */
-export function encodeToInt32(ch0: Float32Array, ch1: Float32Array): Int32Array {
-  const out = new Int32Array(ch0.length * 2);
+export function encodeToInt16(ch0: Float32Array, ch1: Float32Array): Int16Array {
+  const out = new Int16Array(ch0.length * 2);
   for (let i = 0; i < ch0.length; i++) {
-    out[i * 2]     = Math.max(-2147483648, Math.min(2147483647, Math.round(ch0[i] * 2147483647)));
-    out[i * 2 + 1] = Math.max(-2147483648, Math.min(2147483647, Math.round(ch1[i] * 2147483647)));
+    out[i * 2]     = Math.max(-32768, Math.min(32767, Math.round(ch0[i] * 32767)));
+    out[i * 2 + 1] = Math.max(-32768, Math.min(32767, Math.round(ch1[i] * 32767)));
   }
   return out;
 }
@@ -28,11 +28,11 @@ export function encodeToInt32(ch0: Float32Array, ch1: Float32Array): Int32Array 
  * 인터리브 PCM을 플래너 형식으로 변환한다.
  * Buffer, Uint8Array 등 다양한 입력 타입 지원.
  */
-function deinterleave(src: Buffer | Uint8Array, samplesPerCh: number): Int32Array {
-  const dst = new Int32Array(samplesPerCh * CHANNELS);
+function deinterleave(src: Buffer | Uint8Array, samplesPerCh: number): Int16Array {
+  const dst = new Int16Array(samplesPerCh * CHANNELS);
   const channelOffsetSamples = samplesPerCh;
 
-  // Buffer와 Uint8Array 모두 getInt32/readInt32LE 호환 처리
+  // Buffer와 Uint8Array 모두 getInt16/readInt16LE 호환 처리
   const isBuffer = Buffer.isBuffer(src);
 
   for (let ch = 0; ch < CHANNELS; ch++) {
@@ -41,10 +41,10 @@ function deinterleave(src: Buffer | Uint8Array, samplesPerCh: number): Int32Arra
       let sample: number;
 
       if (isBuffer) {
-        sample = (src as Buffer).readInt32LE(srcOff);
+        sample = (src as Buffer).readInt16LE(srcOff);
       } else {
         const view = new DataView(src.buffer, src.byteOffset, src.byteLength);
-        sample = view.getInt32(srcOff, true); // true = littleEndian
+        sample = view.getInt16(srcOff, true); // true = littleEndian
       }
 
       dst[ch * channelOffsetSamples + i] = sample;

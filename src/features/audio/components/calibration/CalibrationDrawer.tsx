@@ -3,12 +3,12 @@
 // 우측 슬라이딩 드로어 — 캘리브레이션 파라미터 편집(앱 전역 단일 소스).
 // 값은 CalibrationProvider(Context)에 보관되어 대시보드 분석에 그대로 쓰인다("캘리브레이션 단일 적용").
 // 편집은 로컬 draft 에서 하고 "적용" 시 Context 에 커밋한다.
-//   · Input Source / Analysis Mode / Input·Output·Capture Device
+//   · Input·Output·Capture Device
 //   · Sample Rate / Buffer Size / Capture Channels (+ 연결된 장치 능력 패널)
 // 좌측 WorkspaceDrawer와 동일하게 항상 마운트된 순수 DOM(비Radix)로 구현 — open 불리언으로
 // 클래스만 토글해 열기/닫기 양방향 슬라이드·페이드 애니메이션을 대칭적으로 재생한다.
 import { useCallback, useEffect } from "react";
-import { RefreshCw, RotateCcw, SlidersHorizontal, X } from "lucide-react";
+import { RefreshCw, RotateCcw, X } from "lucide-react";
 import AnimatedSelect from "@/shared/components/ui/AnimatedSelect";
 import DeviceSelectField from "./DeviceSelectField";
 import { useActiveDrawer } from "@/features/audio/components/dashboard/ActiveDrawerContext";
@@ -123,7 +123,7 @@ export default function CalibrationDrawer({ projectName, onApply }: Props) {
     refreshInputDevices, revealDeviceNames,
   } = useMediaDevices();
   const {
-    sampleRateOptions, bufferSizeOptions, channelOptions, deviceOptionsLoading, adjustedNote, clearAdjustedNote,
+    sampleRateOptions, bufferSizeOptions, channelOptions, outputChannelOptions, deviceOptionsLoading, adjustedNote, clearAdjustedNote,
   } = useDeviceOptionAutoCorrect({ deviceInfo, deviceInfoLoading, hasAudioDeviceBridge, draft, set });
   const {
     deviceStatus, deviceActual, deviceError, appliedRuntime, apply, resetStatus,
@@ -161,10 +161,6 @@ export default function CalibrationDrawer({ projectName, onApply }: Props) {
       bodyClassName="p-4 space-y-5"
       header={
         <div className="h-14 px-4 shrink-0 flex items-center justify-between border-b border-iron-100">
-          <div className="flex items-center gap-2 min-w-0">
-            <SlidersHorizontal className="w-4 h-4 text-brand-blue shrink-0" />
-            <span className="text-sm font-semibold text-iron-900">Calibration Parameter</span>
-          </div>
           <button
             type="button"
             onClick={() => setOpen(false)}
@@ -230,10 +226,11 @@ export default function CalibrationDrawer({ projectName, onApply }: Props) {
               />
             )}
 
-            {/* 출력 장치 — 재생을 어느 출력으로 보낼지(WaveSurfer setSinkId). 입력과 달리 웹·Electron
-                양쪽 모두 노출한다(setSinkId는 표준 웹 API라 CoreAudio 헬퍼가 필요 없다). V/I 센싱
+            {/* 출력 장치 — 재생을 어느 출력으로 보낼지(WaveSurfer setSinkId). 웹 전용:
+                Electron 파일 모드는 play-capture 단일 IOProc이 Capture Device의 출력 ch0으로
+                직접 재생하므로 별도 출력 선택이 없다(출력 = 캡처 장치). 웹에서는 V/I 센싱
                 루프에서 음원을 앰프/스피커(예: MCHStreamer 출력)로 라우팅하는 데 쓴다. */}
-            {hasMediaDevices && (
+            {hasMediaDevices && !hasAudioDeviceBridge && (
               <DeviceSelectField
                 label="Output Device"
                 aria-label="Output Device"
@@ -332,15 +329,28 @@ export default function CalibrationDrawer({ projectName, onApply }: Props) {
                 disabled={deviceOptionsLoading}
               />
             )}
+            {/* 파일 재생(play-capture)이 --ref 신호를 내보낼 출력 채널 — 멀티채널 앰프 구성에서
+                ch0이 아닌 다른 출력으로 라우팅할 때 쓴다. 출력 채널이 없는 장치는 애초에 파일
+                재생이 불가하므로(위 경고 참고) 필드 자체를 숨긴다. */}
+            {hasAudioDeviceBridge && (deviceInfo?.outputChannels ?? 0) > 0 && (
+              <SelectField
+                label="Output Channel (파일 재생)"
+                unit="ch"
+                value={draft.outputChannel}
+                options={outputChannelOptions}
+                onChange={(v) => { clearAdjustedNote(); set({ outputChannel: v }); }}
+                disabled={deviceOptionsLoading}
+              />
+            )}
             {/* "적용" 시 capture probe(TN2321)로 확인한 실제 하드웨어 반영값 — CoreAudio가
-                돌려준 SampleRate/Buffer 를 요청값과 나란히 보여준다. */}
+                돌려준 SampleRate/Buffer/Channels 를 요청값과 나란히 보여준다. */}
             {hasAudioDeviceBridge && (
               <div className="text-xs">
                 {deviceStatus === "applying" && <p className="text-iron-400">디바이스에 적용 중…</p>}
                 {deviceStatus === "applied" && (
                   <p className="text-emerald-600">
-                    적용됨 — 요청 {draft.sampleRate}Hz/{draft.bufferSize} → 실제{" "}
-                    {deviceActual?.sampleRate ?? "?"}Hz/{deviceActual?.bufferSize ?? "?"}
+                    적용됨 — 요청 {draft.sampleRate}Hz/{draft.bufferSize}({draft.channels}ch) → 실제{" "}
+                    {deviceActual?.sampleRate ?? "?"}Hz/{deviceActual?.bufferSize ?? "?"}{deviceActual?.channels ? `(${deviceActual.channels}ch)` : ""}
                   </p>
                 )}
                 {deviceStatus === "error" && <p className="text-red-500">디바이스 적용 실패: {deviceError}</p>}
@@ -399,7 +409,22 @@ export default function CalibrationDrawer({ projectName, onApply }: Props) {
                         : `${deviceInfo.current?.sampleRate ?? "?"}Hz / ${deviceInfo.current?.bufferSize ?? "?"} frames`
                     }
                   />
-                  <DeviceRow label="입력 채널" value={`${deviceInfo.inputChannels ?? "?"} ch`} />
+                  {/* 장치의 총 입력 채널 "능력치"(고정값)가 아니라, "적용"으로 실제 캡처에
+                      반영된 채널 수를 보여준다 — 적용 전에는 장치 최대치를 기본값으로 표시. */}
+                  <DeviceRow
+                    label={appliedRuntime?.actual.channels != null ? "채널(적용값)" : "채널(기본값)"}
+                    value={
+                      appliedRuntime?.actual.channels != null
+                        ? `${appliedRuntime.actual.channels} ch`
+                        : `${deviceInfo.inputChannels ?? "?"} ch`
+                    }
+                  />
+                  {/* 출력 채널 — 파일 모드(play-capture 단일 IOProc)가 이 장치의 출력 ch0으로
+                      재생하므로, 0이면 파일 재생이 불가능함을 미리 알린다. */}
+                  <DeviceRow
+                    label="출력 채널"
+                    value={deviceInfo.outputChannels != null ? `${deviceInfo.outputChannels} ch` : "—"}
+                  />
                   <DeviceRow
                     label="Buffer 범위"
                     value={
@@ -418,9 +443,15 @@ export default function CalibrationDrawer({ projectName, onApply }: Props) {
                   />
                 </dl>
               )}
+              {deviceInfo?.outputChannels === 0 && (
+                <p className="text-[11px] text-amber-600 leading-relaxed">
+                  이 장치는 출력 채널이 없어 파일 재생(단일 IOProc 듀플렉스)이 불가합니다 —
+                  마이크 모드만 사용할 수 있습니다.
+                </p>
+              )}
               <p className="text-[10px] text-iron-300 leading-relaxed">
                 ⚠️ Buffer Size는 per-client(TN2321)라 이 조회만으로는 장치 기본값이 보입니다.
-                "적용"을 누르면 마이크를 아주 잠깐 열었다 닫아 실제 반영값을 확인합니다(마이크가
+                &ldquo;적용&rdquo;을 누르면 마이크를 아주 잠깐 열었다 닫아 실제 반영값을 확인합니다(마이크가
                 이미 녹음 중이면 적용에 실패합니다).
               </p>
             </section>

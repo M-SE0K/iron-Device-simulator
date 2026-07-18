@@ -26,7 +26,7 @@ export function useCalibrationApply(deps: UseCalibrationApplyDeps) {
   const { draft, setValues, setOpen, hasAudioDeviceBridge, deviceInfo, refreshDeviceInfo, onApply } = deps;
 
   const [deviceStatus, setDeviceStatus] = useState<DeviceApplyStatus>("idle");
-  const [deviceActual, setDeviceActual] = useState<{ sampleRate: number | null; bufferSize: number | null } | null>(null);
+  const [deviceActual, setDeviceActual] = useState<{ sampleRate: number | null; bufferSize: number | null; channels?: number } | null>(null);
   const [deviceError, setDeviceError] = useState<string | null>(null);
   // "적용" 시 capture probe로 확인한 실제 런타임 값 — sessionStorage에 저장되어 새로고침(F5)
   // 후에도 "연결된 장치" 패널에 마지막 적용값이 그대로 렌더링된다.
@@ -75,12 +75,17 @@ export function useCalibrationApply(deps: UseCalibrationApplyDeps) {
 
     if (result.success) {
       await window.audioCapture.stop();
-      setDeviceActual(result.actual ?? null);
+      // result.channels는 actual과 형제 필드로 온다(네이티브 헬퍼 capture 응답 — mac.swift) —
+      // actual 안에 없으므로 여기서 합쳐줘야 화면/캐시 어디서도 채널이 빠지지 않는다.
+      const actualWithChannels = result.actual
+        ? { ...result.actual, channels: result.channels }
+        : null;
+      setDeviceActual(actualWithChannels);
       setDeviceStatus("applied");
       // 실제 반영된 런타임 값을 저장 → 새로고침 후에도 "연결된 장치" 패널에 유지된다.
       const runtime: DeviceActualCache = {
-        requested,
-        actual: result.actual ?? { sampleRate: null, bufferSize: null },
+        requested: { ...requested, channels: captureChannels },
+        actual: actualWithChannels ?? { sampleRate: null, bufferSize: null },
       };
       saveDeviceActualCache(runtime);
       setAppliedRuntime(runtime);

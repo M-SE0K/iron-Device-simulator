@@ -2,7 +2,7 @@
  * engine/protocol/local-socket.ts — 브라우저 WebSocket API를 흉내 내는 로컬 WASM 소켓 -> 기존 서버를 이용한 Web Socket 구조에서 큰 변환을 안주기 위함의로 의도함.
  *
  * WaveformPlayer.tsx / MicrophonePlayer.tsx는 서버가 있던 시절 WebSocket을 직접 다뤘다
- * (init → binary PCM 프레임 → frame 메시지). 이 모듈은 그 좁은 인터페이스(SocketLike)만 흉내 내는 in-process 구현으로, 실제로는 adapters/wasm-client.ts(브라우저 WASM)를 직접 호출한다 — 서버(백엔드)가 전혀 없는 환경(정적 배포/Capacitor 모바일 포함)에서 기존 컴포넌트 코드를 거의 바꾸지 않고도 동작하게 해준다.
+ * (init → binary PCM 프레임 → frame 메시지). 이 모듈은 그 좁은 인터페이스(SocketLike)만 흉내 내는 in-process 구현으로, 실제로는 adapters/wasm-client.ts(브라우저 WASM)를 직접 호출한다 — 서버(백엔드)가 전혀 없는 환경(정적 배포/Electron 패키징)에서 기존 컴포넌트 코드를 거의 바꾸지 않고도 동작하게 해준다.
  */
 
 import type { EngineParams } from "../../../types";
@@ -15,7 +15,6 @@ import {
 
 /**
  * WaveformPlayer/MicrophonePlayer가 실제로 사용하는 WebSocket 부분집합.
- * 이벤트 핸들러는 일부러 `any`로 느슨하게 잡아, 네이티브 WebSocket(구체적인 CloseEvent/MessageEvent 타입 사용)이 구조적으로 그대로 대입 가능하게 한다.
  */
 export interface SocketLike {
   readyState: number;
@@ -23,10 +22,10 @@ export interface SocketLike {
   bufferedAmount: number;
   send(data: string | ArrayBuffer): void;
   close(): void;
-  onopen:    ((ev: any) => void) | null;
-  onmessage: ((ev: any) => void) | null;
-  onerror:   ((ev: any) => void) | null;
-  onclose:   ((ev: any) => void) | null;
+  onopen:    ((ev: Event) => void) | null;
+  onmessage: ((ev: MessageEvent) => void) | null;
+  onerror:   ((ev: Event) => void) | null;
+  onclose:   ((ev: Event) => void) | null;
 }
 
 class LocalWasmSocket implements SocketLike {
@@ -42,10 +41,10 @@ class LocalWasmSocket implements SocketLike {
   // in-process 호출이라 전송 큐잉이 없음 — 항상 0(백프레셔 없음)
   readonly bufferedAmount = 0;
 
-  onopen:    ((ev: any) => void) | null = null;
-  onmessage: ((ev: any) => void) | null = null;
-  onerror:   ((ev: any) => void) | null = null;
-  onclose:   ((ev: any) => void) | null = null;
+  onopen:    ((ev: Event) => void) | null = null;
+  onmessage: ((ev: MessageEvent) => void) | null = null;
+  onerror:   ((ev: Event) => void) | null = null;
+  onclose:   ((ev: Event) => void) | null = null;
 
   private session: AnalysisSession | null = null;
   private engineParams: EngineParams = { ampOutputPower: null, speakerModel: "", ambientTemp: DEFAULT_AMBIENT_TEMP };

@@ -1,6 +1,6 @@
 /**
  * wasm-client.ts — ff_prot WASM 엔진 (브라우저 전용, 이 앱의 유일한 분석 엔진)
- * public/wasm/ff_prot.{js,wasm}(native/build-wasm.sh 가 생성하는 브라우저 타깃 산출물)를 브라우저에서 직접 로드해 실행한다. 서버에 의존하지 않으므로 정적 배포와 모바일 앱(Capacitor iOS/Android) 패키징 모두에 쓰인다.
+ * public/wasm/ff_prot.{js,wasm}(electron/native/wasm-engine/build-wasm.sh 가 생성하는 브라우저 타깃 산출물)를 브라우저에서 직접 로드해 실행한다. 서버에 의존하지 않으므로 정적 배포와 Electron 데스크톱 패키징 모두에 쓰인다.
  *
  * engine/utils.ts 의 공통 후처리 규약(SPEAKER_PROFILES / powerTempMult)을 사용한다.
  * openClientWasmSession() 호출마다 새 WASM 인스턴스를 만들므로(전역 상태 격리)
@@ -17,7 +17,7 @@ import { createAnalysisFrame } from "../utils";
 /** 브라우저 WASM 엔진의 메모리 레이아웃 구현 */
 class ClientWasmMemoryLayout implements MemoryLayout {
   constructor(
-    private mod: any,
+    private mod: FfProtInstance,
     private bufPtr: number,
     private tempPtr: number,
     private excPtr: number,
@@ -32,18 +32,19 @@ class ClientWasmMemoryLayout implements MemoryLayout {
     return this.bufPtr;
   }
 
-  writePlanar(bufPtr: number, planar: Int32Array) {
-    this.mod.HEAP32.set(planar, bufPtr >> 2);
+  writePlanar(bufPtr: number, planar: Int16Array) {
+    this.mod.HEAP16.set(planar, bufPtr >> 1);
   }
 
   execAnalysis(bufPtr: number, tempPtr: number, excPtr: number, ambientTemp: number) {
+    // ff_prot_start_exec은 검증된 실제 벤더 시그니처(7-인자, sample_rate_hz 없음)를 따른다 —
+    // VENDOR-API-SPEC.md 2.2절. samplesPerCh만 넘기고 sampleRate는 넘기지 않는다.
     this.mod._ff_prot_start_exec(
       bufPtr,
       this.config.samplesPerCh,
       BYTES_PER_SAMPLE,
       CHANNELS,
       ambientTemp,
-      this.config.sampleRate,
       tempPtr,
       excPtr,
     );

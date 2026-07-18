@@ -50,6 +50,14 @@ export function useDeviceOptionAutoCorrect(deps: DeviceOptionAutoCorrectDeps) {
     const inRange = CHANNEL_OPTIONS.filter((c) => Number(c) <= max);
     return inRange.length ? inRange : CHANNEL_OPTIONS;
   })();
+  // play-capture 출력 채널 인덱스 후보 — 장치의 출력 채널 "개수"(outputChannels)만큼 0..N-1을
+  // 만든다. 장치 능력을 아직 모르거나(로딩 전) 출력이 없는 장치면 "0" 하나만 둬서(재생 자체가
+  // 불가하므로 선택은 무의미하지만 필드가 항상 값 있는 옵션 목록을 갖게) 안전한 fallback을 유지한다.
+  const outputChannelOptions = (() => {
+    const count = deviceInfo?.outputChannels;
+    if (!count) return ["0"];
+    return Array.from({ length: count }, (_, i) => String(i));
+  })();
   // 장치 능력(query) 조회 중에는 아직 이전(또는 미필터) 옵션이 남아있으므로 DEVICE 섹션의
   // SampleRate/Buffer 선택을 잠근다 — 응답이 오면 그 장치가 지원하는 값만 렌더링된다.
   // 조회 API가 없는 브라우저/모바일에서는 deviceInfoLoading이 항상 false라 잠기지 않는다.
@@ -84,6 +92,13 @@ export function useDeviceOptionAutoCorrect(deps: DeviceOptionAutoCorrectDeps) {
         notes.push(`Channels ${draft.channels}→${nearest}`);
       }
     }
+    if (!outputChannelOptions.includes(draft.outputChannel)) {
+      const nearest = nearestOption(outputChannelOptions, draft.outputChannel);
+      if (nearest && nearest !== draft.outputChannel) {
+        patch.outputChannel = nearest;
+        notes.push(`Output Channel ${draft.outputChannel}→${nearest}`);
+      }
+    }
     if (notes.length) {
       set(patch);
       setAdjustedNote(`이 장치가 지원하지 않아 자동 조정됨: ${notes.join(", ")}`);
@@ -92,7 +107,7 @@ export function useDeviceOptionAutoCorrect(deps: DeviceOptionAutoCorrectDeps) {
   }, [deviceInfo, deviceInfoLoading]);
 
   return {
-    sampleRateOptions, bufferSizeOptions, channelOptions, deviceOptionsLoading,
+    sampleRateOptions, bufferSizeOptions, channelOptions, outputChannelOptions, deviceOptionsLoading,
     adjustedNote, clearAdjustedNote: () => setAdjustedNote(null),
   };
 }

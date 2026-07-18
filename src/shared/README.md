@@ -6,9 +6,9 @@
 
 ## 2. 프로젝트 전반에서의 역할
 
-`features/audio` 전역에서 스타일 병합(`cn`)·시간/용량 포맷·프레임 인덱스 탐색 같은 공통 유틸을 이 폴더에서 가져다 쓴다. `Sidebar.tsx`는 좌측 고정 네이비 사이드바로 `DashboardClient.tsx`가 마운트하고, 내비 항목이 `useActiveDrawer()`로 우측 드로어(Workspace/측정 기록/Calibration)를 배타적으로 여닫는다. `SegmentedControl.tsx`는 슬라이딩 필 토글로 대시보드 상단 입력 소스(파일/마이크) 토글과 차트 채널(L/R/Both) 토글이 공유한다. `AnimatedSelect.tsx`는 Calibration 드로어의 모든 드롭다운(`CalibrationDrawer.tsx`, `DeviceSelectField.tsx`)을 담당한다. `electron-bridge.d.ts`는 `declare global`로 `Window` 타입을 확장해 `window.audioDevice` / `window.audioCapture` / `window.localFolder`를 쓰는 파일들(`useNativeCapture.ts`, `useNativeAudioDevice.ts`, `useCalibrationApply.ts`, `useCaptureSession.ts`, `useLocalFolderConnection.ts`, `WorkspaceFolderSection.tsx`, `lib/local-folder.ts` 등)에 타입 안전을 제공한다.
+`features/audio` 전역에서 스타일 병합(`cn`)·시간/용량 포맷·프레임 인덱스 탐색 같은 공통 유틸을 이 폴더에서 가져다 쓴다. `Sidebar.tsx`는 좌측 고정 네이비 사이드바로 `DashboardClient.tsx`가 마운트하고, 내비 항목이 `useActiveDrawer()`로 우측 드로어(Workspace/측정 기록/Calibration)를 배타적으로 여닫는다. `SegmentedControl.tsx`는 슬라이딩 필 토글로 대시보드 상단 입력 소스(파일/마이크) 토글과 차트 채널(L/R/Both) 토글이 공유한다. `AnimatedSelect.tsx`는 Calibration 드로어의 모든 드롭다운(`CalibrationDrawer.tsx`, `DeviceSelectField.tsx`)을 담당한다. `electron-bridge.d.ts`는 `declare global`로 `Window` 타입을 확장해 `window.audioDevice` / `window.audioCapture` / `window.audioPlayCapture` / `window.localFolder`를 쓰는 파일들(`useNativeCapture.ts`, `useNativeAudioDevice.ts`, `useCalibrationApply.ts`, `useCaptureSession.ts`, `useLocalFolderConnection.ts`, `WorkspaceFolderSection.tsx`, `lib/local-folder.ts` 등)에 타입 안전을 제공한다.
 
-세 브리지는 Electron 데스크톱 빌드(`build:electron`)에서만 `electron/preload.js`가 `contextBridge`로 노출하며 **브라우저/모바일 빌드에서는 전부 `undefined`다**. 그래서 타입도 전부 옵셔널(`audioDevice?:` 등)로 선언했고 사용하는 쪽은 반드시 feature-detect(`typeof window.audioDevice !== "undefined"` 류) 후 호출해야 한다.
+네 브리지는 Electron 데스크톱 빌드(`build:electron`)에서만 `electron/preload.js`가 `contextBridge`로 노출하며 **브라우저/모바일 빌드에서는 전부 `undefined`다**. 그래서 타입도 전부 옵셔널(`audioDevice?:` 등)로 선언했고 사용하는 쪽은 반드시 feature-detect(`typeof window.audioDevice !== "undefined"` 류) 후 호출해야 한다.
 
 ## 3. 파일별 역할
 | 파일 | 역할 |
@@ -46,7 +46,7 @@
 - `<FullscreenOverlay show ariaLabel>{children}</FullscreenOverlay>` — 전체화면 오버레이 루트 셸. `show`는 `useOverlayTransition`에서 받는다.
 - `useEscapeKey(handler: () => void, enabled?: boolean): void` — ESC로 `handler` 호출. `enabled=false`면 미등록.
 - `useOverlayTransition(onClose: () => void, durationMs?: number): { show, close }` — 오버레이 진입/이탈 전환 + ESC 닫기. `close()`는 `durationMs`(기본 250) 뒤 `onClose` 호출.
-- `window.audioDevice?` / `window.audioCapture?` / `window.localFolder?` — Electron 전용 전역. 브라우저/모바일 빌드에서는 `undefined`이므로 feature-detect 필수. `audioDevice`/`audioCapture`의 `deviceUID` 인자는 생략 시 OS 기본 입력 장치를 대상으로 한다.
+- `window.audioDevice?` / `window.audioCapture?` / `window.audioPlayCapture?` / `window.localFolder?` — Electron 전용 전역. 브라우저/모바일 빌드에서는 `undefined`이므로 feature-detect 필수. `audioDevice`/`audioCapture`의 `deviceUID` 인자는 생략 시 OS 기본 입력 장치를 대상으로 한다.
 
 ## 6. 변경 이력(요약)
 - 2026-07-09: 최초 작성 (기준 커밋: 1fbbf44, 커밋되지 않은 워크트리 변경 반영)

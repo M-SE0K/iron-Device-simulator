@@ -20,7 +20,7 @@
 | `coalesce.ts` | bucket에 쌓인 여러 프레임을 요약 프레임 1개로 병합하는 `coalesceFrames()`. 최신 프레임 값을 대표값으로 쓰고 구간 내 `temperatureMax`/`excursionMin`/`excursionMax` envelope와 `sourceCount`/`timeStart`/`timeEnd`를 보존한다 |
 | `detect-events.ts` | 온도 임계 교차(WARN/DANGER, 양방향)와 익스커션 피크(앞뒤 프레임보다 절대값이 큰 극값)를 감지하는 `detectEvents()`. 기본 임계값 상수 `DEFAULT_TEMP_WARN`(65)/`DEFAULT_TEMP_DANGER`(75)와 `TempThresholds` 타입의 정의처 |
 | `chart-window.ts` | 두 차트 공용의 표시 윈도우 계산 `computeStreamWindow()`와, 지표별로 알고리즘이 다른 Y축 동적 범위 계산 `computeExcursionYRange()`(대칭 패딩)/`computeTemperatureYRange()`(0~100 °C 기본, 10/25/50/100 단위 확장). `ChannelMode`(`"L" \| "R" \| "Both"`) 타입과 두 차트 공용 표시 윈도우 프레임 수 `WINDOW_SIZE`(1000) 정의처 |
-| `chart-option.ts` | 두 차트가 동일하게 쓰던 ECharts 옵션 조각 빌더. 축·툴팁·범례 조각(`buildDataZoom()`(inside+slider)/`buildTimeAxis()`(윈도우 추적축)/`buildValueTooltip()`(단위·소수점 지정)/`buildLegend()`(`"Both"`일 때만 표시))에 더해, series·Y축·옵션 골격까지 뽑은 `buildLineSeries()`(선 series 하나)/`buildValueYAxis()`(값 축, `labelFormatter`만 지표별)/`buildAreaGradient()`(선 아래 세로 그라디언트)/`buildBaseChartOption()`(animation/grid/legend/dataZoom/시간축 골격 조립)이 있다. 지표별로 다른 부분(색·smooth·폭·markLine·grid 좌측 여백)만 각 차트가 인자로 넘긴다 |
+| `chart-option.ts` | 두 차트가 동일하게 쓰던 ECharts 옵션 조각 빌더. 축·툴팁 조각(`buildDataZoom()`(inside+slider)/`buildValueTooltip()`(단위·소수점 지정))과 시간 포맷 헬퍼(`timeDecimalsForInterval`/`resolveTimeDecimals`/`buildDynamicTimeFormatter`), series·Y축·옵션 골격(`buildLineSeries()`/`buildValueYAxis()`/`buildAreaGradient()`/`buildBaseChartOption()`)이 있다. 시간축(`buildTimeAxis`)·범례(`buildLegend`)는 골격 조립기가 내부에서만 쓰므로 export하지 않는다. 확대(zoom) 시 프레임 점 표시 여부를 판정하는 `shouldShowFrameSymbols()`와 그 상한 상수 `SYMBOL_VISIBLE_MAX`(80)도 여기서 export한다. 지표별로 다른 부분(색·smooth·폭·markLine·grid 좌측 여백·심볼 표시)만 각 차트가 인자로 넘긴다 |
 
 ## 4. 의존성 및 흐름
 
@@ -33,9 +33,9 @@
 **이 도메인을 import하는 곳 (나가는 의존)**
 
 - `components/dashboard/DashboardClient.tsx` → `coalesceFrames`, `detectEvents`, `DEFAULT_TEMP_WARN`/`DEFAULT_TEMP_DANGER`, `TempThresholds`, `QueuedFrame`
-- `components/chart/TemperatureChart.tsx` → `chart-window.ts`(`computeStreamWindow`/`computeTemperatureYRange`/`WINDOW_SIZE`), `chart-option.ts` 빌더 일체(series·값 축·그라디언트·골격 포함), `DEFAULT_TEMP_WARN`/`DEFAULT_TEMP_DANGER`(markLine)
-- `components/chart/ExcursionChart.tsx` → `chart-window.ts`(`computeStreamWindow`/`computeExcursionYRange`/`WINDOW_SIZE`), `chart-option.ts` 빌더 일체
-- `components/channel/ChannelWaveformCanvas.tsx` → `chart-option.ts`의 `buildDataZoom`/`buildTimeAxis`/`buildValueTooltip`/`buildDynamicTimeFormatter`/`timeDecimalsForInterval`(채널 파형도 두 차트와 같은 줌·시간축 규약)
+- `components/chart/TemperatureChart.tsx` → `chart-window.ts`(`computeStreamWindow`/`computeTemperatureYRange`/`WINDOW_SIZE`), `chart-option.ts` 빌더 일체(series·값 축·그라디언트·골격 포함) + `shouldShowFrameSymbols`(줌 시 프레임 점 토글), `DEFAULT_TEMP_WARN`/`DEFAULT_TEMP_DANGER`(markLine)
+- `components/chart/ExcursionChart.tsx` → `chart-window.ts`(`computeStreamWindow`/`computeExcursionYRange`/`WINDOW_SIZE`), `chart-option.ts` 빌더 일체 + `shouldShowFrameSymbols`
+- `components/channel/ChannelWaveformCanvas.tsx` → `chart-option.ts`의 `buildDataZoom`/`buildValueTooltip`/`buildDynamicTimeFormatter`/`timeDecimalsForInterval`/`SYMBOL_VISIBLE_MAX`(채널 파형도 두 차트와 같은 줌·시간축·심볼 규약을 따른다)
 - `components/calibration/CalibrationContext.tsx` → `DEFAULT_TEMP_WARN`/`DEFAULT_TEMP_DANGER`(calibration 기본값)
 
 **내부 처리 흐름 (실시간 경로, `useQueue=true` 기준)**
@@ -61,8 +61,10 @@
 - `computeStreamWindow(frames, currentTime, isActive, streaming, audioDuration, windowSize, pick): StreamWindowResult` — 표시 윈도우 계산. streaming+파일(audioDuration 있음)은 전체 누적, streaming+마이크(audioDuration 없음)는 최근 `windowSize`개, 비streaming(seek)은 `currentTime` 위치까지 최대 `windowSize`개. `current`는 헤더 표시용 `[ch0, ch1]` 현재값.
 - `computeExcursionYRange(windowFrames, channelMode, toDisplayUnit, scalePadding): { yMin, yMax }` — 표시 채널의 메인값 + envelope까지 포함한 범위에 대칭 패딩(`span × (scalePadding − 1)`). 빈 입력이면 ±0.01. `toDisplayUnit` 적용 후 값 기준.
 - `computeTemperatureYRange(windowFrames, channelMode): { yMin, yMax }` — 기본 0~100 °C 고정, 데이터가 벗어나면 8% 헤드룸 후 10/25/50/100 단위로 올림/내림 확장.
-- `buildDataZoom(zoom: ZoomState, colors)` / `buildTimeAxis({ windowFrames })` / `buildValueTooltip({ unit, decimals })` / `buildLegend(channelMode: ChannelMode)` — ECharts 옵션 조각 빌더. `buildTimeAxis`는 윈도우 첫/마지막 프레임 시각을 따라 스크롤한다(과거 `audioDuration`/`followWindow` 기반 batch 고정축 분기는 제거됨).
-- `buildLineSeries({ name, data, color, smooth, width, sampling, area?, markLine? })` / `buildValueYAxis({ name, min, max, labelFormatter? })` / `buildAreaGradient(topColor, bottomColor)` / `buildBaseChartOption({ channelMode, windowFrames, zoomRef, gridLeft, zoomColors, timeDecimals, yAxis, series, tooltip })` — Temperature/Excursion이 복붙하던 series·값 축·그라디언트·옵션 골격 빌더. `area`는 없으면 `undefined`(그라디언트 없음), `markLine`은 넘긴 series에만 붙는다.
+- `buildDataZoom(zoom: ZoomState, colors)` / `buildValueTooltip({ unit, decimals })` — ECharts 옵션 조각 빌더. 시간축(`buildTimeAxis`, 윈도우 첫/마지막 프레임 시각을 따라 스크롤)과 범례(`buildLegend`, `"Both"`일 때만 표시)는 `buildBaseChartOption`이 내부에서 조립하므로 더는 개별 export가 아니다.
+- `buildLineSeries({ name, data, color, smooth, width, sampling, area?, markLine?, showSymbol?, symbolSize? })` / `buildValueYAxis({ name, min, max, labelFormatter? })` / `buildAreaGradient(topColor, bottomColor)` / `buildBaseChartOption({ channelMode, windowFrames, zoomRef, gridLeft, zoomColors, timeDecimals, yAxis, series, tooltip })` — Temperature/Excursion이 복붙하던 series·값 축·그라디언트·옵션 골격 빌더. `area`는 없으면 `undefined`(그라디언트 없음), `markLine`은 넘긴 series에만 붙는다. `showSymbol=true`(충분히 확대된 상태)이면 프레임마다 원형 점을 그리는데, 이때 large/LTTB 샘플링은 심볼을 무시하고 솎아내므로 함께 끈다(`symbolSize` 기본 4).
+- `shouldShowFrameSymbols(pointCount: number, zoom: ZoomState): boolean` — 현재 줌에서 화면에 보이는 포인트 수(`pointCount × (zoom.end − zoom.start) / 100`)가 `SYMBOL_VISIBLE_MAX`(80) 이하일 때만 true. 각 차트가 dataZoom 이벤트에서 호출해 프레임 점 표시를 토글한다.
+- `SYMBOL_VISIBLE_MAX = 80` — 프레임 점을 그릴 "보이는 포인트 수" 상한. 이보다 많으면 점이 뭉개지고 드로우 비용도 커진다.
 - `WINDOW_SIZE = 1000` (`chart-window.ts`) — 두 차트 공용 표시 윈도우 프레임 수 상수.
 - 타입: `QueuedFrame`, `TempThresholds`, `ChannelMode`, `StreamWindowResult`, `ZoomState`.
 
@@ -70,3 +72,4 @@
 - 2026-07-09: 최초 작성 (기준 커밋: 1fbbf44, 커밋되지 않은 워크트리 변경 반영)
 - 2026-07-09: 교차참조 정정 — 차트에서 `followWindow` prop이 제거됨에 따라 `buildTimeAxis` 시그니처를 `{ audioDuration, followWindow, windowFrames }` → `{ windowFrames }`로, batch 고정축 분기 서술을 삭제(섹션 3·5). `computeStreamWindow`의 "배치 seek" 표현을 "seek"으로 정리. 이 도메인의 순수 함수 자체 로직은 변경 없음
 - 2026-07-10: 차트 옵션 빌더 통합 반영 — `chart-option.ts`에 Temperature/Excursion이 복붙하던 series·값 축·그라디언트·옵션 골격 빌더 `buildLineSeries`/`buildValueYAxis`/`buildAreaGradient`/`buildBaseChartOption` 추가, `chart-window.ts`에 두 차트 공용 상수 `WINDOW_SIZE`(1000) 신설. 채널 파형(`components/channel/ChannelWaveformCanvas`)도 이 도메인의 줌·시간축 빌더를 소비한다. 섹션 3·4·5 부분 갱신 (커밋 범위: 4ec86d9..HEAD, 워크트리 포함)
+- 2026-07-13: 프레임 심볼 인터페이스 반영 — `chart-option.ts`에 `shouldShowFrameSymbols()`/`SYMBOL_VISIBLE_MAX`(80) 신규 export, `buildLineSeries`에 `showSymbol`/`symbolSize` 인자 추가(켜지면 large/LTTB 샘플링 대신 프레임별 원형 점). `buildTimeAxis`/`buildLegend`는 `buildBaseChartOption` 내부 전용으로 바뀌어 export 해제(`ChannelWaveformCanvas`의 import도 `buildTimeAxis`→`SYMBOL_VISIBLE_MAX`로 이동). 섹션 3·4·5 부분 갱신 (커밋 범위: 9f08d59..HEAD, 워크트리 포함)

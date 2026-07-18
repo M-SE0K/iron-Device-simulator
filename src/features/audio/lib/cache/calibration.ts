@@ -34,8 +34,8 @@ export function loadCalibrationCache(): Partial<CalibrationValues> | null {
 const DEVICE_ACTUAL_KEY = "irondevice:device-actual:v1";
 
 export interface DeviceActualCache {
-  requested: { sampleRate: number; bufferSize: number };
-  actual: { sampleRate: number | null; bufferSize: number | null };
+  requested: { sampleRate: number; bufferSize: number; channels?: number };
+  actual: { sampleRate: number | null; bufferSize: number | null; channels?: number };
 }
 
 export function saveDeviceActualCache(v: DeviceActualCache): void {

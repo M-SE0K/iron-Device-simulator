@@ -6,6 +6,7 @@ import Sidebar from "@/shared/components/Sidebar";
 import SegmentedControl from "@/shared/components/ui/SegmentedControl";
 import SelectedFilePanel from "@/features/audio/components/dashboard/SelectedFilePanel";
 import WaveformPlayer, { WaveformPlayerHandle } from "@/features/audio/components/player/WaveformPlayer";
+import DuplexFilePlayer from "@/features/audio/components/player/DuplexFilePlayer";
 import MicrophonePlayer, { type MicRecordingExport, type MicrophonePlayerHandle } from "@/features/audio/components/player/MicrophonePlayer";
 import type { CaptureStreamListener } from "@/features/audio/components/player/capture/useCaptureSession";
 import TemperatureChart from "@/features/audio/components/chart/TemperatureChart";
@@ -15,7 +16,6 @@ import WorkspaceDrawer from "@/features/audio/components/workspace/WorkspaceDraw
 import RecordsDrawer from "@/features/audio/components/workspace/RecordsDrawer";
 import CalibrationDrawer from "@/features/audio/components/calibration/CalibrationDrawer";
 import { AppStatus, AnalysisFrame, InputParameterValues } from "@/features/audio/types";
-import { StreamDebugInfo, DebugLogEntry, MeasurementExport } from "@/features/audio/lib/debug/types";
 import type { SessionStatus } from "@/features/audio/lib/cache/workspace";
 import { useCalibration } from "../calibration/CalibrationContext";
 import { useWorkspace } from "../workspace/WorkspaceContext";
@@ -25,8 +25,6 @@ import { putAudio, clearAudio } from "@/features/audio/lib/cache/audio-blob";
 import { coalesceFrames } from "@/features/audio/lib/render/coalesce";
 import { detectEvents, DEFAULT_TEMP_WARN, DEFAULT_TEMP_DANGER, type TempThresholds } from "@/features/audio/lib/render/detect-events";
 import type { QueuedFrame } from "@/features/audio/lib/render/types";
-import { useMeasurementCapture } from "@/features/audio/components/dashboard/hooks/useMeasurementCapture";
-import { useRenderTelemetry } from "@/features/audio/components/dashboard/hooks/useRenderTelemetry";
 import { useFrameCachePersistence } from "@/features/audio/components/dashboard/hooks/useFrameCachePersistence";
 
 interface DashboardPageProps {
@@ -57,7 +55,7 @@ export default function DashboardPage({ useQueue }: DashboardPageProps) {
   const [currentTime, setCurrentTime]         = useState(0);
   const [audioDuration, setAudioDuration]     = useState<number | null>(null);
   const [errorMsg, setErrorMsg]               = useState<string | null>(null);
-  // 실시간 분석 버퍼 — 슬라이딩 윈도우(RENDER_WINDOW로 상한). 파일/마이크 두 입력 모드가 공유한다.
+  // 실시간 분석 버퍼 — 0초부터 전체 이력 유지(상한 없음). 파일/마이크 두 입력 모드가 공유한다.
   const [streamingFrames, setStreamingFrames] = useState<AnalysisFrame[]>([]);
 
   // 분석 파라미터는 캘리브레이션 단일 소스(Context)에서 가져온다 — 대시보드 내 InputParameters 카드 제거.
@@ -86,6 +84,14 @@ export default function DashboardPage({ useQueue }: DashboardPageProps) {
     thresholdsRef.current = tempThresholds;
   }, [tempThresholds]);
   const [inputMode, setInputMode] = useState<"file" | "mic">("file");
+
+  // Electron(네이티브 브리지 존재) 파일 모드는 항상 duplex 플레이어(play-capture 단일
+  // IOProc) — useCaptureSession의 경로 선택과 같은 감지 기준. 정적 export의 hydration
+  // 불일치를 피하려고 마운트 후 effect에서 판정한다(서버 렌더 시점엔 window가 없다).
+  const [isElectron, setIsElectron] = useState(false);
+  useEffect(() => {
+    setIsElectron(typeof window !== "undefined" && typeof window.audioCapture !== "undefined");
+  }, []);
 
   // ── 차트 상세(자세히 보기) 뷰 — 어느 차트를 전체화면으로 열었는지 (null = 대시보드) ──
   const [detailChart, setDetailChart] = useState<DetailMetric | null>(null);
@@ -131,93 +137,21 @@ export default function DashboardPage({ useQueue }: DashboardPageProps) {
     },
     [inputMode],
   );
-  // metrics 전송 간격 카운터 (10회에 1회 전송)
-  const metricsCountRef    = useRef(0);
-  const METRICS_INTERVAL   = 10;
-  // 직전 프레임 정보 (metrics 메시지에 포함)
-  const latestFrameIdxRef  = useRef(0);
-  const latestAudioTimeRef = useRef(0);
-  const latestRttMsRef     = useRef<number | null>(null);
-  const latestSrvProcMsRef = useRef<number | null>(null);
-
-  // ── 측정 모드 ─────────────────────────────────────────────────────────────
-  const [isMeasuring, setIsMeasuring]         = useState(false);
-  const [measureFrameCount, setMeasureFrameCount] = useState(0);
-  const isMeasuringRef           = useRef(false);
-  const measureLogsRef           = useRef<DebugLogEntry[]>([]);
-  const measureStartTimeRef      = useRef<number>(0);
-  const rawFramesRef             = useRef<{ time: number; temperature: [number, number]; excursion: [number, number] }[]>([]);
-  const renderedFramesRef        = useRef<{ time: number; temperature: [number, number]; excursion: [number, number] }[]>([]);
-  // 렌더 완료 시점 freshnessLag (handleEchartsRender에서 기록, per render tick)
-  const renderFreshnessLogsRef   = useRef<number[]>([]);
-
-  // ── freshness lag 계산용 refs ─────────────────────────────────────────────
-  const currentTimeRef       = useRef(0);
-  const latestFrameTimeRef   = useRef(0);
-  // 측정 모드 중 streamingFrames 최대 길이 추적
-  const maxStreamingLenRef   = useRef(0);
-  // streamingFrames 길이 추적 (useCallback 의존성 회피)
-  const streamingLenRef      = useRef(0);
-
   // ── Step 3: Output Queue ────────────────────────────────────────────────
   const outputQueueRef       = useRef<QueuedFrame[]>([]);
-  const droppedFramesRef     = useRef(0);
-  const renderTickCountRef   = useRef(0);
-  const sourceCountSumRef    = useRef(0);
-  const preservedEventsRef   = useRef(0);
-  const eventLogRef          = useRef<{ audioTime: number; eventType: "temp_warn" | "temp_danger" | "exc_peak" }[]>([]);
   // Step 6: 직전 렌더 frame의 temperature (threshold crossing 감지용)
   const prevTempRef          = useRef<[number, number] | null>(null);
   // Calibration.tempWarn/tempDanger — Render Scheduler(setInterval)가 effect 재실행 없이
-  // 최신값을 읽도록 ref로 미러링한다(변경 시 outputQueueRef 등 카운터를 리셋하지 않기 위해
+  // 최신값을 읽도록 ref로 미러링한다(변경 시 outputQueueRef를 리셋하지 않기 위해
   // 의도적으로 스케줄러 effect의 deps에는 넣지 않는다).
   const thresholdsRef        = useRef<TempThresholds>({ warn: DEFAULT_TEMP_WARN, danger: DEFAULT_TEMP_DANGER });
-  // 렌더 업데이트 빈도 측정
-  const lastRenderRateRef    = useRef<{ time: number; count: number }>({ time: 0, count: 0 });
-  const renderUpdateRateRef  = useRef<number | null>(null);
-
-  // ── 렌더 파이프라인 측정용 refs ──────────────────────────────────────────
-  // 프레임 수신 시각 (WaveformPlayer → DashboardClient handoff 시점)
-  const frameRecvAtRef      = useRef<number>(0);
-  // React useLayoutEffect 완료 시각
-  const reactRenderAtRef    = useRef<number>(0);
-  // 직전 RTT (로그 엔트리에 첨부용)
-  const latestRttRef        = useRef<number | null>(null);
-  // 직전 렌더 메트릭 (로그 엔트리에 첨부용)
-  const latestRenderMetrics = useRef<{
-    reactMs: number | null;
-    echartsMs: number | null;
-    totalRecvMs: number | null;
-    totalE2eMs: number | null;
-  }>({ reactMs: null, echartsMs: null, totalRecvMs: null, totalE2eMs: null });
-
-  // ── JSON 다운로드 헬퍼 ────────────────────────────────────────────────────
-  const downloadJson = useCallback((obj: unknown, filename: string) => {
-    const blob = new Blob([JSON.stringify(obj, null, 2)], { type: "application/json" });
-    const url  = URL.createObjectURL(blob);
-    const a    = document.createElement("a");
-    a.href     = url;
-    a.download = filename;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
-  }, []);
-
-  // ── 측정 모드 토글 + JSON 다운로드 (내부 측정 하네스 전용) ────────────────
-  const { handleMeasureToggle } = useMeasurementCapture({
-    isMeasuring, setIsMeasuring, setMeasureFrameCount,
-    isMeasuringRef, measureLogsRef, measureStartTimeRef, rawFramesRef, renderedFramesRef,
-    renderFreshnessLogsRef, maxStreamingLenRef, droppedFramesRef, renderTickCountRef,
-    sourceCountSumRef, preservedEventsRef, eventLogRef, audioFile, downloadJson,
-  });
 
   // ── 캐시 미러 refs 동기화 (이벤트 핸들러에서 최신값 읽기용) ───────────────
   useEffect(() => { streamingFramesRef.current = streamingFrames; }, [streamingFrames]);
   useEffect(() => { audioDurationRef.current    = audioDuration;   }, [audioDuration]);
 
   // ── sessionStorage 프레임 캐시 + IndexedDB 오디오 복원 (F5/탭 전환 대응) ──────
-  const { persistCache } = useFrameCachePersistence({
+  useFrameCachePersistence({
     audioFile, realtimeStatus,
     streamingFramesRef, audioDurationRef, fileNameRef,
     setStreamingFrames, setAudioDuration, setAudioFile,
@@ -276,10 +210,6 @@ export default function DashboardPage({ useQueue }: DashboardPageProps) {
     setCurrentTime(0);
     setRealtimeStatus("idle");
     setErrorMsg(null);
-    isMeasuringRef.current = false;
-    setIsMeasuring(false);
-    measureLogsRef.current = [];
-    setMeasureFrameCount(0);
   }, []);
 
   const handleFileSelected = useCallback((file: File) => {
@@ -315,33 +245,21 @@ export default function DashboardPage({ useQueue }: DashboardPageProps) {
     setCurrentTime(0);
     setRealtimeStatus("idle");
     setErrorMsg(null);
-    isMeasuringRef.current = false;
-    setIsMeasuring(false);
-    measureLogsRef.current = [];
-    setMeasureFrameCount(0);
   }, []);
 
   const handleStreamStart = useCallback(() => {
     setStreamingFrames([]);
-    outputQueueRef.current     = [];
-    droppedFramesRef.current   = 0;
-    renderTickCountRef.current = 0;
-    sourceCountSumRef.current  = 0;
-    preservedEventsRef.current = 0;
-    eventLogRef.current        = [];
-    prevTempRef.current        = null;
+    outputQueueRef.current = [];
+    prevTempRef.current    = null;
   }, []);
 
-  // ── 렌더 윈도우 (저장/렌더 분리) ─────────────────────────────────────────
-  // 실시간 스트리밍 상태(streamingFrames)는 최근 RENDER_WINDOW 프레임만 유지한다.
-  // 이렇게 하면 매 렌더 틱의 배열 복사·차트 map()·ECharts setOption 비용이
-  // 곡 길이와 무관하게 상수로 묶이고, freshness 중심의 슬라이딩 윈도우 뷰가 된다.
-  // ~62Hz 코얼레싱 기준 3000 ≈ 약 48초의 최근 구간.
+  // ── 렌더 윈도우 ──────────────────────────────────────────────────────────
+  // 실시간 스트리밍 상태(streamingFrames)는 0초부터 전체 이력을 유지한다 — 차트 왼쪽 끝(0초)을
+  // 고정한 "0초~현재" 뷰를 위해 상한을 두지 않는다. 대량 포인트 드로우 비용은 차트 쪽 LTTB
+  // 다운샘플(large 모드)로 흡수한다. 긴 세션에서는 프레임 배열/메모리가 세션 길이에 비례해 증가.
   // ── 실험 토글: URL 쿼리로 제어 (측정 A/B용, 재빌드 불필요) ───────────────
-  //   ?win=200000 → RENDER_WINDOW(버퍼 상한), ?lttb=0 → 차트 LTTB 끔
-  //   미지정 시 기본값(win=3000, lttb=on) = 프로덕션 동작.
+  //   ?lttb=0 → 차트 LTTB 끔. 미지정 시 기본값(lttb=on) = 프로덕션 동작.
   const expParams    = typeof window !== "undefined" ? new URLSearchParams(window.location.search) : null;
-  const RENDER_WINDOW = expParams?.get("win") ? Math.max(1, parseInt(expParams.get("win")!, 10) || 3000) : 3000;
   const LTTB_ENABLED  = expParams?.get("lttb") !== "0";
   // ── Step 3: Render Scheduler 주기 (ms) ──────────────────────────────────
   const RENDER_INTERVAL = 16;
@@ -350,34 +268,11 @@ export default function DashboardPage({ useQueue }: DashboardPageProps) {
 
   // ── 프레임 수신 — useQueue 모드에 따라 큐 push 또는 FIFO append ────────
   const handleFrameReceived = useCallback((frame: AnalysisFrame) => {
-    latestFrameTimeRef.current = frame.time;
-    if (isMeasuringRef.current) {
-      rawFramesRef.current.push({
-        time:        frame.time,
-        temperature: frame.temperature,
-        excursion:   frame.excursion,
-      });
-    }
     if (useQueue) {
       outputQueueRef.current.push({ frame, recvAt: performance.now() });
     } else {
-      // FIFO baseline: 수신 즉시 state append
-      frameRecvAtRef.current = performance.now();
-      if (isMeasuringRef.current) {
-        renderedFramesRef.current.push({
-          time:        frame.time,
-          temperature: frame.temperature,
-          excursion:   frame.excursion,
-        });
-      }
-      setStreamingFrames((prev) => {
-        const next = [...prev, frame];
-        streamingLenRef.current = next.length;
-        if (isMeasuringRef.current && next.length > maxStreamingLenRef.current) {
-          maxStreamingLenRef.current = next.length;
-        }
-        return next.length > RENDER_WINDOW ? next.slice(-RENDER_WINDOW) : next;
-      });
+      // FIFO baseline: 수신 즉시 state append (0초 원점 고정 — 상한 없이 전체 이력 유지)
+      setStreamingFrames((prev) => [...prev, frame]);
     }
   }, [useQueue]);
 
@@ -386,16 +281,9 @@ export default function DashboardPage({ useQueue }: DashboardPageProps) {
     if (!isPlaying) return;
     if (!useQueue) return; // FIFO 모드: 스케줄러 불필요
 
-    // 재생 시작 시 큐 관련 카운터 초기화
-    outputQueueRef.current    = [];
-    droppedFramesRef.current  = 0;
-    renderTickCountRef.current = 0;
-    sourceCountSumRef.current = 0;
-    preservedEventsRef.current = 0;
-    eventLogRef.current        = [];
-    prevTempRef.current        = null;
-    lastRenderRateRef.current = { time: performance.now(), count: 0 };
-    renderUpdateRateRef.current = null;
+    // 재생 시작 시 큐/직전 온도 초기화
+    outputQueueRef.current = [];
+    prevTempRef.current    = null;
 
     // 매 틱 + 스케줄러 종료(정지/일시정지) 시 마지막 한 번 모두 같은 드레인 로직을 탄다 —
     // cleanup에서도 호출해야 마지막 미처리 버킷이 유실되지 않는다(아래 참고).
@@ -425,50 +313,8 @@ export default function DashboardPage({ useQueue }: DashboardPageProps) {
       }
       renderFrames.push(renderFrame); // coalesced frame은 항상 마지막
 
-      // 큐 메트릭 업데이트
-      const preserved = renderFrames.length - 1; // coalesced 제외한 보존 이벤트 수
-      preservedEventsRef.current += preserved;
-      for (const ev of eventFrames) {
-        if (ev !== latest && ev.frame.eventType) {
-          eventLogRef.current.push({ audioTime: ev.frame.time, eventType: ev.frame.eventType });
-        }
-      }
-      const dropped = bucket.length - renderFrames.length;
-      droppedFramesRef.current += Math.max(0, dropped);
-      renderTickCountRef.current++;
-      sourceCountSumRef.current += bucket.length;
-
-      // recv 시각은 실제 수신 시점 기록 (정확한 latency 측정)
-      frameRecvAtRef.current = latest.recvAt;
-
-      if (isMeasuringRef.current) {
-        for (const rf of renderFrames) {
-          renderedFramesRef.current.push({
-            time:        rf.time,
-            temperature: rf.temperature,
-            excursion:   rf.excursion,
-          });
-        }
-      }
-
-      setStreamingFrames((prev) => {
-        const next = [...prev, ...renderFrames];
-        streamingLenRef.current = next.length;
-        if (isMeasuringRef.current && next.length > maxStreamingLenRef.current) {
-          maxStreamingLenRef.current = next.length;
-        }
-        return next.length > RENDER_WINDOW ? next.slice(-RENDER_WINDOW) : next;
-      });
-
-      // 렌더 업데이트 빈도 측정 (1초 윈도우)
-      const now = performance.now();
-      const rateCheck = lastRenderRateRef.current;
-      if (now - rateCheck.time >= 1000) {
-        renderUpdateRateRef.current = parseFloat(
-          ((renderTickCountRef.current - rateCheck.count) / ((now - rateCheck.time) / 1000)).toFixed(1)
-        );
-        lastRenderRateRef.current = { time: now, count: renderTickCountRef.current };
-      }
+      // 0초 원점 고정 — 상한 없이 전체 이력 유지(왼쪽 끝이 스크롤되지 않게)
+      setStreamingFrames((prev) => [...prev, ...renderFrames]);
     };
 
     const timer = setInterval(drain, RENDER_INTERVAL);
@@ -484,14 +330,6 @@ export default function DashboardPage({ useQueue }: DashboardPageProps) {
     };
   }, [isPlaying, useQueue]);
 
-  // ── 렌더 파이프라인 텔레메트리(RTT/react/echarts/freshness lag 집계 + metrics 역전송) ──
-  const { handleDebugUpdate, handleReactRender, handleEchartsRender, handleDebugLog } = useRenderTelemetry({
-    realtimeWaveRef, frameRecvAtRef, reactRenderAtRef, latestRttRef, latestRenderMetrics,
-    metricsCountRef, METRICS_INTERVAL, latestFrameIdxRef, latestAudioTimeRef,
-    latestRttMsRef, latestSrvProcMsRef, currentTimeRef, latestFrameTimeRef,
-    isMeasuringRef, renderFreshnessLogsRef, measureLogsRef,
-  });
-
   // ── 상태 변경 ─────────────────────────────────────────────────────────────
   const handleRealtimeStatus = useCallback((s: AppStatus) => {
     setRealtimeStatus(s);
@@ -500,7 +338,6 @@ export default function DashboardPage({ useQueue }: DashboardPageProps) {
 
   // ── 재생 시각 갱신 ────────────────────────────────────────────────────────
   const handleRealtimeTime = useCallback((t: number) => {
-    currentTimeRef.current = t;
     setCurrentTime(t);
   }, []);
 
@@ -591,8 +428,7 @@ export default function DashboardPage({ useQueue }: DashboardPageProps) {
                     streaming
                     audioDuration={audioDuration}
                     lttb={LTTB_ENABLED}
-                    onReactRender={handleReactRender}
-                    onEchartsRender={handleEchartsRender}
+                    perfTrack
                     onExpand={() => setDetailChart("temperature")}
                     warnThreshold={tempThresholds.warn}
                     dangerThreshold={tempThresholds.danger}
@@ -606,6 +442,7 @@ export default function DashboardPage({ useQueue }: DashboardPageProps) {
                     streaming
                     audioDuration={audioDuration}
                     lttb={LTTB_ENABLED}
+                    perfTrack
                     onExpand={() => setDetailChart("excursion")}
                   />
                 </div>
@@ -619,8 +456,27 @@ export default function DashboardPage({ useQueue }: DashboardPageProps) {
         <RecordsDrawer />
         <CalibrationDrawer />
 
-        {/* 플로팅 플레이어 독 — 파일 모드는 재생/파형/저장, 마이크 모드는 녹음/저장 */}
+        {/* 플로팅 플레이어 독 — 파일 모드는 재생/파형/저장, 마이크 모드는 녹음/저장.
+            Electron 파일 모드는 재생+캡처를 단일 IOProc으로 합친 DuplexFilePlayer(진행바만),
+            웹 파일 모드는 WaveSurfer 재생 + 별도 캡처의 WaveformPlayer — 핸들 계약은 동일. */}
         {inputMode === "file" ? (
+          isElectron ? (
+            <DuplexFilePlayer
+              ref={realtimeWaveRef}
+              audioFile={audioFile}
+              status={realtimeStatus}
+              onTimeUpdate={handleRealtimeTime}
+              onStatusChange={handleRealtimeStatus}
+              onFrameReceived={handleFrameReceived}
+              onStreamStart={handleStreamStart}
+              inputParams={inputParams}
+              onDurationReady={setAudioDuration}
+              onSave={handleSaveToWorkspace}
+              canSave={!!audioFile && streamingFrames.length > 0}
+              onReset={handleReset}
+              elevated={detailChart !== null}
+            />
+          ) : (
           <WaveformPlayer
             ref={realtimeWaveRef}
             audioFile={audioFile}
@@ -629,8 +485,6 @@ export default function DashboardPage({ useQueue }: DashboardPageProps) {
             onStatusChange={handleRealtimeStatus}
             onFrameReceived={handleFrameReceived}
             onStreamStart={handleStreamStart}
-            onDebugUpdate={handleDebugUpdate}
-            onDebugLog={handleDebugLog}
             inputParams={inputParams}
             onDurationReady={setAudioDuration}
             onSave={handleSaveToWorkspace}
@@ -638,6 +492,7 @@ export default function DashboardPage({ useQueue }: DashboardPageProps) {
             onReset={handleReset}
             elevated={detailChart !== null}
           />
+          )
         ) : (
           <MicrophonePlayer
             ref={micWaveRef}
@@ -645,8 +500,6 @@ export default function DashboardPage({ useQueue }: DashboardPageProps) {
             onStatusChange={handleRealtimeStatus}
             onFrameReceived={handleFrameReceived}
             onStreamStart={handleStreamStart}
-            onDebugUpdate={handleDebugUpdate}
-            onDebugLog={handleDebugLog}
             onSaveRecording={handleSaveMicRecording}
             inputParams={inputParams}
             elevated={detailChart !== null}
