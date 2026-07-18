@@ -16,7 +16,7 @@ ok()   { echo "  ✓ $*"; }
 warn() { echo "  ⚠ $*"; }
 
 if [[ "$(uname)" != "Darwin" ]]; then
-  echo "✗ 이 스크립트는 macOS 전용입니다. Linux/WSL2는 scripts/setup-wsl.sh, Windows는 scripts/setup-windows.ps1 을 사용하세요." >&2
+  echo "✗ 이 스크립트는 macOS 전용입니다. Linux/WSL2는 scripts/setup-wsl.sh 를 사용하세요(Windows는 WSL2 경유 권장)." >&2
   exit 1
 fi
 
@@ -103,8 +103,8 @@ ok "WASM 빌드 완료"
 
 # ---------------------------------------------------------------------------
 log "6/6 (선택) macOS CoreAudio 캡처 헬퍼 빌드 — Electron 네이티브 마이크/장치 제어에만 필요"
-if ./electron/native/audio-device-helper/build-mac.sh; then
-  ok "audio-device-helper 빌드 완료 (electron/native/audio-device-helper/dist/)"
+if ./electron/native/macos/audio-device-helper/build-mac.sh; then
+  ok "audio-device-helper 빌드 완료 (electron/native/macos/audio-device-helper/dist/)"
 else
   warn "audio-device-helper 빌드 실패 — npm run dev(브라우저 getUserMedia 폴백)는 영향 없습니다. 필요 시 나중에 다시 실행하세요."
 fi

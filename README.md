@@ -10,14 +10,6 @@ Visualizes **speaker temperature** and **excursion displacement** in real-time v
 
 ---
 
-## Architecture: Browser-Only WASM Engine, No Server
-
-There is no backend for the analysis pipeline — everything runs client-side. `native/ff_prot.c` (a reference/stub implementation matching the real vendor `libirontune.so`'s `ff_prot_*` signature; the real vendor source hasn't been provided yet, see `native/README.md`) is compiled with Emscripten to browser-target WebAssembly (`public/wasm/ff_prot.{js,wasm}`) and executed directly in the browser's `WebAssembly` runtime via `src/features/audio/lib/engine/adapters/wasm-client.ts`. `engine/protocol/local-socket.ts` wraps this in a `WebSocket`-shaped interface so the player components (`WaveformPlayer.tsx` / `MicrophonePlayer.tsx`) don't need to know the analysis is in-process.
-
-This means the app is a plain static site — the same build works as a normal web deployment, a desktop standalone bundle, or an Electron desktop app; see [Building](#building) below.
-
----
-
 ## Requirements
 
 - Node.js 20+
@@ -40,7 +32,7 @@ npm install
 ## Running Locally
 
 ```bash
-npm run wasm:build   # once — compiles native/ff_prot.c → public/wasm/ff_prot.{js,wasm}, requires emcc
+npm run wasm:build   # once — compiles electron/native/wasm-engine/ff_prot.c → public/wasm/ff_prot.{js,wasm}, requires emcc
 npm run dev           # next dev — http://localhost:3000
 ```
 
@@ -105,28 +97,20 @@ npm run build        # Next.js production build
 npm start            # Production server (next start)
 npm run lint         # ESLint
 
-npm run wasm:build    # Compile native/ff_prot.c to browser-target WASM, requires emcc
+npm run wasm:build    # Compile electron/native/wasm-engine/ff_prot.c to browser-target WASM, requires emcc
 npm run build:desktop # Static web build → out/ (see Building above)
 npm run build:electron # Static build + Electron packaging → out/ + dist-electron/ (see Building above)
 npm run electron:preview # electron . — launch electron/main.js against the current out/, no packaging
 ```
 
-### Measurement Harness (dev server must already be running)
+### WASM Build (`electron/native/wasm-engine/`)
+
+> This folder lives under `electron/` but isn't Electron-specific — its output
+> (`public/wasm/ff_prot.{js,wasm}`) is used by the plain web build too.
 
 ```bash
-npm run measure                                                # Puppeteer + fake mic, auto-measures the web fallback path → measurements/*.json
-npx tsx scripts/measure.ts --label case1 --duration 60          # custom label / duration
-npx tsx scripts/measure.ts --attach http://127.0.0.1:9222 \
-  --url http://127.0.0.1:17872                                 # attach to a running Electron instance — native CoreAudio path
-```
-
-Manual: play a session in the app, then run `window.__ironPerf.summary()` / `.download()` in the browser console.
-
-### WASM Build (`native/`)
-
-```bash
-cd native
-./build-wasm.sh       # → ../public/wasm/ff_prot.{js,wasm} (Emscripten, browser target, requires emcc)
+cd electron/native/wasm-engine
+./build-wasm.sh       # → ../../../public/wasm/ff_prot.{js,wasm} (Emscripten, browser target, requires emcc)
 make selftest         # pure-C self-test of the reference model (temperature rise + L/R excursion diff), unrelated to the app build
 ```
 
@@ -139,7 +123,6 @@ make selftest         # pure-C self-test of the reference model (temperature ris
 - **Temperature / Excursion Charts** — L / R / Both channel toggle, ECharts-based live rendering
 - **Calibration** — Speaker profile, amp power, ambient temperature, warn/danger thresholds, sample rate/buffer size, and input/output device routing
 - **Workspace** — Save a session's captured audio + chart data locally (IndexedDB), export per-item as JSON/CSV, inspect per-channel waveforms
-- **Performance Harness** — Console-exposed latency instrumentation (`window.__ironPerf`) across capture → encode → WASM → decode → render stages
 
 ---
 
@@ -151,7 +134,7 @@ make selftest         # pure-C self-test of the reference model (temperature ris
 | UI | React 19 · Tailwind CSS |
 | Charts | Apache ECharts (echarts-for-react) |
 | Waveform | wavesurfer.js |
-| Analysis Engine | Emscripten (`emcc`) — `native/ff_prot.c` → WebAssembly, browser target, run in-process (no server) |
+| Analysis Engine | Emscripten (`emcc`) — `electron/native/wasm-engine/ff_prot.c` → WebAssembly, browser target, run in-process (no server) |
 | Desktop Packaging | Electron + electron-builder (macOS / Windows / Linux) |
 
 ---

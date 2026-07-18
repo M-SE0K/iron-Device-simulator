@@ -63,7 +63,7 @@ export interface PerfSessionMeta {
   deviceName: string | null;
 }
 
-/** window.__ironPerf.export() / 러너(scripts/measure.ts)가 저장하는 JSON 스키마 */
+/** window.__ironPerf.export() 가 저장하는 JSON 스키마 (수동 호출; 자동화 러너는 제거됨) */
 export interface PerfExport {
   meta: PerfSessionMeta & {
     /** ISO 8601 세션 시작 시각 */

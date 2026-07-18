@@ -9,14 +9,6 @@
 
 ---
 
-## 아키텍처: 서버 없는 브라우저 WASM 엔진
-
-분석 파이프라인에는 백엔드가 없습니다 — 모든 처리가 클라이언트에서 실행됩니다. `native/ff_prot.c`(실제 벤더 `libirontune.so`의 `ff_prot_*` 시그니처를 그대로 따르는 참조/스텁 구현이며, 아직 실제 벤더 소스는 제공하지 않습니다. — `native/README.md` 참고)를 Emscripten으로 브라우저 타깃 WebAssembly(`public/wasm/ff_prot.{js,wasm}`)로 컴파일해, `src/features/audio/lib/engine/adapters/wasm-client.ts`를 통해 브라우저의 `WebAssembly` 런타임에서 직접 실행합니다. `engine/protocol/local-socket.ts`가 이를 `WebSocket` 형태의 인터페이스로 감싸주기 때문에, 플레이어 컴포넌트(`WaveformPlayer.tsx` / `MicrophonePlayer.tsx`)는 분석이 실제로는 프로세스 내부에서 이뤄진다는 사실을 몰라도 됩니다.
-
-즉 이 앱은 순수한 정적 사이트입니다 — 동일한 빌드가 일반 웹 배포, 데스크톱 단독 번들, Electron 데스크톱 앱까지 그대로 동작합니다. 자세한 내용은 아래 [빌드](#빌드)를 참고하세요.
-
----
-
 ## 요구 사항
 
 - Node.js 20+
@@ -95,28 +87,22 @@ npm run build        # Next.js 프로덕션 빌드
 npm start            # 프로덕션 서버 (next start)
 npm run lint         # ESLint
 
-npm run wasm:build    # native/ff_prot.c를 브라우저 타깃 WASM으로 컴파일, emcc 필요
+npm run wasm:build    # electron/native/wasm-engine/ff_prot.c를 브라우저 타깃 WASM으로 컴파일, emcc 필요
 npm run build:desktop # 정적 웹 빌드 → out/ (위 빌드 항목 참고)
 npm run build:electron # 정적 빌드 + Electron 패키징 → out/ + dist-electron/ (위 빌드 항목 참고)
 npm run electron:preview # electron . — 현재 out/ 기준으로 electron/main.js 실행, 패키징 없음
 ```
 
-### 측정 하네스 (dev 서버가 먼저 떠 있어야 함)
-
-```bash
-npm run measure                                                # Puppeteer + 가짜 마이크로 웹 폴백 경로를 자동 측정 → measurements/*.json
-npx tsx scripts/measure.ts --label case1 --duration 60          # 라벨/측정 시간 지정
-npx tsx scripts/measure.ts --attach http://127.0.0.1:9222 \
-  --url http://127.0.0.1:17872                                 # 실행 중인 Electron 인스턴스에 attach — 네이티브 CoreAudio 경로
-```
-
 수동 측정: 앱에서 세션을 재생한 뒤 브라우저 콘솔에서 `window.__ironPerf.summary()` / `.download()`를 실행하세요.
 
-### WASM 빌드 (`native/`)
+### WASM 빌드 (`electron/native/wasm-engine/`)
+
+> 이 폴더는 `electron/` 밑에 있지만 Electron 전용이 아닙니다 — 산출물
+> (`public/wasm/ff_prot.{js,wasm}`)은 순수 웹 빌드에도 그대로 쓰입니다.
 
 ```bash
-cd native
-./build-wasm.sh       # → ../public/wasm/ff_prot.{js,wasm} (Emscripten, 브라우저 타깃, emcc 필요)
+cd electron/native/wasm-engine
+./build-wasm.sh       # → ../../../public/wasm/ff_prot.{js,wasm} (Emscripten, 브라우저 타깃, emcc 필요)
 make selftest         # 참조 모델의 순수 C 자체 테스트(온도 상승 + L/R excursion 차이) — 앱 빌드와는 무관
 ```
 
@@ -129,7 +115,6 @@ make selftest         # 참조 모델의 순수 C 자체 테스트(온도 상승
 - **온도 / Excursion 차트** — L / R / Both 채널 토글, ECharts 기반 실시간 렌더링
 - **캘리브레이션** — 스피커 프로필, 앰프 출력, 주변 온도, 경고/위험 임계값, 샘플레이트/버퍼 크기, 입출력 장치 라우팅 설정
 - **워크스페이스** — 세션의 캡처 오디오와 차트 데이터를 로컬(IndexedDB)에 저장, 항목별 JSON/CSV export, 채널별 파형 확인
-- **성능 측정 하네스** — 캡처 → 인코딩 → WASM → 디코딩 → 렌더링 단계별 지연을 콘솔에 노출하는 계측(`window.__ironPerf`)
 
 ---
 
@@ -141,7 +126,7 @@ make selftest         # 참조 모델의 순수 C 자체 테스트(온도 상승
 | UI | React 19 · Tailwind CSS |
 | 차트 | Apache ECharts (echarts-for-react) |
 | 파형 | wavesurfer.js |
-| 분석 엔진 | Emscripten(`emcc`) — `native/ff_prot.c` → WebAssembly, 브라우저 타깃, 프로세스 내부 실행(서버 없음) |
+| 분석 엔진 | Emscripten(`emcc`) — `electron/native/wasm-engine/ff_prot.c` → WebAssembly, 브라우저 타깃, 프로세스 내부 실행(서버 없음) |
 | 데스크톱 패키징 | Electron + electron-builder (macOS / Windows / Linux) |
 
 ---

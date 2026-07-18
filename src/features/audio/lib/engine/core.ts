@@ -13,7 +13,12 @@
 import type { EngineParams } from "../../types";
 
 // ─── 프레임 포맷 ────────────────────────────────────────────────────────────
-// CHANNELS/BYTES_PER_SAMPLE은 ABI 레벨 고정값(항상 스테레오 int16). SAMPLE_RATE/SAMPLES_PER_CH는 기본값일 뿐 고정이 아니다 — 세션마다 EngineRuntimeConfig로 재정의되어 ff_prot_start_exec의 dt 계산과 와이어 프레임 크기에 그대로 반영된다(Calibration UI → 다음 세션 시작 시 적용).
+// CHANNELS/BYTES_PER_SAMPLE은 ABI 레벨 고정값(항상 스테레오 int16). SAMPLE_RATE/SAMPLES_PER_CH는
+// 기본값일 뿐 고정이 아니다 — 세션마다 EngineRuntimeConfig로 재정의된다(Calibration UI → 다음
+// 세션 시작 시 적용). 단, ff_prot_start_exec는 검증된 실제 벤더 시그니처(sample_rate_hz 없음,
+// VENDOR-API-SPEC.md 2.2절)를 따르므로 SAMPLES_PER_CH(samplesPerCh)만 그 호출 인자와 와이어
+// 프레임 크기에 반영되고, SAMPLE_RATE는 WASM 엔진 호출에는 더 이상 전달되지 않는다(엔진 내부는
+// 고정 DEFAULT_SAMPLE_RATE_HZ로 근사 — 알려진 한계, electron/native/wasm-engine/ff_prot.c 참고).
 export const SAMPLE_RATE      = 48000;
 export const CHANNELS         = 2;
 export const BYTES_PER_SAMPLE = 2;
@@ -21,7 +26,8 @@ export const SAMPLES_PER_CH   = 480;
 
 /** 세션 단위 런타임 프레임 설정 — Calibration UI의 sampleRate/bufferSize로 채워진다 */
 export interface EngineRuntimeConfig {
-  /** 샘플레이트 [Hz] — ff_prot_start_exec의 dt/LPF 계수 계산에 사용 */
+  /** 샘플레이트 [Hz] — 와이어/캡처 세션 설정용. ff_prot_start_exec에는 전달되지 않는다(실제
+   * 벤더 시그니처에 sample_rate_hz가 없음, VENDOR-API-SPEC.md 2.2절). */
   sampleRate: number;
   /** 채널당 샘플 수(버퍼 사이즈) — 와이어 프레임 크기 결정 */
   samplesPerCh: number;

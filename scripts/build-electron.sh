@@ -7,8 +7,20 @@
 # "추가 정보 → 실행"이 한 번 필요하다.
 #
 # 플랫폼별 산출물은 dist-electron/{mac, windows, linux}로 분리 저장된다.
+#
+#   --mac-only    macOS 타깃만 빌드하고 종료 (Darwin 필수) — 로컬 mac 반복 작업용,
+#                 win/linux 패키징을 건너뛰어 빠르다. npm run build:electron:mac 이 호출.
 set -euo pipefail
 cd "$(dirname "$0")/.."
+
+MAC_ONLY=false
+if [[ "${1:-}" == "--mac-only" ]]; then
+  MAC_ONLY=true
+  if [[ "$(uname)" != "Darwin" ]]; then
+    echo "✗ --mac-only 는 Darwin(macOS)에서만 가능합니다 (CoreAudio 헬퍼 컴파일에 swiftc 필요)." >&2
+    exit 1
+  fi
+fi
 
 ./scripts/build-static-local.sh
 
@@ -20,7 +32,7 @@ npm run build:electron:main
 # CoreAudio HAL 헬퍼(mac 전용, swiftc 필요)를 mac 타깃 패키징 전에 컴파일해둔다.
 # electron-builder.yml의 mac.extraResources가 이 산출물을 참조한다.
 if [[ "$(uname)" == "Darwin" ]]; then
-  ./electron/native/audio-device-helper/build-mac.sh
+  ./electron/native/macos/audio-device-helper/build-mac.sh
 fi
 
 # 플랫폼별 산출물 저장 디렉터리 초기화
@@ -31,7 +43,7 @@ echo "▶ Electron 패키징 시작 (플랫폼별 빌드)..."
 echo ""
 
 # ===== macOS 패키징 =====
-# mac.extraResources(electron-builder.yml)가 audio-device-helper(swiftc 산출물, 15~19행에서
+# mac.extraResources(electron-builder.yml)가 audio-device-helper(swiftc 산출물, 위에서
 # Darwin에서만 빌드됨)를 요구하므로, macOS 패키징 자체도 Darwin 호스트에서만 시도한다 —
 # Windows/Linux에서 그대로 두면 여기서 즉시 실패해(set -e) 아래 win/linux 패키징까지 못 간다.
 if [[ "$(uname)" == "Darwin" ]]; then
@@ -49,6 +61,13 @@ if [[ "$(uname)" == "Darwin" ]]; then
   rm -rf "$TEMP_MAC"
 else
   echo "▶ macOS 패키징 건너뜀 (Darwin 호스트에서만 가능 — CoreAudio 헬퍼 컴파일에 swiftc 필요)"
+fi
+
+if [[ "$MAC_ONLY" == "true" ]]; then
+  echo ""
+  echo "✓ Electron 패키징 완료 (mac 전용): dist-electron/mac/"
+  ls -lh dist-electron/mac/ | grep -v "^total" | awk '{printf "    %-60s %8s\n", $9, $5}'
+  exit 0
 fi
 
 # ===== Windows 패키징 =====

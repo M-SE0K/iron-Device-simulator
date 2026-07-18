@@ -44,10 +44,11 @@ mac:
   category: public.app-category.utilities
   extendInfo:
     NSMicrophoneUsageDescription: 실시간 오디오 분석을 위해 마이크 입력을 사용합니다.
-  # CoreAudio HAL 헬퍼(native/audio-device-helper/build-mac.sh 산출물, arm64+x64
-  # universal binary) — mac 타깃에만 번들링. win/linux는 아직 해당 헬퍼가 없다.
+  # CoreAudio HAL 헬퍼(native/macos/audio-device-helper/build-mac.sh 산출물, arm64+x64
+  # universal binary) — mac 타깃에만 번들링. win/linux는 아직 해당 헬퍼가 없다
+  # (계획: native/windows/audio-device-helper/, docs/windows-plan.md).
   extraResources:
-    - from: electron/native/audio-device-helper/dist/audio-device-helper
+    - from: electron/native/macos/audio-device-helper/dist/audio-device-helper
       to: audio-device-helper
 
 win:

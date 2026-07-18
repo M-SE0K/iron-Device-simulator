@@ -11,7 +11,7 @@ import { DEFAULT_AMBIENT_TEMP, SAMPLE_RATE, SAMPLES_PER_CH } from "@/features/au
 import { DEFAULT_TEMP_WARN, DEFAULT_TEMP_DANGER } from "@/features/audio/lib/render/detect-events";
 
 // 파일 업로드(WaveformPlayer)/마이크(MicrophonePlayer, 네이티브+getUserMedia 폴백) 두 경로 모두
-// 이 값을 실제로 사용한다 — WASM 엔진(native/ff_prot.c)의 dt 계산과 와이어 프레임 크기에 그대로
+// 이 값을 실제로 사용한다 — WASM 엔진(electron/native/wasm-engine/ff_prot.c)의 dt 계산과 와이어 프레임 크기에 그대로
 // 반영되며, 다음 세션 시작 시점(다음 재생/다음 녹음 시작)에 적용된다(engine/core.ts EngineRuntimeConfig).
 export const SAMPLE_RATE_OPTIONS = ["8000", "11025", "16000", "32000", "44100", "48000", "96000", "176400", "192000", "352800", "384000"];
 export const BUFFER_SIZE_OPTIONS = ["8", "16", "32", "64", "128", "256", "480", "512", "1024", "2048"];

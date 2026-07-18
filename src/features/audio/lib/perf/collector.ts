@@ -191,7 +191,7 @@ class PerfCollector {
 
 export const perf = new PerfCollector();
 
-// ── 콘솔/자동화 러너(scripts/measure.ts) 접근용 전역 노출 ────────────────────
+// ── 브라우저 콘솔 접근용 전역 노출 (자동화 Puppeteer 러너는 제거됨, 수동 호출만) ──
 declare global {
   interface Window {
     __ironPerf?: Pick<
