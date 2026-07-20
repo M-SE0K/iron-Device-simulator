@@ -21,18 +21,19 @@
 ## 3. 파일별 역할
 | 파일 | 역할 |
 |------|------|
-| `frame.ts` | 차트 프레임 스냅샷(`FrameCacheSnapshot`)의 파일명·길이·단일 realtimeFrames를 sessionStorage 키 `irondevice:chart-cache:v1`에 저장/복원/삭제한다. `slim()`으로 time/temperature/excursion만 직렬화한다. |
-| `audio-blob.ts` | 오디오 원본 File을 IndexedDB(`irondevice` DB, `audio` 스토어, 고정 키 `"current"`)에 저장하고 메타데이터 포인터(`irondevice:audio-ptr:v1`)를 sessionStorage에 둔다. 복원 시 name/type/lastModified를 보존해 File로 재구성하며 포인터가 없으면 stale 블롭을 정리하고 null을 반환한다. |
-| `calibration.ts` | 두 캐시를 담는다. (1) `CalibrationValues` 전체를 `irondevice:calibration:v1`에 저장하고 `Partial`로 읽어 필드 추가에도 깨지지 않게 한다. (2) `DeviceActualCache`(requested/actual SampleRate·BufferFrameSize)를 `irondevice:device-actual:v1`에 저장한다. 둘 다 sessionStorage, 수명은 탭. |
-| `workspace.ts` | 별도 IndexedDB(`irondevice-workspace` DB, 버전 1)에 `meta` 스토어(목록용 경량 메타)와 `payload` 스토어(slim 프레임 배열 + 오디오 Blob)를 분리 보관한다. 목록/저장/이름변경/삭제/페이로드 조회 CRUD와 `framesToCsv()`, `sanitizeFileName()` 내보내기 헬퍼를 제공한다. id는 `crypto.randomUUID()`, 목록은 `createdAt` 내림차순. |
+| `frame.ts` | 차트 프레임 스냅샷(`FrameCacheSnapshot`)의 파일명·길이·단일 realtimeFrames를 sessionStorage 키 `irondevice:chart-cache:v1`에 저장/복원/삭제한다. 직렬화 전 `frame-utils.ts`의 `slimAnalysisFrames()`로 time/temperature/excursion만 남긴다. |
+| `audio-blob.ts` | 오디오 원본 File을 IndexedDB(`irondevice` DB, `audio` 스토어, 고정 키 `"current"`)에 저장하고 메타데이터 포인터(`irondevice:audio-ptr:v1`)를 sessionStorage에 둔다. 복원 시 name/type/lastModified를 보존해 File로 재구성하며 포인터가 없으면 stale 블롭을 정리하고 null을 반환한다. DB 열기/존재 확인은 `idb.ts`의 `openIndexedDb`/`hasIndexedDb`에 위임한다. |
+| `calibration.ts` | 두 캐시를 담는다. (1) `CalibrationValues` 전체를 `irondevice:calibration:v1`에 저장하고 `Partial`로 읽어 필드 추가에도 깨지지 않게 한다. (2) `DeviceActualCache`(requested/actual SampleRate·BufferFrameSize·channels)를 `irondevice:device-actual:v1`에 저장한다. 둘 다 sessionStorage, 수명은 탭. |
+| `workspace.ts` | 별도 IndexedDB(`irondevice-workspace` DB, 버전 1)에 `meta` 스토어(목록용 경량 메타)와 `payload` 스토어(slim 프레임 배열 + 오디오 Blob)를 분리 보관한다. 목록/저장/이름변경/삭제/페이로드 조회 CRUD와 `framesToCsv()`, `sanitizeFileName()` 내보내기 헬퍼를 제공한다. id는 `crypto.randomUUID()`, 목록은 `createdAt` 내림차순. DB 열기/존재 확인과 프레임 슬리밍은 각각 `idb.ts`/`frame-utils.ts`에 위임한다(과거엔 이 파일이 자체 구현을 들고 있었다). |
+| `idb.ts` | `frame.ts`를 제외한 IndexedDB 사용처(`audio-blob.ts`, `workspace.ts`)가 공유하는 저수준 헬퍼. `hasIndexedDb()`(존재 확인)와 `openIndexedDb({ name, version, upgrade? })`(open + `onupgradeneeded`/`onsuccess`/`onerror` Promise 래핑)를 제공한다. |
+| `frame-utils.ts` | `slimAnalysisFrames(frames)` — `frame.ts`/`workspace.ts`가 공유하는 프레임 슬리밍 함수. `AnalysisFrame`에서 time/temperature/excursion만 남긴 새 배열을 반환한다. |
 
 ## 4. 의존성 및 흐름
 **이 도메인이 import하는 것** (안쪽 방향):
 
-- `@/features/audio/types` → `AnalysisFrame` 타입 (`frame.ts`, `workspace.ts`)
-- `@/features/audio/components/calibration/CalibrationContext` → `CalibrationValues` 타입, type-only import (`calibration.ts`)
+- `@/features/audio/types` → `AnalysisFrame` 타입(`frame.ts`, `workspace.ts`), `CalibrationValues` 타입(`calibration.ts`, type-only import — 과거엔 `calibration` 도메인의 `CalibrationContext`에서 가져왔으나 타입이 `types.ts`로 단일화되며 순환 없이 정리됐다)
 
-즉 런타임 의존은 브라우저 API(sessionStorage/IndexedDB)뿐이고 앱 코드에는 타입으로만 의존한다.
+즉 런타임 의존은 브라우저 API(sessionStorage/IndexedDB)뿐이고 앱 코드에는 타입으로만 의존한다. 도메인 내부적으로는 `idb.ts`/`frame-utils.ts`가 `audio-blob.ts`/`workspace.ts`/`frame.ts`에 공유 헬퍼를 제공한다(3절 참고).
 
 **이 도메인을 import하는 것** (바깥 방향, 데이터 흐름 포함):
 
@@ -89,3 +90,4 @@ ChannelViewerOverlay.tsx ◀───────── getWorkspacePayload     
 - 2026-07-09: 최초 작성 (기준 커밋: 1fbbf44, 커밋되지 않은 워크트리 변경 반영)
 - 2026-07-09: 교차참조 정정 — `WorkspaceItemMeta`/`SaveWorkspaceInput` 타입 소비처를 삭제된 `WorkspaceItemRow.tsx` → `MeasurementRecordsDrawer.tsx`로 수정(섹션 4). 이 도메인의 캐시 모듈 자체는 변경 없음
 - 2026-07-09: 교차참조 재정정 — `MeasurementRecordsDrawer.tsx`가 `RecordsDrawer.tsx`로 리네임됨에 따라 섹션 4의 소비처 표기를 갱신. `workspace.ts`가 노출하는 `SessionStatus`(구 `MeasurementStatus`) 타입 자체는 이 도메인 소유라 이름만 바뀌었을 뿐 내용은 그대로(섹션 3·5는 값 불변이라 손대지 않음)
+- 2026-07-20: 공용 헬퍼 추출 반영 — `idb.ts`(IndexedDB open/존재확인)와 `frame-utils.ts`(`slimAnalysisFrames`)를 신설해 `audio-blob.ts`/`workspace.ts`/`frame.ts`에 흩어져 있던 중복 구현을 통합. `calibration.ts`의 `CalibrationValues` import 경로가 `calibration` 도메인의 `CalibrationContext`에서 `features/audio/types`로 변경(타입 단일 소스화). 섹션 3·4 부분 갱신 (커밋 범위: ca71d94..fb8e4fa)

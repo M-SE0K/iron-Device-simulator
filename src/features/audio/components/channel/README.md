@@ -18,7 +18,7 @@
 
 | 파일 | 역할 |
 |------|------|
-| `ChannelWaveformCanvas.tsx` | 한 채널을 LTTB 단일 선으로 줌 가능한 ECharts에 그린다. 실시간 윈도우(`liveWindow`)를 기본으로 그리다가, 사용자가 dataZoom으로 라이브 윈도우 밖(과거)을 확대하면 그 구간만 `fetchRange`로 온디맨드 디코딩해 채운다(라이브로 돌아오면 비운다). Y축은 원본 절대 피크 기준 대칭 범위로, LTTB가 놓칠 수 있는 전역 피크가 잘리지 않게 다운샘플 전 원본으로 계산한다. peak/rms를 한 번에 구하는 `channelStats()`와 실시간 윈도우 타입 `WaveformWindow`를 함께 export한다. |
+| `ChannelWaveformCanvas.tsx` | 한 채널을 LTTB 단일 선으로 줌 가능한 ECharts에 그린다. 실시간 윈도우(`liveWindow`)를 기본으로 그리다가, 사용자가 dataZoom으로 라이브 윈도우 밖(과거)을 확대하면 그 구간만 `fetchRange`로 온디맨드 디코딩해 채운다(라이브로 돌아오면 비운다). Y축은 원본 절대 피크 기준 대칭 범위로, LTTB가 놓칠 수 있는 전역 피크가 잘리지 않게 다운샘플 전 원본으로 계산한다. 줌 구간 안에 보이는 포인트 수가 `SYMBOL_VISIBLE_MAX`(`lib/render/chart-option.ts`) 이하로 좁혀지면 각 포인트에 점(`symbol: "circle"`)을 찍어 샘플 간격을 보여주고, 이때는 LTTB/large 샘플링을 끈다(보이는 포인트가 이미 적어 필요 없음). peak/rms를 한 번에 구하는 `channelStats()`와 실시간 윈도우 타입 `WaveformWindow`를 함께 export한다. |
 | `ChannelRowHeader.tsx` | 채널 행 머리 내용(색 점 + 채널명(mono) + 역할 + peak·rms 배지)만 Fragment로 그린다. 바깥 컨테이너(div/Fragment)는 소비자마다 달라 여기서 감싸지 않는다. `stats`가 없으면 배지를 숨긴다(라이브 데이터 미도착 등). |
 | `ChannelStackView.tsx` | 여러 채널 패널을 세로로 쌓고 드래그로 재배치·리사이즈하는 스택. 각 항목은 `StackItem`(머리·본문·기본/최소/최대 높이)이고, 재배치가 끝나면 보이는 항목들의 새 id 순서를 `onReorder`로 통째로 올려보낸다. 항목이 없으면 `emptyLabel`을 보여준다. |
 | `ChannelSelectDrawer.tsx` | 스택에 올릴 표시 항목을 고르는 우측 드로어(공용 `overlay/SideDrawer` 위, `layer="overlay"`). 항목을 메인 차트(`section: "metric"`)와 채널 목록(`section: "channel"`)으로 나눠 체크 방식으로 추가·제거한다. 셸(백드롭·패널·헤더)은 `SideDrawer`, 채널 개수 배지는 공용 `ui/CountBadge`에 위임한다. |
@@ -27,7 +27,7 @@
 
 이 도메인이 가져다 쓰는 모듈 (channel → 외부):
 
-- `lib/render/chart-option.ts` — `ChannelWaveformCanvas`가 `buildDataZoom`/`buildTimeAxis`/`buildValueTooltip`/`buildDynamicTimeFormatter`/`timeDecimalsForInterval`로 두 메인 차트와 같은 줌·시간축 규약을 쓴다.
+- `lib/render/chart-option.ts` — `ChannelWaveformCanvas`가 `buildDataZoom`/`buildTimeAxis`/`buildValueTooltip`/`buildDynamicTimeFormatter`/`timeDecimalsForInterval`로 두 메인 차트와 같은 줌·시간축 규약을 쓰고, `SYMBOL_VISIBLE_MAX`로 포인트 심볼 표시 임계값을 공유한다.
 - `shared/components/overlay/SideDrawer.tsx` — `ChannelSelectDrawer`의 슬라이드 드로어 셸.
 - `shared/components/ui/CountBadge.tsx` — `ChannelSelectDrawer` 채널 개수 배지.
 - `shared/lib/utils.ts` — `cn`(클래스 병합).
@@ -62,3 +62,4 @@
 
 ## 6. 변경 이력(요약)
 - 2026-07-10: 최초 작성 — `chart/`가 겸하던 "채널 파형 뷰" 부품 4종(`ChannelWaveformCanvas`(+`channelStats`)·`ChannelRowHeader`·`ChannelStackView`·`ChannelSelectDrawer`)을 별도 도메인 `components/channel/`으로 분리(chart·workspace가 단방향 참조). `ChannelRowHeader`는 두 오버레이의 중복 헤더를 통합해 신설, 드로어/오버레이 셸은 공용 `shared/components/overlay`·`ui`로 위임 (커밋 범위: 537099f..HEAD, 워크트리 포함)
+- 2026-07-20: `ChannelWaveformCanvas`에 확대 시 포인트 심볼 표시 기능 추가 — 줌 구간 안 포인트 수가 `SYMBOL_VISIBLE_MAX` 이하면 각 샘플에 점을 찍어 간격을 보여주고 LTTB/large 샘플링을 끈다. 섹션 3·4 부분 갱신 (커밋 범위: 9f08d59..fb8e4fa)
