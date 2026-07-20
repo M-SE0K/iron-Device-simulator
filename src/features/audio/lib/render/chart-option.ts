@@ -55,6 +55,16 @@ function resolveDynamicDecimals(dataMin: number, dataMax: number, dataDecimals: 
   return Math.min(effectiveMax, Math.max(MIN_TIME_DECIMALS, spanDecimals));
 }
 
+// 소수 자릿수까지 내림(버림) 처리 후 고정 자릿수로 표시 — shared/lib/utils.ts의 formatTime()
+// (진행바, Math.floor 기반)과 반올림 규칙을 맞추기 위함. toFixed()는 반올림이라 초 경계 근처에서
+// 진행바(내림)와 최대 1초 가까이 어긋나 보이는 문제가 있었다.
+function floorFixed(v: number, decimals: number): string {
+  const factor = 10 ** decimals;
+  // 부동소수점 오차로 예: 14.000000001이 13으로 잘못 내려가는 것을 방지하는 아주 작은 보정값.
+  const floored = Math.floor(v * factor + 1e-9) / factor;
+  return floored.toFixed(decimals);
+}
+
 // buildTimeAxis와 buildDataZoom(슬라이더 라벨), 그리고 프레임이 아닌 원본 샘플 기반 축을 쓰는
 // ChannelWaveformCanvas가 공유하는 동적 소수 자릿수 포매터.
 export function buildDynamicTimeFormatter(
@@ -62,7 +72,7 @@ export function buildDynamicTimeFormatter(
   domain: { dataMin: number; dataMax: number; dataDecimals: number },
 ) {
   const { dataMin, dataMax, dataDecimals } = domain;
-  return (v: number) => `${v.toFixed(resolveDynamicDecimals(dataMin, dataMax, dataDecimals, zoomRef.current))}s`;
+  return (v: number) => `${floorFixed(v, resolveDynamicDecimals(dataMin, dataMax, dataDecimals, zoomRef.current))}s`;
 }
 
 export function buildDataZoom(
