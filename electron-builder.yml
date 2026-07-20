@@ -13,6 +13,10 @@ productName: Iron Device Audio Simulator
 # 기본값(true)이면 electron-builder가 node_modules 전체(예: next가 끌어오는 sharp)를
 # 타깃 arch별로 재빌드하려다, 크로스 컴파일이 안 되는 조합(예: macOS 호스트에서
 # win32/arm64용 sharp)에서 빌드가 실패한다 — 애초에 필요 없는 단계라 꺼둔다.
+# Electron(Chromium)이 기본으로 번들링하는 ~55개 로케일(.lproj/locale.pak) 중
+# 앱 UI는 한국어 단일 언어라 대부분 불필요하다 — ko 하나만 남겨 용량을 줄인다.
+electronLanguages:
+  - ko
 npmRebuild: false
 directories:
   output: dist-electron

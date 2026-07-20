@@ -9,6 +9,7 @@ import { createContext, useContext, useEffect, useMemo, useState, type Dispatch,
 import { loadCalibrationCache, saveCalibrationCache } from "@/features/audio/lib/cache/calibration";
 import { DEFAULT_AMBIENT_TEMP, SAMPLE_RATE, SAMPLES_PER_CH } from "@/features/audio/lib/engine/core";
 import { DEFAULT_TEMP_WARN, DEFAULT_TEMP_DANGER } from "@/features/audio/lib/render/detect-events";
+import type { CalibrationValues } from "@/features/audio/types";
 
 // 파일 업로드(WaveformPlayer)/마이크(MicrophonePlayer, 네이티브+getUserMedia 폴백) 두 경로 모두
 // 이 값을 실제로 사용한다 — WASM 엔진(electron/native/wasm-engine/ff_prot.c)의 dt 계산과 와이어 프레임 크기에 그대로
@@ -20,27 +21,6 @@ export const BUFFER_SIZE_OPTIONS = ["8", "16", "32", "64", "128", "256", "480", 
 // 실제 드롭다운은 useDeviceOptionAutoCorrect가 이 목록을 선택된 장치의 inputChannels 이하로
 // 필터링한 channelOptions를 쓴다 — 장치가 지원하지 않는 채널 수는 애초에 고를 수 없다.
 export const CHANNEL_OPTIONS = ["2", "4", "6", "8"];
-
-export interface CalibrationValues {
-  speakerModel: string; // "" = 미선택
-  ampOutputPower: string; // W
-  ambientTemp: string; // °C — ff_prot_start_exec에 그대로 전달되는 엔진 입력값(EngineParams.ambientTemp)
-  sampleRate: string; // Hz (데모)
-  bufferSize: string; // samples (데모)
-  channels: string; // 캡처 채널 수 (네이티브 캡처 전용)
-  inputDeviceId: string; // MediaDevices deviceId ("" = 시스템 기본 입력) — 마이크 캡처 대상
-  inputDeviceLabel: string; // 선택 장치 이름(표시/재연결 대조용)
-  captureDeviceUID: string; // CoreAudio 장치 UID ("" = OS 기본 입력) — 네이티브 캡처/조회 대상(Electron 전용)
-  outputDeviceId: string; // MediaDevices deviceId ("" = 시스템 기본 출력) — 재생 라우팅 대상(WaveSurfer setSinkId). V/I 센싱 루프에서 앰프/스피커(MCHStreamer)로 음원을 보내는 출력.
-  outputDeviceLabel: string; // 선택 출력 장치 이름(표시/재연결 대조용)
-  outputChannel: string; // play-capture가 재생을 내보낼 출력 채널 인덱스("0"=ch0, 네이티브 전용). 멀티채널 앰프 구성 대응.
-  tempBase: string; // °C (프로파일)
-  excAmp: string; // mm (프로파일)
-  tempMult: string; // 승수
-  excMult: string; // 승수
-  tempWarn: string; // °C — 온도 WARN 임계값(차트 markLine + detectEvents 이벤트 감지 공용)
-  tempDanger: string; // °C — 온도 DANGER 임계값(차트 markLine + detectEvents 이벤트 감지 공용)
-}
 
 export const CALIBRATION_EMPTY: CalibrationValues = {
   speakerModel: "",

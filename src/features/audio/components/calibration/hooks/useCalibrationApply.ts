@@ -7,7 +7,7 @@ import { useCallback, useEffect, useState, type Dispatch, type SetStateAction } 
 import {
   loadDeviceActualCache, saveDeviceActualCache, type DeviceActualCache,
 } from "@/features/audio/lib/cache/calibration";
-import type { CalibrationValues } from "../CalibrationContext";
+import type { CalibrationValues } from "@/features/audio/types";
 import type { DeviceInfo } from "./useNativeAudioDevice";
 
 export type DeviceApplyStatus = "idle" | "applying" | "applied" | "error";

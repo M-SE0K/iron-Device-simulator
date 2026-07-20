@@ -6,7 +6,7 @@
 // effect로, CalibrationDrawer 본체에 그대로 둔다 — 같은 [open] 의존성 effect가 여러 개
 // 있어도 React는 선언 순서대로 전부 실행하므로 동작은 하나였을 때와 동일하다).
 import { useCallback, useEffect, useState } from "react";
-import type { CalibrationValues } from "../CalibrationContext";
+import type { CalibrationValues } from "@/features/audio/types";
 
 export function useCalibrationDraft(open: boolean, values: CalibrationValues) {
   const [draft, setDraft] = useState<CalibrationValues>(values);

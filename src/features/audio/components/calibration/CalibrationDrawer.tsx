@@ -12,11 +12,8 @@ import { RefreshCw, RotateCcw, X } from "lucide-react";
 import AnimatedSelect from "@/shared/components/ui/AnimatedSelect";
 import DeviceSelectField from "./DeviceSelectField";
 import { useActiveDrawer } from "@/features/audio/components/dashboard/ActiveDrawerContext";
-import {
-  CALIBRATION_EMPTY,
-  useCalibration,
-  type CalibrationValues,
-} from "./CalibrationContext";
+import { CALIBRATION_EMPTY, useCalibration } from "./CalibrationContext";
+import type { CalibrationValues } from "@/features/audio/types";
 import { useNativeAudioDevice } from "./hooks/useNativeAudioDevice";
 import { useMediaDevices } from "./hooks/useMediaDevices";
 import { useDeviceOptionAutoCorrect } from "./hooks/useDeviceOptionAutoCorrect";

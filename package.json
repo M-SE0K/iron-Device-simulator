@@ -13,6 +13,8 @@
     "build:desktop": "./scripts/build-static-local.sh && echo '✓ 데스크톱 독립 웹앱 빌드 완료: out/ (로컬 확인: npx serve out)'",
     "build:electron": "./scripts/build-electron.sh",
     "build:electron:mac": "./scripts/build-electron.sh --mac-only",
+    "build:electron:windows": "./scripts/build-electron.sh --windows-only",
+    "build:electron:linux": "./scripts/build-electron.sh --linux-only",
     "build:electron:main": "webpack --config webpack.electron.config.js",
     "electron:preview": "npm run build:electron:main && electron ."
   },

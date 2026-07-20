@@ -4,7 +4,8 @@
 // 가장 가까운 지원값으로 자동 보정한다 — 무효값이 그대로 "적용"→capture로 넘어가는
 // 것을 막는다.
 import { useEffect, useState } from "react";
-import { SAMPLE_RATE_OPTIONS, BUFFER_SIZE_OPTIONS, CHANNEL_OPTIONS, type CalibrationValues } from "../CalibrationContext";
+import { SAMPLE_RATE_OPTIONS, BUFFER_SIZE_OPTIONS, CHANNEL_OPTIONS } from "../CalibrationContext";
+import type { CalibrationValues } from "@/features/audio/types";
 import type { DeviceInfo } from "./useNativeAudioDevice";
 
 /** 문자열 옵션들 중 목표값과 수치상 가장 가까운 것을 고른다. 빈 목록이면 null. */

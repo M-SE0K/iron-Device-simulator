@@ -8,19 +8,31 @@
 #
 # 플랫폼별 산출물은 dist-electron/{mac, windows, linux}로 분리 저장된다.
 #
-#   --mac-only    macOS 타깃만 빌드하고 종료 (Darwin 필수) — 로컬 mac 반복 작업용,
-#                 win/linux 패키징을 건너뛰어 빠르다. npm run build:electron:mac 이 호출.
+#   --mac-only      macOS 타깃만 빌드하고 종료 (Darwin 필수) — 로컬 mac 반복 작업용,
+#                   win/linux 패키징을 건너뛰어 빠르다. npm run build:electron:mac 이 호출.
+#   --windows-only  Windows 타깃만 빌드하고 종료. npm run build:electron:windows 가 호출.
+#   --linux-only    Linux 타깃만 빌드하고 종료. npm run build:electron:linux 가 호출.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
 MAC_ONLY=false
-if [[ "${1:-}" == "--mac-only" ]]; then
-  MAC_ONLY=true
-  if [[ "$(uname)" != "Darwin" ]]; then
-    echo "✗ --mac-only 는 Darwin(macOS)에서만 가능합니다 (CoreAudio 헬퍼 컴파일에 swiftc 필요)." >&2
-    exit 1
-  fi
-fi
+WINDOWS_ONLY=false
+LINUX_ONLY=false
+case "${1:-}" in
+  --mac-only)
+    MAC_ONLY=true
+    if [[ "$(uname)" != "Darwin" ]]; then
+      echo "✗ --mac-only 는 Darwin(macOS)에서만 가능합니다 (CoreAudio 헬퍼 컴파일에 swiftc 필요)." >&2
+      exit 1
+    fi
+    ;;
+  --windows-only)
+    WINDOWS_ONLY=true
+    ;;
+  --linux-only)
+    LINUX_ONLY=true
+    ;;
+esac
 
 ./scripts/build-static-local.sh
 
@@ -31,7 +43,8 @@ npm run build:electron:main
 
 # CoreAudio HAL 헬퍼(mac 전용, swiftc 필요)를 mac 타깃 패키징 전에 컴파일해둔다.
 # electron-builder.yml의 mac.extraResources가 이 산출물을 참조한다.
-if [[ "$(uname)" == "Darwin" ]]; then
+# --windows-only/--linux-only 에서는 mac을 아예 패키징하지 않으므로 건너뛴다.
+if [[ "$(uname)" == "Darwin" && "$WINDOWS_ONLY" != "true" && "$LINUX_ONLY" != "true" ]]; then
   ./electron/native/macos/audio-device-helper/build-mac.sh
 fi
 
@@ -46,21 +59,24 @@ echo ""
 # mac.extraResources(electron-builder.yml)가 audio-device-helper(swiftc 산출물, 위에서
 # Darwin에서만 빌드됨)를 요구하므로, macOS 패키징 자체도 Darwin 호스트에서만 시도한다 —
 # Windows/Linux에서 그대로 두면 여기서 즉시 실패해(set -e) 아래 win/linux 패키징까지 못 간다.
-if [[ "$(uname)" == "Darwin" ]]; then
-  echo "▶ macOS 패키징 중..."
-  TEMP_MAC="dist-electron-mac-build"
-  rm -rf "$TEMP_MAC"
-  mkdir -p "$TEMP_MAC"
+# --windows-only/--linux-only 에서는 아예 건너뛴다.
+if [[ "$WINDOWS_ONLY" != "true" && "$LINUX_ONLY" != "true" ]]; then
+  if [[ "$(uname)" == "Darwin" ]]; then
+    echo "▶ macOS 패키징 중..."
+    TEMP_MAC="dist-electron-mac-build"
+    rm -rf "$TEMP_MAC"
+    mkdir -p "$TEMP_MAC"
 
-  # 출력 디렉토리를 임시 폴더로 설정해서 다른 빌드와 격리
-  npx electron-builder --mac --publish=never -c.directories.output="$TEMP_MAC"
+    # 출력 디렉토리를 임시 폴더로 설정해서 다른 빌드와 격리
+    npx electron-builder --mac --publish=never -c.directories.output="$TEMP_MAC"
 
-  # 생성된 파일을 mac/ 폴더로 이동
-  find "$TEMP_MAC" -maxdepth 1 -type f \( -name "*.dmg" -o -name "*.zip" -o -name "*.yml" -o -name "*.blockmap" \) -exec mv {} dist-electron/mac/ \;
-  find "$TEMP_MAC" -maxdepth 1 -type d -name "*.app" -exec mv {} dist-electron/mac/ \; 2>/dev/null || true
-  rm -rf "$TEMP_MAC"
-else
-  echo "▶ macOS 패키징 건너뜀 (Darwin 호스트에서만 가능 — CoreAudio 헬퍼 컴파일에 swiftc 필요)"
+    # 생성된 파일을 mac/ 폴더로 이동
+    find "$TEMP_MAC" -maxdepth 1 -type f \( -name "*.dmg" -o -name "*.zip" -o -name "*.yml" -o -name "*.blockmap" \) -exec mv {} dist-electron/mac/ \;
+    find "$TEMP_MAC" -maxdepth 1 -type d -name "*.app" -exec mv {} dist-electron/mac/ \; 2>/dev/null || true
+    rm -rf "$TEMP_MAC"
+  else
+    echo "▶ macOS 패키징 건너뜀 (Darwin 호스트에서만 가능 — CoreAudio 헬퍼 컴파일에 swiftc 필요)"
+  fi
 fi
 
 if [[ "$MAC_ONLY" == "true" ]]; then
@@ -71,15 +87,24 @@ if [[ "$MAC_ONLY" == "true" ]]; then
 fi
 
 # ===== Windows 패키징 =====
-echo "▶ Windows 패키징 중..."
-TEMP_WIN="dist-electron-win-build"
-rm -rf "$TEMP_WIN"
-mkdir -p "$TEMP_WIN"
+if [[ "$LINUX_ONLY" != "true" ]]; then
+  echo "▶ Windows 패키징 중..."
+  TEMP_WIN="dist-electron-win-build"
+  rm -rf "$TEMP_WIN"
+  mkdir -p "$TEMP_WIN"
 
-npx electron-builder --win --publish=never -c.directories.output="$TEMP_WIN"
+  npx electron-builder --win --publish=never -c.directories.output="$TEMP_WIN"
 
-find "$TEMP_WIN" -maxdepth 1 -type f \( -name "*.zip" -o -name "*.yml" -o -name "*.blockmap" \) -exec mv {} dist-electron/windows/ \;
-rm -rf "$TEMP_WIN"
+  find "$TEMP_WIN" -maxdepth 1 -type f \( -name "*.zip" -o -name "*.yml" -o -name "*.blockmap" \) -exec mv {} dist-electron/windows/ \;
+  rm -rf "$TEMP_WIN"
+fi
+
+if [[ "$WINDOWS_ONLY" == "true" ]]; then
+  echo ""
+  echo "✓ Electron 패키징 완료 (windows 전용): dist-electron/windows/"
+  ls -lh dist-electron/windows/ | grep -v "^total" | awk '{printf "    %-60s %8s\n", $9, $5}'
+  exit 0
+fi
 
 # ===== Linux 패키징 =====
 echo "▶ Linux 패키징 중..."
@@ -91,6 +116,13 @@ npx electron-builder --linux --publish=never -c.directories.output="$TEMP_LINUX"
 
 find "$TEMP_LINUX" -maxdepth 1 -type f \( -name "*.AppImage" -o -name "*.yml" -o -name "*.blockmap" \) -exec mv {} dist-electron/linux/ \;
 rm -rf "$TEMP_LINUX"
+
+if [[ "$LINUX_ONLY" == "true" ]]; then
+  echo ""
+  echo "✓ Electron 패키징 완료 (linux 전용): dist-electron/linux/"
+  ls -lh dist-electron/linux/ | grep -v "^total" | awk '{printf "    %-60s %8s\n", $9, $5}'
+  exit 0
+fi
 
 # ===== 결과 출력 =====
 echo ""
