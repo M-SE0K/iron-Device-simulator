@@ -17,8 +17,6 @@ node_modules/
 /electron-dist/
 
 # 로컬 전용 소스 — 원격 레포에는 올리지 않음 (각자 로컬에서만 보관/빌드)
-/electron/
-/native/
 /public/
 /resources/
 
