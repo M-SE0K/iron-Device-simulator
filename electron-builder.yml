@@ -59,6 +59,19 @@ win:
   target:
     - target: zip
       arch: [x64, arm64]
+  # mac.extraResources와 같은 규칙 — electron/ipc/audio-device.js의 AUDIO_HELPER_PATH가
+  # 패키징 시 리소스 루트에서 "audio-device-helper.exe"를 찾는다.
+  #
+  # ⚠️ mac 헬퍼는 build-electron.sh가 빌드해주지만 이건 아니다. 패키징이 WSL/Linux에서
+  # 도는데 거기엔 MSVC가 없어서, Windows에서 build.ps1로 미리 빌드해 dist/에 커밋해둔
+  # 산출물을 그대로 집어간다. 없으면 패키징이 실패한다.
+  #
+  # ⚠️ 이 exe는 x64 전용이다. 위 arch에 arm64가 남아 있으면 arm64 zip에도 같은 x64
+  # 바이너리가 복사되어 그 빌드에서는 헬퍼가 실행되지 않는다 (ASIO 드라이버 자체가
+  # arm64 Windows에 사실상 없어 arm64 타깃을 뺄지 검토가 필요하다).
+  extraResources:
+    - from: electron/native/windows/audio-device-helper/dist/audio-device-helper.exe
+      to: audio-device-helper.exe
 
 linux:
   target:

@@ -1,0 +1,8 @@
+# ASIO SDK는 재배포가 금지돼 있다 — 여기에 풀더라도 절대 커밋하지 않는다.
+third_party/
+
+# CMake 작업 폴더 (build.ps1 -Arch 별로 생김)
+build-*/
+
+# dist/ 는 의도적으로 무시하지 않는다 — macOS 헬퍼(native/macos/.../dist/)가 산출물을
+# 커밋하는 관행을 따르고 있어 대칭을 맞춘 것이다. 정책을 바꾼다면 양쪽을 같이 바꿔야 한다.
