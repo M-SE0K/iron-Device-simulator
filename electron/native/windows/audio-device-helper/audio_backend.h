@@ -9,6 +9,8 @@
 // (electron/native/macos/audio-device-helper/README.md 의 "명령어" 절이 단일 진실원)
 #pragma once
 
+#include <cstddef>
+#include <cstdint>
 #include <string>
 #include <vector>
 
@@ -75,5 +77,69 @@ bool setDevice(const std::string& deviceUid, double sampleRate, long bufferSize,
 // 그 외              → preferred 고정
 // CoreAudio처럼 단순 클램프하면 드라이버가 거부하므로 반드시 격자에 맞춰야 한다.
 long snapBufferSize(long requested, long minSize, long maxSize, long preferred, long granularity);
+
+// ── capture (상주 모드) ──────────────────────────────────────────────────────
+//
+// 일회성 명령들과 달리 드라이버를 열어둔 채 유지한다. 프로세스당 하나만 가능하다
+// (ASIO는 전역 theAsioDriver 하나에 묶인다 — asio_backend.cpp 상단 주석).
+//
+// 역할 분담: 이 백엔드는 ASIO RT 스레드에서 링버퍼까지만 채우고, stdout으로 내보내는
+// writer 스레드와 stdin 감시는 main.cpp가 돌린다. RT 스레드에서 fwrite하면 파이프가
+// 찼을 때 블로킹되어 그대로 드롭아웃이기 때문이다. (CAPTURE-PLAN.md §2)
+
+struct CaptureConfig {
+  std::string deviceUid;
+  double sampleRate = 0;
+  long bufferSize = 0;   // 드라이버 격자로 스냅된다 — 요청값 그대로 쓰이지 않는다
+  long channels = 2;     // stdout 인터리브 채널 수 요청값
+
+  // ── play-capture 전용 (refPath가 비어 있으면 순수 capture 모드) ──
+  //
+  // ASIO가 CoreAudio보다 유리한 유일한 지점이다. 콜백 하나가 입출력을 동시에 다루므로
+  // 재생과 캡처가 같은 클록 위에 놓이는 게 구조적으로 보장된다 — IOProc 두 개를 맞출
+  // 필요가 없다. (CAPTURE-PLAN.md §5)
+  std::string refPath;   // raw LE Float32 mono, [-1,1], sampleRate로 미리 리샘플된 것
+  long outputChannel = 0;
+};
+
+// 헤더 한 줄에 실을 실제 값. requested와 달라질 수 있고, 달라지는 게 정상이다.
+struct CaptureInfo {
+  std::string name;
+  std::string uid;
+  double sampleRate = 0;
+  long bufferSize = 0;
+  long channels = 0;     // 장치 입력 수로 클램프된 실제 인터리브 채널 수
+
+  bool playCapture = false;
+  long refFrames = 0;       // ref 총 프레임 수 — 렌더러가 재생 길이를 안다
+  long playbackChannel = 0; // 실제 사용된 출력 채널 (--out-ch echo)
+};
+
+// 드라이버를 열고 ASIOStart까지 마친다. 성공 시 콜백이 이미 링을 채우고 있다.
+// 실패 시 열린 자원을 전부 되돌리므로 호출 측은 정리할 게 없다.
+bool startCapture(const CaptureConfig& cfg, CaptureInfo& out, std::string& error);
+
+// writer 스레드 전용. 링에 있는 만큼만 꺼내 실제 바이트 수를 돌려준다(0이면 빔).
+// ⚠️ stopCapture()와 동시에 부르면 안 된다 — main.cpp는 writer를 join한 뒤에 stop한다.
+size_t readCaptured(void* dst, size_t maxBytes);
+
+// kAsioResetRequest(USB 분리 등)가 왔는지. RT 컨텍스트에서 정리하면 데드락이라
+// 콜백은 플래그만 세우고, main 스레드가 이걸 폴링해 exit 3으로 빠진다. (CAPTURE-PLAN.md §4)
+bool captureResetRequested();
+
+// ── play-capture 제어 (stdin 라인 명령이 호출) ───────────────────────────────
+
+// pause 중에도 **캡처는 계속 흐른다** — 출력만 무음이 되고 재생 위치가 동결된다.
+// WASM 온도 상태를 유지하려면 세션을 끊으면 안 되기 때문이다(macOS README와 동일 설계).
+void setPlaybackPaused(bool paused);
+
+// ref를 끝까지 재생하고 감쇠 테일까지 지났는지. main 스레드가 폴링해 exit 0으로 자기 종료한다.
+bool playbackFinished();
+
+// 링이 가득 차 **버려진** 누적 바이트. 종료 시 stderr에 남겨 드롭아웃을 진단한다.
+uint64_t captureDroppedBytes();
+
+// ASIOStop → ASIODisposeBuffers → ASIOExit → removeCurrentDriver. main 스레드 전용(COM).
+void stopCapture();
 
 }  // namespace audio

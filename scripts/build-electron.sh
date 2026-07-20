@@ -48,6 +48,30 @@ if [[ "$(uname)" == "Darwin" && "$WINDOWS_ONLY" != "true" && "$LINUX_ONLY" != "t
   ./electron/native/macos/audio-device-helper/build-mac.sh
 fi
 
+# ASIO 헬퍼(Windows 전용)를 win 타깃 패키징 전에 크로스 컴파일한다.
+# electron-builder.yml의 win.extraResources가 이 산출물(dist/audio-device-helper.exe)을 참조한다.
+#
+# ⚠️ 이 단계는 일부러 **실패 시 패키징을 중단시킨다.** 예전에는 Windows에서 손으로 빌드해
+# 커밋해둔 exe를 그대로 집어갔는데, 소스를 고치고 빌드를 잊으면 낡은 exe가 조용히 패키징되어
+# "앱에서만 안 되는" 상태가 된다(실제로 겪었다 — capture 구현이 빠진 exe가 들어가 앱에서는
+# not-implemented 에러로만 보였고, 원인을 찾는 데 한참 걸렸다). 조용히 넘어가느니 여기서 멈춘다.
+#
+# 툴체인/SDK가 없는 환경에서 커밋된 exe로 그냥 패키징만 하려면 SKIP_WIN_HELPER_BUILD=1.
+if [[ "$MAC_ONLY" != "true" && "$LINUX_ONLY" != "true" ]]; then
+  if [[ "${SKIP_WIN_HELPER_BUILD:-}" == "1" ]]; then
+    echo "▶ ASIO 헬퍼 빌드 건너뜀 (SKIP_WIN_HELPER_BUILD=1) — dist/의 기존 exe를 그대로 씁니다"
+    HELPER_EXE="electron/native/windows/audio-device-helper/dist/audio-device-helper.exe"
+    if [[ -f "$HELPER_EXE" ]]; then
+      echo "    기존 exe 빌드 시각: $(date -r "$HELPER_EXE" '+%Y-%m-%d %H:%M:%S')"
+    else
+      echo "✗ 건너뛰려 했으나 $HELPER_EXE 가 없습니다 — 패키징이 실패합니다." >&2
+      exit 1
+    fi
+  else
+    ./electron/native/windows/audio-device-helper/build-win.sh
+  fi
+fi
+
 # 플랫폼별 산출물 저장 디렉터리 초기화
 mkdir -p dist-electron/{mac,windows,linux}
 rm -rf dist-electron/{mac,windows,linux}/* dist-electron/*-unpacked dist-electron/mac-arm64 dist-electron/linux-arm64-unpacked 2>/dev/null || true
