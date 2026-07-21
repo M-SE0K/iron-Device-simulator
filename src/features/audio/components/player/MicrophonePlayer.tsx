@@ -13,6 +13,8 @@ export type MicRecordingExport = CaptureRecordingExport;
 export interface MicrophonePlayerHandle {
   /** 캡처 세션 버퍼(ch0=V/ch1=I + 확장 채널)를 WAV로 인코딩해 반환한다. 캡처 이력이 없으면 null. */
   exportRecordedAudio: () => Blob | null;
+  /** 보호 감쇠가 적용된 PCM(엔진 buf In/Out 결과)의 WAV 스냅샷 — 감쇠 전/후 비교·내보내기용 */
+  exportProtectedAudio: () => Blob | null;
   /** 원본 캡처 청크 실시간 스트림을 구독한다(ChartDetailOverlay 채널 뷰) — WaveformPlayer와 동일 계약. */
   subscribeCaptureStream: (fn: CaptureStreamListener) => () => void;
 }
@@ -41,7 +43,7 @@ const MicrophonePlayer = forwardRef<MicrophonePlayerHandle, Props>(function Micr
     start, stop, cleanup, isRecording,
     micError, sampleRate, deviceName, actualBufferSize, actualLatency,
     saveRecording, hasRecording, saving, recordingChannels,
-    getRecordedBlob, subscribeCaptureStream, frameCountRef, framesRcvdRef,
+    getRecordedBlob, getProtectedBlob, subscribeCaptureStream, frameCountRef, framesRcvdRef,
   } = useCaptureSession({
     status, onStatusChange, onFrameReceived, onStreamStart,
     onSaveRecording, inputParams,
@@ -49,8 +51,9 @@ const MicrophonePlayer = forwardRef<MicrophonePlayerHandle, Props>(function Micr
 
   useImperativeHandle(ref, () => ({
     exportRecordedAudio: getRecordedBlob,
+    exportProtectedAudio: getProtectedBlob,
     subscribeCaptureStream,
-  }), [getRecordedBlob, subscribeCaptureStream]);
+  }), [getRecordedBlob, getProtectedBlob, subscribeCaptureStream]);
 
   // 언마운트 시 정리
   useEffect(() => () => { cleanup(); }, [cleanup]);

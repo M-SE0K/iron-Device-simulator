@@ -50,6 +50,8 @@ export interface WaveformPlayerHandle {
    * 캡처 세션이 없었거나(재생한 적 없음) 데이터가 없으면 null.
    */
   exportRecordedAudio: () => Blob | null;
+  /** 보호 감쇠가 적용된 PCM(엔진 buf In/Out 결과)의 WAV 스냅샷 — 감쇠 전/후 비교·내보내기용 */
+  exportProtectedAudio: () => Blob | null;
   /**
    * 원본 캡처 청크 실시간 스트림 구독 — ChartDetailOverlay 채널 뷰가 폴링 없이
    * 청크 도착 즉시 갱신하는 경로(마이크 모드 MicrophonePlayerHandle과 동일 계약).
@@ -232,8 +234,9 @@ const WaveformPlayer = forwardRef<WaveformPlayerHandle, Props>(function Waveform
     sendMessage: captureSession.sendMessage,
     pause: pausePlayback,
     exportRecordedAudio: captureSession.getRecordedBlob,
+    exportProtectedAudio: captureSession.getProtectedBlob,
     subscribeCaptureStream: captureSession.subscribeCaptureStream,
-  }), [captureSession.sendMessage, pausePlayback, captureSession.getRecordedBlob, captureSession.subscribeCaptureStream]);
+  }), [captureSession.sendMessage, pausePlayback, captureSession.getRecordedBlob, captureSession.getProtectedBlob, captureSession.subscribeCaptureStream]);
 
   const isPlaying = status === "playing";
 

@@ -12,6 +12,7 @@ import type { CaptureStreamListener } from "@/features/audio/components/player/c
 import TemperatureChart from "@/features/audio/components/chart/TemperatureChart";
 import ExcursionChart from "@/features/audio/components/chart/ExcursionChart";
 import ChartDetailOverlay, { type DetailMetric } from "@/features/audio/components/chart/ChartDetailOverlay";
+import { ProtectedComparePanel } from "@/features/audio/components/channel/ProtectedComparePanel";
 import WorkspaceDrawer from "@/features/audio/components/workspace/WorkspaceDrawer";
 import RecordsDrawer from "@/features/audio/components/workspace/RecordsDrawer";
 import CalibrationDrawer from "@/features/audio/components/calibration/CalibrationDrawer";
@@ -127,18 +128,31 @@ export default function DashboardPage({ useQueue }: DashboardPageProps) {
   const micWaveRef = useRef<MicrophonePlayerHandle>(null);
   // 채널 상세 뷰(ChartDetailOverlay)의 데이터 소스 — 입력 모드에 맞는 플레이어 핸들에서
   // 현재 캡처 버퍼를 WAV Blob으로 스냅샷 반환한다.
+  const getProtectedBlob = useCallback(
+    () => (inputMode === "file" ? realtimeWaveRef.current?.exportProtectedAudio() : micWaveRef.current?.exportProtectedAudio()) ?? null,
+    [inputMode],
+  );
+
   const getChannelsBlob = useCallback(
     () => (inputMode === "file" ? realtimeWaveRef.current?.exportRecordedAudio() : micWaveRef.current?.exportRecordedAudio()) ?? null,
     [inputMode],
   );
-  // ChartDetailOverlay 채널 뷰가 폴링 없이 실시간으로 구독하는 원본 캡처 청크 스트림 —
-  // 입력 모드에 맞는 플레이어 핸들의 subscribeCaptureStream을 그대로 위임한다.
+  // ChartDetailOverlay/ProtectedComparePanel이 폴링 없이 실시간으로 구독하는 원본 캡처 청크
+  // 스트림 — 입력 모드에 맞는 플레이어 핸들의 subscribeCaptureStream을 그대로 위임한다.
+  // isElectron을 deps에 포함해야 한다: 파일 모드 첫 렌더는 isElectron이 false로 시작해
+  // WaveformPlayer(세션 A)가 먼저 마운트되고, 곧이어 true로 바뀌며 DuplexFilePlayer(세션 B)로
+  // 교체된다. isElectron이 빠지면 이 함수 참조가 안 바뀌어 구독자(ProtectedComparePanel 등)의
+  // 구독 effect가 재실행되지 않고, realtimeWaveRef.current가 세션 B로 넘어간 뒤에도 이미 죽은
+  // 세션 A의 리스너 목록에 남아 이후 이벤트를 전혀 받지 못하는 버그가 있었다.
   const subscribeChannelStream = useCallback(
     (fn: CaptureStreamListener) => {
       const handle = inputMode === "file" ? realtimeWaveRef.current : micWaveRef.current;
       return handle?.subscribeCaptureStream(fn) ?? (() => {});
     },
-    [inputMode],
+    // isElectron은 본문에서 직접 읽지 않지만, 이 값이 바뀔 때 함수 참조를 새로 만들어
+    // 구독자들의 재구독 effect를 강제로 재실행시키기 위해 의도적으로 deps에 포함한다.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [inputMode, isElectron],
   );
   // ── Step 3: Output Queue ────────────────────────────────────────────────
   const outputQueueRef       = useRef<QueuedFrame[]>([]);
@@ -416,7 +430,29 @@ export default function DashboardPage({ useQueue }: DashboardPageProps) {
             )}
 
             <div id="dashboard-grid" className="flex flex-col gap-4 lg:flex-1 lg:min-h-[528px]">
-              <div id="charts-section" className="flex flex-col gap-4 min-h-0 lg:flex-1">
+              {/* 1행: 보호 감쇠 전/후 비교 — 전체 폭 */}
+              <div id="protected-compare-section" className="h-[280px] shrink-0">
+                <ProtectedComparePanel
+                  subscribeCaptureStream={subscribeChannelStream}
+                  getProtectedBlob={getProtectedBlob}
+                  getRecordedBlob={getChannelsBlob}
+                  sourceFile={audioFile}
+                />
+              </div>
+              {/* 2행: 좌(Excursion) · 우(Temperature) */}
+              <div id="charts-section" className="flex flex-col lg:flex-row gap-4 min-h-0 lg:flex-1">
+                <div className="h-[264px] lg:h-auto lg:min-h-0 lg:flex-1">
+                  <ExcursionChart
+                    frames={streamingFrames}
+                    currentTime={currentTime}
+                    isActive={isActive}
+                    streaming
+                    audioDuration={audioDuration}
+                    lttb={LTTB_ENABLED}
+                    perfTrack
+                    onExpand={() => setDetailChart("excursion")}
+                  />
+                </div>
                 <div className="h-[264px] lg:h-auto lg:min-h-0 lg:flex-1">
                   <TemperatureChart
                     frames={streamingFrames}
@@ -429,18 +465,6 @@ export default function DashboardPage({ useQueue }: DashboardPageProps) {
                     onExpand={() => setDetailChart("temperature")}
                     warnThreshold={tempThresholds.warn}
                     dangerThreshold={tempThresholds.danger}
-                  />
-                </div>
-                <div className="h-[264px] lg:h-auto lg:min-h-0 lg:flex-1">
-                  <ExcursionChart
-                    frames={streamingFrames}
-                    currentTime={currentTime}
-                    isActive={isActive}
-                    streaming
-                    audioDuration={audioDuration}
-                    lttb={LTTB_ENABLED}
-                    perfTrack
-                    onExpand={() => setDetailChart("excursion")}
                   />
                 </div>
               </div>
@@ -516,7 +540,9 @@ export default function DashboardPage({ useQueue }: DashboardPageProps) {
           warnThreshold={tempThresholds.warn}
           dangerThreshold={tempThresholds.danger}
           getChannelsBlob={getChannelsBlob}
+          getProtectedBlob={getProtectedBlob}
           subscribeChannelStream={subscribeChannelStream}
+          sourceFile={audioFile}
           onClose={() => setDetailChart(null)}
         />
       )}

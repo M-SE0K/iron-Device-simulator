@@ -10,7 +10,8 @@ import { perf } from "@/features/audio/lib/perf/collector";
 import { createAnalysisSocket, type SocketLike } from "@/features/audio/lib/engine/protocol/local-socket";
 import { useCalibration } from "@/features/audio/components/calibration/CalibrationContext";
 import { pcmFramesToWavBlob } from "@/features/audio/lib/codec/wav-encoder";
-import { BYTES_PER_SAMPLE, SAMPLE_RATE, SAMPLES_PER_CH } from "@/features/audio/lib/engine/core";
+import { BYTES_PER_SAMPLE, CHANNELS, SAMPLE_RATE, SAMPLES_PER_CH } from "@/features/audio/lib/engine/core";
+import { decodeProcessedPcmMessage } from "@/features/audio/lib/engine/protocol/analysis";
 import { useNativeCapture, type NativeRawCapture } from "./useNativeCapture";
 import { useWebAudioWorkletCapture } from "./useWebAudioWorkletCapture";
 import { buildInitMessage } from "../stream/buildInitMessage";
@@ -30,7 +31,11 @@ export interface CaptureRecordingExport {
  */
 export type CaptureStreamEvent =
   | { type: "reset"; channels: number; sampleRate: number }
-  | { type: "chunk"; chunk: ArrayBuffer; channels: number; sampleRate: number };
+  | { type: "chunk"; chunk: ArrayBuffer; channels: number; sampleRate: number }
+  // 보호 감쇠 전/후 PCM 쌍 — 엔진이 buf를 In/Out으로 되쓴 결과와 그 입력이다. 둘 다 항상
+  // 엔진 와이어 ABI(2ch=V/I)이고 프레임 경계가 정확히 같아 샘플 단위로 겹쳐 볼 수 있다.
+  // 같은 frameIndex의 "frame" 메시지와 짝을 이룬다.
+  | { type: "protected"; frameIndex: number; input: Int16Array; processed: Int16Array; sampleRate: number };
 export type CaptureStreamListener = (ev: CaptureStreamEvent) => void;
 
 export interface UseCaptureSessionDeps {
@@ -72,6 +77,12 @@ export function useCaptureSession(deps: UseCaptureSessionDeps) {
   // 저장용 원본 버퍼 축적 on/off — 재생 일시정지 중에는 이걸 꺼서 저장 파일에 무음 구간이
   // 섞이지 않게 한다(pauseRecording/resumeRecording).
   const recordingActiveRef = useRef(true);
+  // 보호 감쇠가 적용된 PCM 세션 버퍼 — 엔진이 buf를 In/Out으로 되쓴 결과를 바이너리
+  // 메시지로 받아 쌓는다. 항상 엔진 와이어 ABI(2ch=V/I)라 rawCaptureRef(전 채널)와 채널 수가
+  // 다를 수 있어 별도 버퍼로 둔다. 일시정지 중에는 analysisActiveRef가 송신 자체를 막으므로
+  // 여기도 자연히 멈춘다(별도 게이트 불필요).
+  // ⚠️ 현재 엔진은 참조 스텁 — 감쇠 커브가 임의값이라 실제 보호 성능이 아니다.
+  const protectedCaptureRef = useRef<NativeRawCapture | null>(null);
   // 분석(WASM) 프레임 전송 on/off — 재생 일시정지 중에는 꺼서 소켓 frameCount(= 차트 시간축)와
   // WASM 온도 누적을 그 자리에 고정한다. 세션(소켓/캡처) 자체는 유지되므로 재개 시 끊김 없이
   // 이어진다(정지 지점 10s → 재개 시 10s부터). 새 세션 시작(ready) 시 true로 복구된다.
@@ -143,11 +154,34 @@ export function useCaptureSession(deps: UseCaptureSessionDeps) {
     const ws      = createAnalysisSocket();
     wsRef.current = ws;
 
+    // 보호 PCM 버퍼는 분석 세션과 수명을 같이한다 — 새 소켓마다 새 버퍼로 교체해서
+    // 이전 세션 잔여물이 WAV에 이어붙지 않게 한다(rawCaptureRef를 useNativeCapture가
+    // 세션 시작 시 교체하는 것과 같은 규약). 채널 수는 항상 엔진 와이어 ABI(2ch).
+    protectedCaptureRef.current = { channels: CHANNELS, sampleRate: actualRate, frames: [] };
+
     ws.onopen = () => {
       ws.send(buildInitMessage(inputParams, { sampleRate: actualRate, samplesPerCh }));
     };
 
     ws.onmessage = (e) => {
+      // 바이너리 = 보호 감쇠가 적용된 PCM (frameIndex 헤더 + 인터리브 int16).
+      if (e.data instanceof ArrayBuffer) {
+        const decoded = decodeProcessedPcmMessage(e.data);
+        if (decoded) {
+          // slice() 필수 — decoded.processed는 헤더 뒤를 가리키는 뷰라 .buffer를 그대로
+          // 쓰면 헤더와 input PCM까지 WAV 샘플 데이터에 섞여 들어간다.
+          const buf = protectedCaptureRef.current;
+          if (buf) buf.frames.push(decoded.processed.slice().buffer);
+          emitStreamEvent({
+            type: "protected",
+            frameIndex: decoded.frameIndex,
+            input: decoded.input,
+            processed: decoded.processed,
+            sampleRate: buf?.sampleRate ?? actualRate,
+          });
+        }
+        return;
+      }
       if (typeof e.data !== "string") return;
       // 4. Decoding — 수신 메시지 도착(여기)부터 파싱 → AnalysisFrame 구성 완료까지를 잰다.
       const recvAt = performance.now();
@@ -195,7 +229,7 @@ export function useCaptureSession(deps: UseCaptureSessionDeps) {
     };
 
     return ws;
-  }, [inputParams, onStatusChange, onStreamStart, onFrameReceived, cleanup]);
+  }, [inputParams, onStatusChange, onStreamStart, onFrameReceived, cleanup, emitStreamEvent]);
 
   // ── 캡처 경로 (네이티브 CoreAudio / 웹 getUserMedia 폴백) ────────────────────
   const { start: startNativeCapture } = useNativeCapture({
@@ -299,6 +333,18 @@ export function useCaptureSession(deps: UseCaptureSessionDeps) {
     return pcmFramesToWavBlob(raw.frames, raw.sampleRate, raw.channels);
   }, []);
 
+  // 보호 감쇠가 적용된 PCM을 WAV Blob으로 인코딩한다(원본 대비 비교/오프라인 검증용).
+  // getRecordedBlob()의 원본과 달리 항상 2ch(V/I)다 — 엔진에 나간 와이어 프레임 그 자체.
+  // ⚠️ 현재 엔진은 참조 스텁이라 감쇠 커브가 임의값이다 — 보호 성능의 근거로 쓸 수 없다.
+  const getProtectedBlob = useCallback((): Blob | null => {
+    const buf = protectedCaptureRef.current;
+    if (!buf || buf.frames.length === 0) return null;
+    return pcmFramesToWavBlob(buf.frames, buf.sampleRate, buf.channels);
+  }, []);
+
+  const hasProtectedRecording =
+    !isRecording && (protectedCaptureRef.current?.frames.length ?? 0) > 0;
+
   // 분석 소켓에 임의 JSON 제어 메시지를 보낸다(WaveformPlayerHandle.sendMessage 계약 유지 —
   // MicrophonePlayer 시절 useAnalysisStream.sendMessage와 동일).
   const sendMessage = useCallback((msg: object) => {
@@ -334,6 +380,7 @@ export function useCaptureSession(deps: UseCaptureSessionDeps) {
     micError, sampleRate, deviceName, actualBufferSize, actualLatency,
     saveRecording, hasRecording, saving, recordingChannels,
     getRecordedBlob, sendMessage, pauseRecording, resumeRecording,
+    getProtectedBlob, hasProtectedRecording,
     subscribeCaptureStream,
     frameCountRef, framesRcvdRef,
   };

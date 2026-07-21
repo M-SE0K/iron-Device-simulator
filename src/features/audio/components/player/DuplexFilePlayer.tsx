@@ -154,6 +154,8 @@ const DuplexFilePlayer = forwardRef<WaveformPlayerHandle, Props>(function Duplex
         capturedFramesRef.current = 0;
         return;
       }
+      // 진행바는 원본 캡처 청크 수로만 센다 — "protected"까지 세면 두 배로 흐른다.
+      if (ev.type !== "chunk") return;
       capturedFramesRef.current += ev.chunk.byteLength / (ev.channels * 2);
       const pos = Math.min(capturedFramesRef.current / ev.sampleRate, decodedRef.current?.duration ?? Infinity);
       // 청크는 ~10ms마다 오므로 UI 갱신은 100ms로 스로틀 (진행바 10Hz면 충분)
@@ -237,8 +239,9 @@ const DuplexFilePlayer = forwardRef<WaveformPlayerHandle, Props>(function Duplex
     sendMessage: captureSession.sendMessage,
     pause: pausePlayback,
     exportRecordedAudio: captureSession.getRecordedBlob,
+    exportProtectedAudio: captureSession.getProtectedBlob,
     subscribeCaptureStream: captureSession.subscribeCaptureStream,
-  }), [captureSession.sendMessage, pausePlayback, captureSession.getRecordedBlob, captureSession.subscribeCaptureStream]);
+  }), [captureSession.sendMessage, pausePlayback, captureSession.getRecordedBlob, captureSession.getProtectedBlob, captureSession.subscribeCaptureStream]);
 
   const isPlaying = status === "playing";
   const errorText = decodeError ?? captureSession.micError;
