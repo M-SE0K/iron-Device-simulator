@@ -383,7 +383,10 @@ export default function CalibrationDrawer({ projectName, onApply }: Props) {
                 devices={nativeDevices.map((d) => ({
                   value: d.uid,
                   label: d.name || "이름 없음",
-                  hint: `${d.inputChannels}ch${d.isDefault ? " · 기본" : ""}`,
+                  // probed=false면 채널 수를 읽지 못한 것이라 "0ch"로 쓰면 장치가 고장 난 것처럼
+                  // 보인다. Windows/ASIO는 드라이버가 배타적이라 녹음 중인 장치가 바로 이 상태가
+                  // 된다 — 흔한 정상 상황이므로 사유를 그대로 보여준다.
+                  hint: `${d.probed === false ? "사용 중" : `${d.inputChannels}ch`}${d.isDefault ? " · 기본" : ""}`,
                 }))}
                 placeholderLabel="OS 기본 입력"
                 savedLabel="저장된 장치"

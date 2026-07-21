@@ -172,7 +172,8 @@ int cmdQuery(const Args& args)
   return emit(w.str());
 }
 
-int cmdSet(const Args& args) {
+int cmdSet(const Args& args)
+{
   if (args.positional.size() < 2) {
     return fail("usage: set [--device <UID>] <sampleRate> <bufferSize>");
   }

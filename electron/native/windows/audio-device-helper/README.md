@@ -15,29 +15,47 @@ RtAudio를 쓰지 않고 Steinberg ASIO SDK 2.3을 직접 호출한다.
 | `get` | ✅ |
 | `query` | ✅ |
 | `set` | ⚠️ sampleRate만 실제 적용된다 (아래 참고) |
-| `capture` | ❌ 미구현 — `not-implemented(capture)` 반환 |
-| `play-capture` | ❌ 미구현 — `not-implemented(play-capture)` 반환 |
+| `capture` | ✅ |
+| `play-capture` | ✅ |
 
-상주 모드(`capture`/`play-capture`)는 락프리 링버퍼·샘플 포맷 변환·실시간 스레드 분리가
-얽혀 있어 별도 단계로 분리했다. 미구현 명령은 부모가 무한 대기하지 않도록 즉시 에러를 낸다.
+상주 모드(`capture`/`play-capture`)는 락프리 링버퍼(`ring_buffer.h`)·샘플 포맷 변환
+(`sample_convert.h`)·실시간 스레드 분리가 얽혀 있어 단계를 나눠 구현했다. 실기 검증 완료:
+버퍼 스냅(480→512), stdin EOF 종료, USB 분리 → exit 3, 재생 완료 자기 종료(exit 0),
+pause/resume/stop 라인 명령까지 miniDSP ASIO Driver로 확인했다.
 
-👉 **구현 계획은 [`CAPTURE-PLAN.md`](./CAPTURE-PLAN.md)** — 실측 포맷(`Int32LSB`), 스레드 구조,
+👉 **설계 배경은 [`CAPTURE-PLAN.md`](./CAPTURE-PLAN.md)** — 실측 포맷(`Int32LSB`), 스레드 구조,
 종료 경로, 단계별 검증 방법이 정리돼 있다.
+
+> ⚠️ `bufferSize`는 드라이버 격자로 **스냅된다**(예: 480 요청 → 512). 헤더의 `actual.bufferSize`가
+> 실제 값이고, 렌더러는 이미 그 값을 읽어 쓴다(`useNativeCapture.ts`). macOS가 요청값을 그대로
+> 쓰던 자리라 값이 달라지는 게 정상이다.
 
 ## 빌드
 
-```powershell
-.\build.ps1                          # third_party\ASIOSDK 또는 $env:ASIOSDK_DIR
-.\build.ps1 -AsioSdkDir D:\ASIOSDK
+**보통은 직접 부를 일이 없다** — `npm run build:electron:windows`(→ `scripts/build-electron.sh`)가
+패키징 직전에 자동으로 호출한다. 헬퍼만 따로 빌드하려면:
+
+```bash
+./build-win.sh                          # third_party/ASIOSDK 또는 $ASIOSDK_DIR
+ASIOSDK_DIR=/path/to/SDK ./build-win.sh
 ```
 
-요구사항: Visual Studio 2019+ (C++ 데스크톱 워크로드), CMake 3.15+.
-산출물은 `dist\audio-device-helper.exe` 하나다.
+요구사항: mingw-w64 크로스 컴파일러 (`sudo apt install g++-mingw-w64-x86-64`), ASIO SDK 2.3.
+산출물은 `dist/audio-device-helper.exe` 하나(x64, `-static`)다.
 
-> ⚠️ **현재 `dist/audio-device-helper.exe`는 mingw-w64 크로스 컴파일 산출물이다** (WSL에서
-> 실기 검증용으로 만든 것). 동작은 확인됐지만 출하 전에 `build.ps1`로 MSVC 빌드를 만들어
-> 교체해야 한다 — CMakeLists가 지정한 정적 CRT(`/MT`)와 최적화 설정이 이 바이너리엔
-> 적용돼 있지 않다.
+### 왜 MSVC가 아니라 mingw 크로스 컴파일인가
+
+패키징(`build-electron.sh` → electron-builder)이 **WSL에서 돌기 때문**이다. MSVC를 쓰려면
+소스를 Windows로 옮겨 빌드하고 산출물을 되가져와야 하는데, 그 왕복을 사람이 손으로 하는 한
+**exe가 소스보다 낡은 채로 패키징되는 사고**가 반복된다. 실제로 겪었다 — capture 구현이 통째로
+빠진 exe가 zip에 들어갔고, 앱에서는 `not-implemented(capture)` 에러로만 보여서 원인을 찾는 데
+한참 걸렸다. 크로스 컴파일이면 패키징과 같은 호스트에서 같은 명령으로 끝나 그 틈이 사라진다.
+
+`-static`으로 링크하므로 VC++ 재배포 패키지나 mingw 런타임 DLL에 의존하지 않는다.
+
+> `build.ps1` / `CMakeLists.txt`는 **보조 경로**다. Windows에서 MSVC로 빌드해야 할 때를 위해
+> 남겨뒀지만 패키징 파이프라인은 쓰지 않는다. 요구사항: Visual Studio 2019+ (C++ 데스크톱
+> 워크로드), CMake 3.15+.
 
 > `dist/`는 git에서 무시하지 **않는다** — macOS 헬퍼가 산출물을 커밋하고 있어 대칭을 맞췄다.
 > (기존 계획 문서는 git-ignore를 적어두었으나 실제 관행과 달라 관행 쪽을 따랐다.)
@@ -129,8 +147,10 @@ CoreAudio처럼 범위 클램프만 하면 드라이버가 거부한다. 헬퍼�
 `query`가 `bufferPreferred`/`bufferGranularity`를 추가로 내보내므로, UI가 임의 버퍼 크기
 입력을 막는 신호로 쓸 수 있다.
 
-분석 파이프라인은 영향받지 않는다 — 렌더러(`MicrophonePlayer.tsx`)가 바이트 스트림에서
-3840바이트(960프레임 × 2ch × int16) 프레임을 재조립하므로 콜백 크기가 512여도 무방하다.
+분석 파이프라인은 영향받지 않는다 — 렌더러(`reframeNativeChunk.ts`)가 바이트 스트림에서
+`frameBytes()` = `samplesPerCh × 2ch × int16`(기본 480 samples → **1920바이트**) 프레임을
+재조립하므로 콜백 크기가 512여도 무방하다. 청크 경계에 걸친 잔여 바이트와 미완성 프레임을
+각각 이월하므로 512 → 480 재조립에서 유실이 없다.
 
 ### 4. `list`의 `probed` 키
 
@@ -152,12 +172,16 @@ macOS는 CoreAudio UID를, Windows는 **드라이버 CLSID**(`"{...}"`)를 `uid`
 ## 파일 구조
 
 ```
-main.cpp          CLI 계약 — argv 파싱, JSON 출력, 종료 코드 (백엔드 무관)
+main.cpp          CLI 계약 — argv 파싱, JSON 출력, 종료 코드, writer/stdin 스레드
 audio_backend.h   장치 접근 추상 경계
-asio_backend.cpp  ASIO 구현 (DriverSession RAII, 레지스트리 열거, 능력 조회)
+asio_backend.cpp  ASIO 구현 (DriverSession RAII, 레지스트리 열거, 능력 조회, 상주 스트림)
 json_out.h        의존성 없는 최소 JSON 직렬화기
-CMakeLists.txt
-build.ps1
+ring_buffer.h     락프리 SPSC 링버퍼 — RT 스레드 → writer 스레드
+sample_convert.h  ASIOSampleType ↔ int16/float 변환 (asio.h 비의존 → WSL에서 단위 테스트 가능)
+tests/            ring_buffer / sample_convert 단위 테스트 (./tests/run-tests.sh)
+build-win.sh      ★ 정식 빌드 — mingw-w64 크로스 컴파일
+CMakeLists.txt    보조 — Windows/MSVC 빌드용
+build.ps1         보조 — Windows/MSVC 빌드용
 ```
 
 ASIO를 `asio_backend.cpp`에 격리해 둔 이유는, ASIO 드라이버가 설치되지 않은 Windows PC가
