@@ -14,15 +14,28 @@ import type { EngineParams } from "../../types";
 
 // ─── 프레임 포맷 ────────────────────────────────────────────────────────────
 // CHANNELS/BYTES_PER_SAMPLE은 ABI 레벨 고정값(항상 스테레오 int16). SAMPLE_RATE/SAMPLES_PER_CH는
-// 기본값일 뿐 고정이 아니다 — 세션마다 EngineRuntimeConfig로 재정의된다(Calibration UI → 다음
-// 세션 시작 시 적용). 단, ff_prot_start_exec는 검증된 실제 벤더 시그니처(sample_rate_hz 없음,
-// VENDOR-API-SPEC.md 2.2절)를 따르므로 SAMPLES_PER_CH(samplesPerCh)만 그 호출 인자와 와이어
-// 프레임 크기에 반영되고, SAMPLE_RATE는 WASM 엔진 호출에는 더 이상 전달되지 않는다(엔진 내부는
+// 기본값일 뿐 고정이 아니다 — 세션마다 EngineRuntimeConfig로 재정의된다(Calibration UI → 다음 세션 시작 시 적용). 단, ff_prot_start_exec는 검증된 실제 벤더 시그니처(sample_rate_hz 없음,
+// VENDOR-API-SPEC.md 2.2절)를 따르므로 SAMPLES_PER_CH(samplesPerCh)만 그 호출 인자와 와이어 프레임 크기에 반영되고, SAMPLE_RATE는 WASM 엔진 호출에는 더 이상 전달되지 않는다(엔진 내부는
 // 고정 DEFAULT_SAMPLE_RATE_HZ로 근사 — 알려진 한계, electron/native/wasm-engine/ff_prot.c 참고).
 export const SAMPLE_RATE      = 48000;
 export const CHANNELS         = 2;
 export const BYTES_PER_SAMPLE = 2;
 export const SAMPLES_PER_CH   = 480;
+
+// ─── int16 PCM 경계 ────────────────────────────────────────────────────────
+// 값이 인접하지만 쓰임이 다르다: 클램프는 int16 표현 가능 범위(MIN/MAX)를 쓰고,
+// float 정규화(int16 -> [-1,1))는 제수 2^15(SCALE)를 쓴다. 섞어 쓰면 1LSB 어긋난다.
+export const INT16_MAX   = 32767;
+export const INT16_MIN   = -32768;
+export const INT16_SCALE = 0x8000;
+
+/**
+ * 캡처 채널 수 하한 보정 — 엔진 분석은 ch0(V)/ch1(I) 두 채널을 반드시 요구하므로
+ * 사용자 입력이 비었거나 2 미만이면 2로 끌어올린다.
+ */
+export function clampCaptureChannels(value: unknown): number {
+  return Math.max(CHANNELS, Number(value) || CHANNELS);
+}
 
 /** 세션 단위 런타임 프레임 설정 — Calibration UI의 sampleRate/bufferSize로 채워진다 */
 export interface EngineRuntimeConfig {

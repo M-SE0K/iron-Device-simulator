@@ -169,16 +169,3 @@ export async function getWorkspacePayload(id: string): Promise<WorkspacePayload 
   }
 }
 
-/** 프레임 배열 → CSV 문자열 (time, L/R 온도, L/R 익스커션) */
-export function framesToCsv(frames: AnalysisFrame[]): string {
-  const header = "time,temperature_L,temperature_R,excursion_L,excursion_R";
-  const rows = frames.map(
-    (f) => `${f.time},${f.temperature[0]},${f.temperature[1]},${f.excursion[0]},${f.excursion[1]}`,
-  );
-  return [header, ...rows].join("\n");
-}
-
-/** 파일명으로 쓰기 부적합한 문자를 안전하게 치환 */
-export function sanitizeFileName(name: string): string {
-  return name.replace(/[/\\:*?"<>|]/g, "_").trim() || "untitled";
-}

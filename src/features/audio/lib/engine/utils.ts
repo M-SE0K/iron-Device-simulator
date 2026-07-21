@@ -6,7 +6,7 @@
 import type { EngineParams } from "../../types";
 import { round3 } from "@/shared/lib/utils";
 import {
-  CHANNELS, BYTES_PER_SAMPLE, frameBytes,
+  CHANNELS, BYTES_PER_SAMPLE, INT16_MAX, INT16_MIN, frameBytes,
   SPEAKER_PROFILES, DEFAULT_PROFILE, powerTempMult,
   type MemoryLayout, type FrameResult, type EngineRuntimeConfig,
 } from "./core";
@@ -18,8 +18,8 @@ import {
 export function encodeToInt16(ch0: Float32Array, ch1: Float32Array): Int16Array {
   const out = new Int16Array(ch0.length * 2);
   for (let i = 0; i < ch0.length; i++) {
-    out[i * 2]     = Math.max(-32768, Math.min(32767, Math.round(ch0[i] * 32767)));
-    out[i * 2 + 1] = Math.max(-32768, Math.min(32767, Math.round(ch1[i] * 32767)));
+    out[i * 2]     = Math.max(INT16_MIN, Math.min(INT16_MAX, Math.round(ch0[i] * INT16_MAX)));
+    out[i * 2 + 1] = Math.max(INT16_MIN, Math.min(INT16_MAX, Math.round(ch1[i] * INT16_MAX)));
   }
   return out;
 }

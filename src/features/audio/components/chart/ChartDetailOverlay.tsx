@@ -12,7 +12,7 @@ import type { AnalysisFrame } from "@/features/audio/types";
 import { cn } from "@/shared/lib/utils";
 import { useOverlayTransition } from "@/shared/hooks/useOverlayTransition";
 import FullscreenOverlay from "@/shared/components/overlay/FullscreenOverlay";
-import { BYTES_PER_SAMPLE } from "@/features/audio/lib/engine/core";
+import { BYTES_PER_SAMPLE, INT16_SCALE } from "@/features/audio/lib/engine/core";
 import { appendWindowed, decodeWavRange, peekWavHeader } from "@/features/audio/lib/codec/wav-incremental";
 import type { CaptureStreamEvent, CaptureStreamListener } from "@/features/audio/components/player/capture/useCaptureSession";
 import { channelLabel, channelColor } from "@/features/audio/lib/render/channel-meta";
@@ -150,7 +150,7 @@ export default function ChartDetailOverlay({
         if (!seededRef.current.has(ch)) continue; // 백필 전 — 백필이 곧 지금까지를 커버
         const incoming = new Float32Array(frameCount);
         for (let i = 0; i < frameCount; i++) {
-          incoming[i] = view.getInt16(i * bytesPerFrame + ch * BYTES_PER_SAMPLE, true) / 0x8000;
+          incoming[i] = view.getInt16(i * bytesPerFrame + ch * BYTES_PER_SAMPLE, true) / INT16_SCALE;
         }
         const existing = next.get(ch) ?? { data: new Float32Array(0), startSec: durationSec };
         const merged = appendWindowed(existing.data, incoming, maxSamples);

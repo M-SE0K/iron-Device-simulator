@@ -11,6 +11,7 @@ import { useCallback, type MutableRefObject } from "react";
 import type { AppStatus } from "@/features/audio/types";
 import { perf } from "@/features/audio/lib/perf/collector";
 import type { SocketLike } from "@/features/audio/lib/engine/protocol/local-socket";
+import { clampCaptureChannels } from "@/features/audio/lib/engine/core";
 import type { CaptureStreamEvent } from "./useCaptureSession";
 import { createNativeFrameReframer } from "./reframeNativeChunk";
 
@@ -124,7 +125,7 @@ export function useNativeCapture(deps: NativeCaptureDeps) {
 
     // 캡처 채널 수 — Calibration에서 장치 스펙(inputChannels) 이하로 지정한다.
     // 엔진 분석에는 ch0(V)/ch1(I)만 쓰이고, 나머지 채널은 rawCaptureRef에 보존된다.
-    const captureChannels = Math.max(2, Number(params.channels) || 2);
+    const captureChannels = clampCaptureChannels(params.channels);
     const baseOpts = {
       sampleRate: params.sampleRate,
       bufferSize: params.bufferSize,

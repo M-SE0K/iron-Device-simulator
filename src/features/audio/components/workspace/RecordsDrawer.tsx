@@ -10,16 +10,12 @@ import { ChevronRight, History, Music, Pencil, Trash2 } from "lucide-react";
 import { useWorkspace } from "./WorkspaceContext";
 import { useActiveDrawer } from "@/features/audio/components/dashboard/ActiveDrawerContext";
 import { cn, formatTime } from "@/shared/lib/utils";
+import { formatMm } from "@/features/audio/lib/units";
 import type { WorkspaceItemMeta } from "@/features/audio/lib/cache/workspace";
 import ChannelViewerOverlay from "./ChannelViewerOverlay";
 import { useEscapeKey } from "@/shared/hooks/useEscapeKey";
 import SideDrawer from "@/shared/components/overlay/SideDrawer";
 import CountBadge from "@/shared/components/ui/CountBadge";
-
-function formatMm(raw: number | null | undefined): string {
-  if (raw === null || raw === undefined || !Number.isFinite(raw)) return "—";
-  return (raw / 1000).toFixed(3);
-}
 
 interface FileGroup {
   key: string;

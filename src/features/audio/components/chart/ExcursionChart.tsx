@@ -4,6 +4,7 @@ import { useMemo, useState, useRef, useCallback, useEffect, useLayoutEffect } fr
 import { Maximize2 } from "lucide-react";
 import { AnalysisFrame } from "@/features/audio/types";
 import ReactECharts from "@/shared/components/ReactECharts";
+import { toMm, MM_DECIMALS } from "@/features/audio/lib/units";
 import SegmentedControl from "@/shared/components/ui/SegmentedControl";
 import { perf } from "@/features/audio/lib/perf/collector";
 import {
@@ -35,9 +36,6 @@ interface Props {
 }
 
 const SCALE_PADDING = 1.15;
-// WASM 엔진 raw 값 → UI 표기 단위([mm]) 변환 계수
-const MM_SCALE      = 1 / 1000;
-const toMm = (v: number) => v * MM_SCALE;
 
 // 채널별 색상
 const CH_COLOR: Record<ChannelMode, { ch0: string; ch1: string }> = {
@@ -150,9 +148,9 @@ export default function ExcursionChart({ frames, currentTime, isActive, streamin
       channelMode, windowFrames, zoomRef, gridLeft: 60,
       zoomColors: { filler: "rgba(16,185,129,0.12)", handle: "#10B981" },
       timeDecimals,
-      yAxis: buildValueYAxis({ name: "mm", min: yMin, max: yMax, labelFormatter: (v: number) => v.toFixed(3) }),
+      yAxis: buildValueYAxis({ name: "mm", min: yMin, max: yMax, labelFormatter: (v: number) => v.toFixed(MM_DECIMALS) }),
       series,
-      tooltip: buildValueTooltip({ unit: "mm", decimals: 3, timeDecimals }),
+      tooltip: buildValueTooltip({ unit: "mm", decimals: MM_DECIMALS, timeDecimals }),
     });
   }, [windowFrames, channelMode, yMin, yMax, lttb, showSymbols]);
 
@@ -194,14 +192,14 @@ export default function ExcursionChart({ frames, currentTime, isActive, streamin
           {/* 현재값 표시 */}
           {currentExc !== null && channelMode === "Both" ? (
             <div className="flex items-center gap-1.5 font-mono text-sm font-semibold">
-              <span style={{ color: CH_COLOR.Both.ch0 }}>{toMm(currentExc[0]).toFixed(3)}</span>
+              <span style={{ color: CH_COLOR.Both.ch0 }}>{toMm(currentExc[0]).toFixed(MM_DECIMALS)}</span>
               <span className="text-iron-300 text-xs">/</span>
-              <span style={{ color: CH_COLOR.Both.ch1 }}>{toMm(currentExc[1]).toFixed(3)}</span>
+              <span style={{ color: CH_COLOR.Both.ch1 }}>{toMm(currentExc[1]).toFixed(MM_DECIMALS)}</span>
               <span className="text-xs ml-0.5 font-normal text-iron-400">mm</span>
             </div>
           ) : displayExc !== null ? (
             <span id="current-excursion-value" className="font-mono text-lg font-semibold" style={{ color: excColor }}>
-              {toMm(displayExc).toFixed(3)}<span className="text-xs ml-0.5 font-normal text-iron-400">mm</span>
+              {toMm(displayExc).toFixed(MM_DECIMALS)}<span className="text-xs ml-0.5 font-normal text-iron-400">mm</span>
             </span>
           ) : null}
         </div>

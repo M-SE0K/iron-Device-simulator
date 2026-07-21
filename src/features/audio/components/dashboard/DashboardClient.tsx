@@ -20,7 +20,7 @@ import type { SessionStatus } from "@/features/audio/lib/cache/workspace";
 import { useCalibration } from "../calibration/CalibrationContext";
 import { useWorkspace } from "../workspace/WorkspaceContext";
 import { clearFrameCache } from "@/features/audio/lib/cache/frame";
-import { formatTime } from "@/shared/lib/utils";
+import { formatTime, splitFileName } from "@/shared/lib/utils";
 import { putAudio, clearAudio } from "@/features/audio/lib/cache/audio-blob";
 import { coalesceFrames } from "@/features/audio/lib/render/coalesce";
 import { detectEvents, DEFAULT_TEMP_WARN, DEFAULT_TEMP_DANGER, type TempThresholds } from "@/features/audio/lib/render/detect-events";
@@ -167,7 +167,7 @@ export default function DashboardPage({ useQueue }: DashboardPageProps) {
     if (!audioFile) return;
     const frames = streamingFramesRef.current;
     if (frames.length === 0) return;
-    const name = audioFile.name.replace(/\.[^./]+$/, "") || "Untitled";
+    const name = splitFileName(audioFile.name).stem || "Untitled";
     const recordedAudio = realtimeWaveRef.current?.exportRecordedAudio() ?? null;
     const { peakTemp, peakExcursion, status } = computeMeasurementSummary(frames, tempThresholds);
     await saveCurrent({
