@@ -70,4 +70,20 @@ function runStreamingHelper({
   });
 }
 
-module.exports = { runStreamingHelper };
+// 상주 헬퍼 종료 — SIGTERM으로 바로 죽이면 Windows에서는 Node가 signal을 무시하고
+// TerminateProcess로 즉시 강제 종료해, ASIOStop/DisposeBuffers/ASIOExit를 건너뛴다.
+// 두 플랫폼 헬퍼 모두 stdin EOF를 이미 정상 종료 신호로 처리하므로(macOS: mac.swift의
+// stdin availableData 감시, Windows: main.cpp의 stdinWatchLoop) stdin을 먼저 닫아 그 경로를
+// 타게 하고, graceMs 안에 종료하지 않으면 kill()로 강제 정리한다(드라이버 행 등 안전망).
+function stopStreamingChild(child, graceMs = 200) {
+  if (child.exitCode !== null) return; // 이미 종료됨
+  try {
+    child.stdin.end();
+  } catch {}
+  const timer = setTimeout(() => {
+    if (child.exitCode === null) child.kill();
+  }, graceMs);
+  child.once("exit", () => clearTimeout(timer));
+}
+
+module.exports = { runStreamingHelper, stopStreamingChild };

@@ -18,7 +18,7 @@ const fs = require("fs");
 const os = require("os");
 const path = require("path");
 const { AUDIO_HELPER_PATH, SUPPORTED_PLATFORMS, withDevice } = require("./audio-device");
-const { runStreamingHelper } = require("./run-streaming-helper");
+const { runStreamingHelper, stopStreamingChild } = require("./run-streaming-helper");
 
 let playCaptureChild = null;
 let writeSeq = 0;
@@ -31,7 +31,7 @@ function stopPlayCapture() {
   if (!playCaptureChild) return { success: true };
   const child = playCaptureChild;
   playCaptureChild = null; // exit 핸들러가 "ended" 이벤트를 보내지 않도록 먼저 비운다 (사용자 주도 종료)
-  child.kill("SIGTERM");
+  stopStreamingChild(child);
   return { success: true };
 }
 
@@ -133,7 +133,7 @@ ipcMain.handle("audio-playcapture:start", (event, opts) => {
   });
 });
 
-// pause/resume — 헬퍼 stdin 라인 명령으로 중계. stop은 별도 채널(아래)로 SIGTERM.
+// pause/resume — 헬퍼 stdin 라인 명령으로 중계. stop은 별도 채널(아래)로 stdin EOF→유예→kill.
 ipcMain.handle("audio-playcapture:control", (_event, { action }) => {
   if (!playCaptureChild) return { success: false, error: "not-running" };
   if (action !== "pause" && action !== "resume") {
