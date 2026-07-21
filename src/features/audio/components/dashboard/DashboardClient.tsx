@@ -31,6 +31,9 @@ interface DashboardPageProps {
   useQueue: boolean;
 }
 
+// ── Step 3: Render Scheduler 주기 (ms) ──────────────────────────────────────
+const RENDER_INTERVAL = 16;
+
 // 측정 기록(사이드바 "측정 기록" 드로어)용 — 저장 시점에 프레임 버퍼에서 Peak 온도/진폭과
 // WARN/DANGER 임계값 기준 상태를 한 번만 계산해 워크스페이스 아이템에 함께 저장한다.
 function computeMeasurementSummary(
@@ -238,14 +241,10 @@ export default function DashboardPage({ useQueue }: DashboardPageProps) {
 
   const handleInputModeChange = useCallback((mode: "file" | "mic") => {
     setInputMode(mode);
-    setAudioDuration(null);
-    setStreamingFrames([]);
+    resetAnalysisState();
     clearFrameCache();
     void clearAudio();
-    setCurrentTime(0);
-    setRealtimeStatus("idle");
-    setErrorMsg(null);
-  }, []);
+  }, [resetAnalysisState]);
 
   const handleStreamStart = useCallback(() => {
     setStreamingFrames([]);
@@ -261,8 +260,6 @@ export default function DashboardPage({ useQueue }: DashboardPageProps) {
   //   ?lttb=0 → 차트 LTTB 끔. 미지정 시 기본값(lttb=on) = 프로덕션 동작.
   const expParams    = typeof window !== "undefined" ? new URLSearchParams(window.location.search) : null;
   const LTTB_ENABLED  = expParams?.get("lttb") !== "0";
-  // ── Step 3: Render Scheduler 주기 (ms) ──────────────────────────────────
-  const RENDER_INTERVAL = 16;
   // 출력 큐 스케줄러는 실시간 스트리밍 경로(파일 재생+캡처 / 마이크)에서만 동작
   const isPlaying = realtimeStatus === "playing";
 

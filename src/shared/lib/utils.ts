@@ -24,6 +24,11 @@ export function findFrameIndex(times: number[], currentTime: number): number {
   return lo;
 }
 
+/** 소수점 3자리로 반올림 (밀리초 계측값처럼 부동소수 꼬리를 잘라내는 용도) */
+export function round3(v: number): number {
+  return parseFloat(v.toFixed(3));
+}
+
 /** 바이트 → "N.N MB" 형식 */
 export function formatFileSize(bytes: number): string {
   return `${(bytes / 1024 / 1024).toFixed(1)} MB`;

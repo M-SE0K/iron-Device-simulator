@@ -7,11 +7,9 @@
 // 을 보려고 하면 fetchRange로 그 구간만 온디맨드로 다시 디코딩해 보여준다(과거 전체를
 // 메모리에 들고 있지 않아도 됨). ChannelViewerOverlay(저장 세션의 전 채널 뷰)와
 // ChannelStackView(ChartDetailOverlay의 실시간 채널 선택 뷰)가 공유한다.
-import dynamic from "next/dynamic";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import ReactECharts from "@/shared/components/ReactECharts";
 import { buildDataZoom, buildDynamicTimeFormatter, buildValueTooltip, timeDecimalsForInterval, SYMBOL_VISIBLE_MAX } from "@/features/audio/lib/render/chart-option";
-
-const ReactECharts = dynamic(() => import("echarts-for-react"), { ssr: false });
 
 // LTTB 출력 점 개수(다운샘플 상한) — 원본을 이 개수의 "대표 1점"으로 줄여 단일 선을 만든다.
 // 줌인 시에도 동일 데이터를 다시 그리므로 실제 표시 해상도는 dataZoom이 축 범위를 좁히는 것과

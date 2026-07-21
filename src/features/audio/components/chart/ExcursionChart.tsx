@@ -1,9 +1,9 @@
 "use client";
 
-import dynamic from "next/dynamic";
 import { useMemo, useState, useRef, useCallback, useEffect, useLayoutEffect } from "react";
 import { Maximize2 } from "lucide-react";
 import { AnalysisFrame } from "@/features/audio/types";
+import ReactECharts from "@/shared/components/ReactECharts";
 import SegmentedControl from "@/shared/components/ui/SegmentedControl";
 import { perf } from "@/features/audio/lib/perf/collector";
 import {
@@ -14,8 +14,6 @@ import {
   buildAreaGradient, buildValueYAxis, buildLineSeries, buildBaseChartOption,
   shouldShowFrameSymbols,
 } from "@/features/audio/lib/render/chart-option";
-
-const ReactECharts = dynamic(() => import("echarts-for-react"), { ssr: false });
 
 interface Props {
   frames: AnalysisFrame[];

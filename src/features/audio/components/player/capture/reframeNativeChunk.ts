@@ -9,15 +9,17 @@
  * (ch2..chN-1)은 버리지 않고, onRawFrame으로 N채널 인터리브 원본 그대로 방출해
  * 호출자가 세션 메모리에 보존했다가 저장 요청 시 전 채널을 내보낼 수 있게 한다.
  */
+import { CHANNELS, BYTES_PER_SAMPLE } from "@/features/audio/lib/engine/core";
+
 export function createNativeFrameReframer(
   captureChannels: number,
   wireSamplesPerCh: number,
   onFrame: (frame: Int16Array) => void,
   onRawFrame?: (rawFrame: Int16Array) => void,
 ) {
-  const bytesPerDeviceFrame = captureChannels * 2; // int16
+  const bytesPerDeviceFrame = captureChannels * BYTES_PER_SAMPLE;
   let pending = new Uint8Array(0);
-  const outPcm = new Int16Array(wireSamplesPerCh * 2); // wireSamplesPerCh sample-frame × 2ch (V/I)
+  const outPcm = new Int16Array(wireSamplesPerCh * CHANNELS); // wireSamplesPerCh sample-frame × 2ch (V/I)
   // 전 채널 보존 버퍼 — onRawFrame을 쓰는 호출자가 있을 때만 채운다(동일 프레임 경계).
   const outRaw = onRawFrame ? new Int16Array(wireSamplesPerCh * captureChannels) : null;
   let outCount = 0; // 현재 채워진 출력 sample-frame 수
@@ -29,11 +31,11 @@ export function createNativeFrameReframer(
     const view = new DataView(merged.buffer, merged.byteOffset, merged.byteLength);
     let byteOff = 0;
     while (merged.length - byteOff >= bytesPerDeviceFrame) {
-      outPcm[outCount * 2]     = view.getInt16(byteOff, true);     // ch0 (V)
-      outPcm[outCount * 2 + 1] = view.getInt16(byteOff + 2, true); // ch1 (I)
+      outPcm[outCount * CHANNELS]     = view.getInt16(byteOff, true);                     // ch0 (V)
+      outPcm[outCount * CHANNELS + 1] = view.getInt16(byteOff + BYTES_PER_SAMPLE, true);  // ch1 (I)
       if (outRaw) {
         for (let ch = 0; ch < captureChannels; ch++) {
-          outRaw[outCount * captureChannels + ch] = view.getInt16(byteOff + ch * 2, true);
+          outRaw[outCount * captureChannels + ch] = view.getInt16(byteOff + ch * BYTES_PER_SAMPLE, true);
         }
       }
       outCount++;

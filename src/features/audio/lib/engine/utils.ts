@@ -4,6 +4,7 @@
  */
 
 import type { EngineParams } from "../../types";
+import { round3 } from "@/shared/lib/utils";
 import {
   CHANNELS, BYTES_PER_SAMPLE, frameBytes,
   SPEAKER_PROFILES, DEFAULT_PROFILE, powerTempMult,
@@ -127,7 +128,7 @@ export function createAnalysisFrame(
     return {
       temperature,
       excursion,
-      processingMs: parseFloat((performance.now() - t0).toFixed(3)),
+      processingMs: round3(performance.now() - t0),
       ...(raw && { raw }),
     };
   } finally {
