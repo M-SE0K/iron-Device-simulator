@@ -1,14 +1,17 @@
 /**
- * engine/utils.ts — 공유 분석 유틸 (PCM 인터리브->플래너 변환, 후처리 보정)
- * wasm-client-engine이 사용하는 PCM 변환과 SPEAKER_PROFILES 후처리 보정을 모아둔다.
+ * engine/utils.ts — 공유 분석 유틸 (PCM 인터리브<->플래너 변환, 프레임 분석 파이프라인)
+ *
+ * 차트에 그려지는 온도/변위는 ff_prot_start_exec이 spk_temp/spk_exc 포인터에 써 준 값
+ * 그대로다 — 스피커 프로파일 승수나 전력 스케일 같은 TS측 후처리 보정은 적용하지 않는다
+ * (2026-07-21 제거). 모델별 보정이 필요하면 엔진이 ff_prot_set_param으로 받아 내부에서
+ * 반영해야 한다.
  */
 
 import type { EngineParams } from "../../types";
 import { round3 } from "@/shared/lib/utils";
 import {
   CHANNELS, BYTES_PER_SAMPLE, INT16_MAX, INT16_MIN, frameBytes,
-  SPEAKER_PROFILES, DEFAULT_PROFILE, powerTempMult,
-  type MemoryLayout, type FrameResult, type EngineRuntimeConfig,
+  type MemoryLayout, type FrameResult, type EngineRuntimeConfig, type RealSensingPair,
 } from "./core";
 
 // ─── PCM 변환: 플래너(Float32, ch0/ch1) → 인터리브 Int16(L R L R) ────────────
@@ -29,7 +32,7 @@ export function encodeToInt16(ch0: Float32Array, ch1: Float32Array): Int16Array 
  * 인터리브 PCM을 플래너 형식으로 변환한다.
  * Buffer, Uint8Array 등 다양한 입력 타입 지원.
  */
-function deinterleave(src: Buffer | Uint8Array, samplesPerCh: number): Int16Array {
+export function deinterleave(src: Buffer | Uint8Array, samplesPerCh: number): Int16Array {
   const dst = new Int16Array(samplesPerCh * CHANNELS);
   const channelOffsetSamples = samplesPerCh;
 
@@ -55,58 +58,43 @@ function deinterleave(src: Buffer | Uint8Array, samplesPerCh: number): Int16Arra
   return dst;
 }
 
-// ─── 프레임 분석 결과 후처리 보정 ──────────────────────────────────────────────
+// ─── PCM 변환: 플래너(LL...RR...) → 인터리브(L R L R) ────────────────────────
 /**
- * libirontune.so / WASM 엔진에서 나온 raw 분석 값에 스피커 프로파일 및
- * 전력 스케일을 적용하여 최종 값을 계산한다.
- *
- * ff_prot_set_param이 NOP인 동안의 임시 규약이며, 정품 라이브러리에서
- * 직접 지원하면 폐기된다.
+ * deinterleave()의 역변환. ff_prot_start_exec이 buf에 in-place로 되쓴 planar 결과를
+ * 재생/저장용 인터리브 PCM으로 복원한다 — 벤더 래퍼(../irondevice/ff_prot.c)가 exec 직후
+ * 하는 복사와 같은 역할이다.
  */
-interface PostCorrectionResult {
-  temperature: [number, number];
-  excursion: [number, number];
-  raw?: [number, number, number, number]; // [rawTemp0, rawTemp1, rawExc0, rawExc1]
-}
-
-function applyPostCorrection(
-  rawTemp0: number,
-  rawTemp1: number,
-  rawExc0: number,
-  rawExc1: number,
-  params: EngineParams,
-  includeRaw?: boolean,
-): PostCorrectionResult {
-  const profile = SPEAKER_PROFILES[params.speakerModel] ?? DEFAULT_PROFILE;
-  const pwrScale = powerTempMult(params.ampOutputPower);
-
-  const temperature: [number, number] = [
-    Math.round(rawTemp0 * profile.tempMult * pwrScale),
-    Math.round(rawTemp1 * profile.tempMult * pwrScale),
-  ];
-  const excursion: [number, number] = [
-    Math.round(rawExc0 * profile.excMult),
-    Math.round(rawExc1 * profile.excMult),
-  ];
-
-  return {
-    temperature,
-    excursion,
-    ...(includeRaw && { raw: [rawTemp0, rawTemp1, rawExc0, rawExc1] }),
-  };
+function interleaveFromPlanar(planar: Int16Array, samplesPerCh: number): Int16Array {
+  const out = new Int16Array(samplesPerCh * CHANNELS);
+  for (let ch = 0; ch < CHANNELS; ch++) {
+    const base = ch * samplesPerCh;
+    for (let i = 0; i < samplesPerCh; i++) {
+      out[i * CHANNELS + ch] = planar[base + i];
+    }
+  }
+  return out;
 }
 
 // ─── 엔진 독립적 분석 헬퍼 ──────────────────────────────────────────────────────
 /**
  * MemoryLayout을 사용한 엔진 독립적 프레임 분석.
- * deinterleave부터 applyPostCorrection까지 전체 파이프라인을 담당한다.
+ * deinterleave → execAnalysis → 결과 읽기까지의 전체 파이프라인을 담당한다.
  */
+export interface AnalysisFrameOptions {
+  /**
+   * 보호 감쇠가 적용된 PCM을 결과에 포함. 프레임마다 Int16Array 두 개(planar 복사 +
+   * 인터리브 복원)를 새로 만들므로, 실제로 쓰는 소비자가 있을 때만 켠다.
+   */
+  includeProcessedPcm?: boolean;
+}
+
 export function createAnalysisFrame(
   pcm: Buffer | Uint8Array,
   params: EngineParams,
   layout: MemoryLayout,
   config: EngineRuntimeConfig,
-  includeRaw: boolean = false,
+  opts: AnalysisFrameOptions = {},
+  sensing?: RealSensingPair,
 ): FrameResult {
   const t0 = performance.now();
 
@@ -116,20 +104,21 @@ export function createAnalysisFrame(
 
   try {
     layout.writePlanar(bufPtr, planar);
-    layout.execAnalysis(bufPtr, tempPtr, excPtr, params.ambientTemp);
-    const [rawTemp0, rawTemp1, rawExc0, rawExc1] = layout.readResults(tempPtr, excPtr);
+    layout.execAnalysis(bufPtr, tempPtr, excPtr, params.ambientTemp, sensing);
+    // spk_temp[2] / spk_exc[2]를 그대로 쓴다 — 엔진이 이미 정수로 내보내므로 반올림도 없다.
+    // 단위: 온도 °C, 변위 µm(차트에서 units.ts의 toMm으로 mm 표기).
+    const [temp0, temp1, exc0, exc1] = layout.readResults(tempPtr, excPtr);
 
-    const { temperature, excursion, raw } = applyPostCorrection(
-      rawTemp0, rawTemp1, rawExc0, rawExc1,
-      params,
-      includeRaw,
-    );
+    // buf는 In/Out이라 이 시점의 bufPtr 내용은 입력이 아니라 "감쇠가 적용된 출력"이다.
+    const processedPcm = opts.includeProcessedPcm
+      ? interleaveFromPlanar(layout.readProcessedPcm(bufPtr, config.samplesPerCh), config.samplesPerCh)
+      : undefined;
 
     return {
-      temperature,
-      excursion,
+      temperature: [temp0, temp1],
+      excursion: [exc0, exc1],
       processingMs: round3(performance.now() - t0),
-      ...(raw && { raw }),
+      ...(processedPcm && { processedPcm }),
     };
   } finally {
     layout.free([bufPtr, tempPtr, excPtr]);

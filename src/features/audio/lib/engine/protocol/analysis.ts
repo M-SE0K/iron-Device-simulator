@@ -4,7 +4,7 @@
  */
 
 import type { EngineParams, WsServerMessage } from "../../../types";
-import { SAMPLE_RATE, SAMPLES_PER_CH, DEFAULT_AMBIENT_TEMP } from "../core";
+import { SAMPLE_RATE, SAMPLES_PER_CH, DEFAULT_AMBIENT_TEMP, CHANNELS, BYTES_PER_SAMPLE } from "../core";
 import type { FrameResult } from "../core";
 
 
@@ -52,10 +52,61 @@ export function createFrameMessage(
   const time = calculateFrameTime(frameIndex, sampleRate, samplesPerCh);
   return {
     type: "frame",
+    frameIndex,
     time,
     temperature: frame.temperature,
     excursion: frame.excursion,
     processingMs: frame.processingMs,
+  };
+}
+
+// ─── 보호 PCM 바이너리 메시지 ────────────────────────────────────────────────
+// 감쇠가 적용된 PCM은 JSON에 실을 수 없어(문자열화 비용·크기) 별도 바이너리 메시지로 나간다.
+// 실제 WebSocket도 텍스트/바이너리를 섞어 보낼 수 있으므로 SocketLike 추상화는 유지된다.
+//
+//   [0..3]              int32 LE  frameIndex — 같은 인덱스의 "frame" JSON 메시지와 짝
+//   [4..7]              int32 LE  samplesPerCh — input/protected 경계
+//   [8 .. 8+N)          int16 LE  input     PCM (2ch 인터리브, 감쇠 전)
+//   [8+N .. 8+2N)       int16 LE  protected PCM (2ch 인터리브, 감쇠 후)   N = samplesPerCh*2*2 bytes
+//
+// 입력을 같이 싣는 이유: 비교 뷰가 "같은 샘플 구간"의 전후를 나란히 놓으려면 원본이 분석
+// 프레임과 정확히 같은 경계여야 한다. 캡처 청크(rawCaptureRef)는 프레임 경계도 채널 수도
+// 달라서 인덱스로 짝지을 수 없다 — 어긋난 비교는 보여줄 가치가 없으므로 여기서 짝을 확정한다.
+// 인덱스를 헤더에 넣는 이유도 같다: 도착 순서에만 기대면 유실·재정렬을 감지할 수 없다.
+export const PROCESSED_PCM_HEADER_BYTES = 8;
+
+export function encodeProcessedPcmMessage(
+  frameIndex: number,
+  input: Int16Array,
+  processed: Int16Array,
+): ArrayBuffer {
+  const out  = new ArrayBuffer(PROCESSED_PCM_HEADER_BYTES + input.byteLength + processed.byteLength);
+  const view = new DataView(out);
+  view.setInt32(0, frameIndex, true);
+  view.setInt32(4, input.length / CHANNELS, true);
+  new Int16Array(out, PROCESSED_PCM_HEADER_BYTES, input.length).set(input);
+  new Int16Array(out, PROCESSED_PCM_HEADER_BYTES + input.byteLength, processed.length).set(processed);
+  return out;
+}
+
+export function decodeProcessedPcmMessage(
+  data: ArrayBuffer,
+): { frameIndex: number; input: Int16Array; processed: Int16Array } | null {
+  if (data.byteLength <= PROCESSED_PCM_HEADER_BYTES) return null;
+
+  const view         = new DataView(data);
+  const frameIndex   = view.getInt32(0, true);
+  const samplesPerCh = view.getInt32(4, true);
+  const halfBytes    = samplesPerCh * CHANNELS * BYTES_PER_SAMPLE;
+
+  // 길이가 헤더의 samplesPerCh와 안 맞으면 잘린/깨진 메시지다 — 조용히 어긋난 PCM을
+  // 붙이느니 버린다.
+  if (samplesPerCh <= 0 || data.byteLength !== PROCESSED_PCM_HEADER_BYTES + halfBytes * 2) return null;
+
+  return {
+    frameIndex,
+    input:     new Int16Array(data, PROCESSED_PCM_HEADER_BYTES, samplesPerCh * CHANNELS),
+    processed: new Int16Array(data, PROCESSED_PCM_HEADER_BYTES + halfBytes, samplesPerCh * CHANNELS),
   };
 }
 

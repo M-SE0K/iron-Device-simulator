@@ -80,5 +80,5 @@ export type AppStatus =
 /** 엔진 → 클라이언트 */
 export type WsServerMessage =
   | { type: "ready" }
-  | { type: "frame"; time: number; temperature: [number, number]; excursion: [number, number]; processingMs: number }
+  | { type: "frame"; frameIndex: number; time: number; temperature: [number, number]; excursion: [number, number]; processingMs: number }
   | { type: "error"; message: string };
