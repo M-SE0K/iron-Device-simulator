@@ -359,6 +359,7 @@ export default function ChartDetailOverlay({
             <ProtectedComparePanel
               subscribeCaptureStream={subscribeChannelStream}
               sourceFile={sourceFile}
+              getProtectedBlob={getProtectedBlob}
               bare
             />
           ) : (

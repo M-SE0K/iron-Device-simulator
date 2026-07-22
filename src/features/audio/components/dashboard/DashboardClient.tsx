@@ -356,6 +356,7 @@ export default function DashboardPage({ useQueue }: DashboardPageProps) {
                 <ProtectedComparePanel
                   subscribeCaptureStream={subscribeChannelStream}
                   sourceFile={audioFile}
+                  getProtectedBlob={getProtectedBlob}
                 />
               </div>
               <div id="charts-section" className="flex flex-col lg:flex-row gap-4 min-h-0 lg:flex-1">

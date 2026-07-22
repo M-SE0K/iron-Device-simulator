@@ -8,6 +8,7 @@ import {
   buildValueTooltip, buildDataZoom, buildDynamicTimeFormatter,
   timeDecimalsForInterval, shouldShowFrameSymbols, type ZoomStateRef,
 } from "@/features/audio/lib/render/chart-option";
+import { peekWavHeader, decodeWavRange } from "@/features/audio/lib/codec/wav-incremental";
 import type { CaptureStreamEvent, CaptureStreamListener } from "@/features/audio/components/player/capture/useCaptureSession";
 
 const BUCKETS = 1000;
@@ -73,11 +74,18 @@ function envelopeToSeries(env: BucketEnvelope, durationSec: number): [number, nu
 function ProtectedComparePanelImpl({
   subscribeCaptureStream,
   sourceFile,
+  getProtectedBlob,
   channel = 0,
   bare = false,
 }: {
   subscribeCaptureStream: (fn: CaptureStreamListener) => () => void;
   sourceFile?: File | null;
+  /**
+   * 이미 캡처된 보호 감쇠 PCM(WAV)의 스냅샷. 패널이 세션 도중(재생이 이미 진행된 뒤)
+   * 마운트돼도 지금까지의 "감쇠 후" 파형을 한 번 백필하기 위함 — 없으면 마운트 이후
+   * 들어오는 라이브 프레임만 그려져 늦게 연 상세 뷰에서는 빈 파형으로 보인다.
+   */
+  getProtectedBlob?: () => Blob | null;
   channel?: number;
   bare?: boolean;
 }) {
@@ -100,6 +108,15 @@ function ProtectedComparePanelImpl({
   const zoomRef: ZoomStateRef = useRef({ start: 0, end: 100 });
   const [showSymbols, setShowSymbols] = useState(false);
   const pointCountRef = useRef(0);
+
+  // 패널이 세션 도중 마운트됐을 때(상세 뷰에서 뒤늦게 "보호 감쇠" 항목을 선택하는 경우)
+  // 백필이 끝나기 전까지 들어오는 라이브 프레임을 잃지 않도록 대기시킨다.
+  type ProtectedEvent = Extract<CaptureStreamEvent, { type: "protected" }>;
+  const pendingProtectedRef = useRef<ProtectedEvent[]>([]);
+  const readyRef = useRef(false);
+  // 백필 진행 중 세션이 리셋되면(재생 재시작 등) 오래된 백필 결과가 새 세션 데이터와
+  // 섞이지 않도록 토큰으로 무효화한다.
+  const backfillTokenRef = useRef(0);
 
   useEffect(() => {
     if (!sourceFile) {
@@ -145,6 +162,9 @@ function ProtectedComparePanelImpl({
     totalSamplesRef.current = 0;
     zoomRef.current = { start: 0, end: 100 };
     setShowSymbols(false);
+    readyRef.current = false;
+    pendingProtectedRef.current = [];
+    backfillTokenRef.current += 1;
     setVersion((v) => v + 1);
   }, [sourceFile]);
 
@@ -162,32 +182,86 @@ function ProtectedComparePanelImpl({
     setVersion((v) => v + 1);
   }, []);
 
+  const applyProtectedEvent = useCallback((ev: ProtectedEvent, durationSec: number) => {
+    sampleRateRef.current = ev.sampleRate;
+    const env = protectedEnvRef.current;
+    const base = totalSamplesRef.current;
+    const perBucketSec = durationSec / BUCKETS;
+
+    for (let i = channel, s = 0; i < ev.processed.length; i += CHANNELS, s++) {
+      const t = (base + s) / ev.sampleRate;
+      env.add(Math.floor(t / perBucketSec), ev.processed[i] / INT16_SCALE);
+    }
+    totalSamplesRef.current = base + ev.processed.length / CHANNELS;
+
+    dirtyRef.current = true;
+    if (rafRef.current === null) rafRef.current = requestAnimationFrame(flush);
+  }, [channel, flush]);
+
+  // 원본 디코드가 끝나면(= x축 durationSec 확보) 지금까지 캡처된 보호 감쇠 PCM을 한 번
+  // 백필한다 — getChannelsBlob 백필(ChartDetailOverlay)과 동일한 idiom. 백필이 끝나기
+  // 전에 들어온 라이브 프레임은 pendingProtectedRef에 쌓아뒀다가 이어서 적용한다.
+  useEffect(() => {
+    if (!original) return;
+    const token = ++backfillTokenRef.current;
+    let cancelled = false;
+
+    (async () => {
+      if (getProtectedBlob) {
+        try {
+          const blob = getProtectedBlob();
+          if (blob) {
+            const header = await peekWavHeader(blob);
+            if (header && !cancelled && backfillTokenRef.current === token) {
+              const data = await decodeWavRange(blob, header, channel, 0, header.durationSec);
+              if (!cancelled && backfillTokenRef.current === token && data.length > 0) {
+                const perBucketSec = original.durationSec / BUCKETS;
+                const env = protectedEnvRef.current;
+                for (let s = 0; s < data.length; s++) {
+                  const t = s / header.sampleRate;
+                  env.add(Math.floor(t / perBucketSec), data[s]);
+                }
+                totalSamplesRef.current = data.length;
+              }
+            }
+          }
+        } catch {
+          // 백필 실패해도 라이브 스트림으로 계속 진행한다.
+        }
+      }
+      if (cancelled || backfillTokenRef.current !== token) return;
+
+      readyRef.current = true;
+      const queued = pendingProtectedRef.current;
+      pendingProtectedRef.current = [];
+      if (queued.length > 0) {
+        for (const ev of queued) applyProtectedEvent(ev, original.durationSec);
+      } else {
+        setVersion((v) => v + 1);
+      }
+    })();
+
+    return () => { cancelled = true; };
+  }, [original, getProtectedBlob, channel, applyProtectedEvent]);
+
   useEffect(() => {
     const off = subscribeCaptureStream((ev: CaptureStreamEvent) => {
       if (ev.type === "reset") {
         protectedEnvRef.current.clear();
         totalSamplesRef.current = 0;
+        pendingProtectedRef.current = [];
+        backfillTokenRef.current += 1; // 진행 중이던 백필 결과를 무효화 — 새 세션은 0부터 라이브로만 채운다
+        readyRef.current = true;
         setVersion((v) => v + 1);
         return;
       }
       if (ev.type !== "protected") return;
 
+      if (!readyRef.current) { pendingProtectedRef.current.push(ev); return; }
+
       const durationSec = durationRef.current;
       if (durationSec <= 0) return;
-
-      sampleRateRef.current = ev.sampleRate;
-      const env = protectedEnvRef.current;
-      const base = totalSamplesRef.current;
-      const perBucketSec = durationSec / BUCKETS;
-
-      for (let i = channel, s = 0; i < ev.processed.length; i += CHANNELS, s++) {
-        const t = (base + s) / ev.sampleRate;
-        env.add(Math.floor(t / perBucketSec), ev.processed[i] / INT16_SCALE);
-      }
-      totalSamplesRef.current = base + ev.processed.length / CHANNELS;
-
-      dirtyRef.current = true;
-      if (rafRef.current === null) rafRef.current = requestAnimationFrame(flush);
+      applyProtectedEvent(ev, durationSec);
     });
 
     return () => {
@@ -195,7 +269,7 @@ function ProtectedComparePanelImpl({
       if (rafRef.current !== null) cancelAnimationFrame(rafRef.current);
       rafRef.current = null;
     };
-  }, [subscribeCaptureStream, channel, flush]);
+  }, [subscribeCaptureStream, applyProtectedEvent]);
 
   const originalSeries = useMemo(
     () => (original ? envelopeToSeries(original.env, original.durationSec) : []),
@@ -283,7 +357,7 @@ function ProtectedComparePanelImpl({
     <div id="protected-compare-panel" className={cn("flex flex-col h-full", !bare && "card")}>
       <div className={bare ? "flex items-center justify-between gap-2 px-1 pb-2 flex-wrap" : "card-header"}>
         <div className="chart-title-group flex items-center gap-2">
-          <span className="card-title">보호 감쇠 비교</span>
+          <span className="card-title">보호 알고리즘 적용</span>
         </div>
       </div>
 
