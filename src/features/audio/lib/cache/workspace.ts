@@ -1,6 +1,6 @@
 import { AnalysisFrame } from "@/features/audio/types";
 import { slimAnalysisFrames } from "./frame-utils";
-import { hasIndexedDb, openIndexedDb } from "./idb";
+import { hasIndexedDb, openIndexedDb, requestToPromise, runTx } from "./idb";
 
 const DB_NAME       = "irondevice-workspace";
 const DB_VERSION    = 1;
@@ -62,12 +62,9 @@ export async function listWorkspaceItems(): Promise<WorkspaceItemMeta[]> {
   if (!hasIndexedDb()) return [];
   try {
     const db = await openDb();
-    const items = await new Promise<WorkspaceItemMeta[]>((resolve, reject) => {
-      const tx  = db.transaction(META_STORE, "readonly");
-      const req = tx.objectStore(META_STORE).getAll();
-      req.onsuccess = () => resolve(req.result as WorkspaceItemMeta[]);
-      req.onerror   = () => reject(req.error);
-    });
+    const items = await requestToPromise<WorkspaceItemMeta[]>(
+      db.transaction(META_STORE, "readonly").objectStore(META_STORE).getAll(),
+    );
     db.close();
     return items.sort((a, b) => b.createdAt - a.createdAt);
   } catch {
@@ -103,12 +100,9 @@ export async function saveWorkspaceItem(input: SaveWorkspaceInput): Promise<Work
   };
   try {
     const db = await openDb();
-    await new Promise<void>((resolve, reject) => {
-      const tx = db.transaction([META_STORE, PAYLOAD_STORE], "readwrite");
+    await runTx(db, [META_STORE, PAYLOAD_STORE], "readwrite", (tx) => {
       tx.objectStore(META_STORE).put(meta);
       tx.objectStore(PAYLOAD_STORE).put(payload, meta.id);
-      tx.oncomplete = () => resolve();
-      tx.onerror    = () => reject(tx.error);
     });
     db.close();
     return meta;
@@ -121,16 +115,13 @@ export async function renameWorkspaceItem(id: string, name: string): Promise<voi
   if (!hasIndexedDb()) return;
   try {
     const db = await openDb();
-    await new Promise<void>((resolve, reject) => {
-      const tx    = db.transaction(META_STORE, "readwrite");
+    await runTx(db, META_STORE, "readwrite", (tx) => {
       const store = tx.objectStore(META_STORE);
       const req   = store.get(id);
       req.onsuccess = () => {
         const meta = req.result as WorkspaceItemMeta | undefined;
         if (meta) store.put({ ...meta, name, updatedAt: Date.now() });
       };
-      tx.oncomplete = () => resolve();
-      tx.onerror    = () => reject(tx.error);
     });
     db.close();
   } catch {
@@ -141,12 +132,9 @@ export async function deleteWorkspaceItem(id: string): Promise<void> {
   if (!hasIndexedDb()) return;
   try {
     const db = await openDb();
-    await new Promise<void>((resolve, reject) => {
-      const tx = db.transaction([META_STORE, PAYLOAD_STORE], "readwrite");
+    await runTx(db, [META_STORE, PAYLOAD_STORE], "readwrite", (tx) => {
       tx.objectStore(META_STORE).delete(id);
       tx.objectStore(PAYLOAD_STORE).delete(id);
-      tx.oncomplete = () => resolve();
-      tx.onerror    = () => reject(tx.error);
     });
     db.close();
   } catch {
@@ -157,12 +145,9 @@ export async function getWorkspacePayload(id: string): Promise<WorkspacePayload 
   if (!hasIndexedDb()) return null;
   try {
     const db = await openDb();
-    const payload = await new Promise<WorkspacePayload | undefined>((resolve, reject) => {
-      const tx  = db.transaction(PAYLOAD_STORE, "readonly");
-      const req = tx.objectStore(PAYLOAD_STORE).get(id);
-      req.onsuccess = () => resolve(req.result as WorkspacePayload | undefined);
-      req.onerror   = () => reject(req.error);
-    });
+    const payload = await requestToPromise<WorkspacePayload | undefined>(
+      db.transaction(PAYLOAD_STORE, "readonly").objectStore(PAYLOAD_STORE).get(id),
+    );
     db.close();
     return payload ?? null;
   } catch {
