@@ -1,4 +1,4 @@
-// preload.js — sandbox: true인 렌더러에 audio-device / audio-capture / local-folder IPC만 최소한으로 노출한다.
+// preload.js — sandbox: true인 렌더러에 audio-device / audio-capture / audio-playcapture / local-folder IPC만 최소한으로 노출한다.
 const { contextBridge, ipcRenderer } = require("electron");
 
 function onIpc(channel, callback) {

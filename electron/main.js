@@ -12,8 +12,8 @@ const { stopPlayCapture } = require("./ipc/audio-playcapture");
 const { stopWatchingFolder } = require("./ipc/local-folder");
 require("./ipc/audio-device"); // IPC 채널 등록(부수효과) — audio-capture/audio-playcapture도 내부적으로 재사용
 
-// 성능 측정 하네스(scripts/measure.ts)가 실제 Electron 렌더러(네이티브 CoreAudio 경로)에
-// puppeteer.connect()로 붙을 수 있도록 원격 디버깅 포트를 연다. 일반 배포에선 렌더러를
+// 외부 측정/자동화 도구가 실제 Electron 렌더러(네이티브 CoreAudio 경로)에 DevTools
+// 프로토콜로 붙을 수 있도록 원격 디버깅 포트를 연다. 일반 배포에선 렌더러를
 // 외부에 노출하지 않도록 IRON_REMOTE_DEBUG_PORT가 설정된 측정 실행에서만 켠다.
 // app.whenReady() 이전(스위치는 앱 초기화 전에 등록돼야 적용됨)에 호출해야 한다.
 const REMOTE_DEBUG_PORT = process.env.IRON_REMOTE_DEBUG_PORT;
