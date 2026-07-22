@@ -7,16 +7,16 @@
 
 import type { EngineParams } from "../../../types";
 import { openClientWasmSession } from "../adapters/wasm-client";
-import { deinterleave } from "../utils";
 import {
-  DEFAULT_ENGINE_CONFIG, DEFAULT_AMBIENT_TEMP, BYTES_PER_SAMPLE, frameBytes,
-  type AnalysisSession, type EngineRuntimeConfig, type RealSensingPair,
+  DEFAULT_ENGINE_CONFIG, DEFAULT_AMBIENT_TEMP, frameBytes,
+  type AnalysisSession, type EngineRuntimeConfig,
 } from "../core";
 import {
   parseEngineParams, parseSampleRate, parseSamplesPerCh,
-  createFrameMessage, createReadyMessage, createErrorMessage,
-  encodeProcessedPcmMessage,
+  createReadyMessage, createErrorMessage,
 } from "./analysis";
+import { processAnalysisFrame } from "./frame-core";
+import { WorkerAnalysisSocket } from "./worker-socket";
 
 /**
  * WaveformPlayer/MicrophonePlayer가 실제로 사용하는 WebSocket 부분집합.
@@ -140,57 +140,37 @@ class LocalWasmSocket implements SocketLike {
   //    없이 길이만으로 구분: 2ch만 있는 getUserMedia 폴백/구버전 캡처와도 호환). ────────
   private handleFrame(data: ArrayBuffer): void {
     if (!this.initialized || !this.session) return;
-    const wireBytes = frameBytes(this.connConfig);
-    if (data.byteLength < wireBytes) return;
+    // 와이어 크기 미만이면 프레임 인덱스를 소비하지 않고 버린다(짧은/깨진 프레임).
+    if (data.byteLength < frameBytes(this.connConfig)) return;
 
-    const currentFrame = this.frameCount;
-    this.frameCount++;
+    const currentFrame = this.frameCount++;
 
-    // analyze()가 감쇠 결과를 만들기 전에 입력을 떠 둔다 — 비교 뷰가 쓸 "감쇠 전" 원본이며,
-    // 프레임 경계가 보호 PCM과 정확히 같아야 하므로 여기서 같은 버퍼를 잘라 쓴다.
-    const input = new Int16Array(data.slice(0, wireBytes));
-
-    // v_sensing/i_sensing 결정 — 어느 쪽이든 NULL은 넘기지 않는다(NULL이면 ff_prot.c가
-    // PCM RMS 근사로 대체해버려서, 실측 센싱이 있는데도 근사로 도는 걸 눈치채기 어렵다).
-    //
-    //  1) sensing 꼬리가 붙어 있으면(4ch 이상 장치) 그걸 쓴다 — 정확히 2×samplesPerCh
-    //     int16만큼 남아있을 때만 실측치로 취급하고, 애매하게 남는 바이트(잘못된 길이)는
-    //     조용히 버린다(깨진 sensing보다 아래 폴백이 낫다).
-    //  2) 꼬리가 없으면 buf의 ch0/ch1을 그대로 쓴다 — reframeNativeChunk.ts의 채널 규약상
-    //     ch0=V(전압 센스)/ch1=I(전류 센스)라, 분석 buf에 실리는 그 두 채널이 곧 센싱
-    //     데이터다. 이 경로에서 v_sensing/i_sensing은 buf와 같은 샘플을 가리킨다.
-    const samplesPerCh = this.connConfig.samplesPerCh;
-    const sensingStreamBytes = samplesPerCh * BYTES_PER_SAMPLE;
-    let sensing: RealSensingPair;
-    if (data.byteLength === wireBytes + sensingStreamBytes * 2) {
-      sensing = {
-        v: new Int16Array(data, wireBytes, samplesPerCh),
-        i: new Int16Array(data, wireBytes + sensingStreamBytes, samplesPerCh),
-      };
-    } else {
-      // deinterleave는 [ch0 samplesPerCh개][ch1 samplesPerCh개] 플래너를 새 배열로 돌려주므로
-      // subarray 뷰를 그대로 넘겨도 안전하다(호출자와 버퍼를 공유하지 않는다).
-      const planar = deinterleave(new Uint8Array(data, 0, wireBytes), samplesPerCh);
-      sensing = {
-        v: planar.subarray(0, samplesPerCh),
-        i: planar.subarray(samplesPerCh, samplesPerCh * 2),
-      };
-    }
-
+    // deinterleave/sensing 선택 + analyze + 메시지 구성은 frame-core에 있다 — 워커 경로
+    // (dsp-worker.ts)와 ABI 민감부를 공유해 두 경로가 갈라지지 않게 한다.
     try {
-      const result = this.session.analyze(new Uint8Array(data), this.engineParams, sensing);
-      this.emit(createFrameMessage(currentFrame, this.connConfig.sampleRate, this.connConfig.samplesPerCh, result));
-      // 보호 감쇠가 적용된 PCM은 JSON에 못 실으므로 같은 frameIndex를 단 바이너리로 뒤따라 보낸다.
-      if (result.processedPcm) {
-        this.emitBinary(encodeProcessedPcmMessage(currentFrame, input, result.processedPcm));
-      }
+      const out = processAnalysisFrame(this.session, data, this.engineParams, this.connConfig, currentFrame);
+      if (!out) return;
+      this.emit(out.frameJson as Record<string, unknown>);
+      // 보호 감쇠 PCM은 JSON에 못 실으므로 같은 frameIndex를 단 바이너리로 뒤따라 보낸다.
+      if (out.binary) this.emitBinary(out.binary);
     } catch (err) {
       this.emit(createErrorMessage(`ff_prot_start_exec 오류: ${err}`));
     }
   }
 }
 
-/** 분석 소켓을 생성한다 — 항상 브라우저 WASM 엔진(LocalWasmSocket)을 사용한다. */
+/**
+ * 분석 소켓을 생성한다. 두 백엔드 모두 같은 브라우저 WASM 엔진을 쓰지만 실행 위치가 다르다:
+ *   - LocalWasmSocket    : 메인 스레드 in-process (기본, 폴백)
+ *   - WorkerAnalysisSocket: Web Worker (NEXT_PUBLIC_USE_WORKER_ENGINE=1일 때)
+ *
+ * 워커 경로는 100fps 분석 부하를 렌더 스레드에서 뺀다. 아직 검증 단계라 env 플래그로 옵트인하며
+ * (미설정 시 기존 동작 그대로), 롤백은 이 플래그 하나로 끝난다. SocketLike 인터페이스가 같아
+ * 상위 컴포넌트(useCaptureSession 등)는 어느 쪽이든 코드 변경이 없다.
+ */
 export function createAnalysisSocket(): SocketLike {
+  if (process.env.NEXT_PUBLIC_USE_WORKER_ENGINE === "1") {
+    return new WorkerAnalysisSocket();
+  }
   return new LocalWasmSocket();
 }

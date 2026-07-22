@@ -140,7 +140,9 @@ class ClientWasmMemoryLayout implements MemoryLayout {
 // window.FfProtModule에 팩토리 함수가 얹힌다. 팩토리를 호출할 때마다 선형 메모리가 분리된 독립 인스턴스가 생성된다.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type FfProtInstance = any;
-type FfProtFactory = () => Promise<FfProtInstance>;
+// moduleArg: Emscripten 팩토리에 넘기는 Module 오버라이드(locateFile 등). 브라우저 메인 스레드는
+// 생략해도 <script> src에서 경로가 잡히지만, 워커는 currentScript가 없어 locateFile이 필수다.
+type FfProtFactory = (moduleArg?: Record<string, unknown>) => Promise<FfProtInstance>;
 
 let factoryPromise: Promise<FfProtFactory> | null = null;
 
@@ -148,20 +150,43 @@ function loadFactory(): Promise<FfProtFactory> {
   if (factoryPromise) return factoryPromise;
 
   factoryPromise = new Promise((resolve, reject) => {
-    if (typeof window === "undefined") {
-      reject(new Error("wasm-client-engine은 브라우저 전용입니다."));
-      return;
-    }
-    const w = window as unknown as { FfProtModule?: FfProtFactory };
-    if (w.FfProtModule) {
-      resolve(w.FfProtModule);
+    // 이미 로드됨 — 메인은 window, 워커는 self 전역에 팩토리가 얹혀 있다.
+    const g = globalThis as unknown as { FfProtModule?: FfProtFactory };
+    if (g.FfProtModule) {
+      resolve(g.FfProtModule);
       return;
     }
 
+    // Web Worker(classic): document가 없어 <script> 태그를 못 쓴다 — importScripts로 동기 로드.
+    // ff_prot.js는 최상위 var로 전역(self.FfProtModule)에 팩토리를 얹으므로 로드 후 바로 집힌다.
+    const importScriptsFn = (globalThis as unknown as {
+      importScripts?: (...urls: string[]) => void;
+    }).importScripts;
+    if (typeof importScriptsFn === "function") {
+      try {
+        importScriptsFn("/wasm/ff_prot.js");
+      } catch (err) {
+        reject(new Error(`/wasm/ff_prot.js importScripts 실패: ${err}`));
+        return;
+      }
+      const factory = (globalThis as unknown as { FfProtModule?: FfProtFactory }).FfProtModule;
+      if (!factory) {
+        reject(new Error("FfProtModule을 찾을 수 없습니다 (worker importScripts 후 전역 없음)."));
+        return;
+      }
+      resolve(factory);
+      return;
+    }
+
+    // 브라우저 메인 스레드: <script> 태그로 로드.
+    if (typeof document === "undefined") {
+      reject(new Error("wasm-client-engine은 브라우저 메인 스레드 또는 Web Worker 전용입니다."));
+      return;
+    }
     const script = document.createElement("script");
     script.src = "/wasm/ff_prot.js";
     script.onload = () => {
-      const factory = (window as unknown as { FfProtModule?: FfProtFactory }).FfProtModule;
+      const factory = (globalThis as unknown as { FfProtModule?: FfProtFactory }).FfProtModule;
       if (!factory) {
         reject(new Error("FfProtModule을 찾을 수 없습니다 (wasm 스크립트 로드 실패)."));
         return;
@@ -182,7 +207,10 @@ export async function openClientWasmSession(
   opts: AnalysisFrameOptions = {},
 ): Promise<AnalysisSession> {
   const factory = await loadFactory();
-  const mod: FfProtInstance = await factory();
+  // locateFile을 절대경로로 고정한다 — 워커엔 document.currentScript가 없어 scriptDirectory가
+  // 비고, 그러면 ff_prot.wasm을 워커 청크 기준 상대경로로 fetch해 404가 난다. 메인 스레드에서도
+  // 결과는 동일(/wasm/ff_prot.wasm)이라 양쪽에서 안전하다. (Phase 0 스파이크에서 확인)
+  const mod: FfProtInstance = await factory({ locateFile: (path: string) => `/wasm/${path}` });
 
   const bufPtr  = mod._malloc(frameBytes(config));
   const tempPtr = mod._malloc(CHANNELS * 4); // int32_t[2]
