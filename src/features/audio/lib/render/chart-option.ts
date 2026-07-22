@@ -1,5 +1,3 @@
-// TemperatureChart/ExcursionChart이 동일하게 구현하던 ECharts 옵션 조각(dataZoom/시간축/값 툴팁/범례)을 공유 빌더로 뽑아둔다. series·Y축(지표별로 알고리즘이 다름)·grid(좌측 여백만 다름)는 각 차트가 직접 구성한다.
-
 import type { AnalysisFrame } from "@/features/audio/types";
 import type { ChannelMode } from "./chart-window";
 
@@ -8,20 +6,13 @@ export interface ZoomState {
   end: number;
 }
 
-// 줌 상태를 라이브로 읽기 위한 ref 형태 — 각 차트가 이미 datazoom 이벤트에서 갱신하는
-// zoomRef를 그대로 넘기면, 여기서 만든 formatter들이 React 리렌더 없이도(ECharts가 줌/팬마다
-// 스스로 axisLabel.formatter를 다시 호출하므로) 항상 최신 줌 위치를 반영해 자릿수를 조정한다.
 export type ZoomStateRef = { current: ZoomState };
 
-// 표시 소수 자릿수 상한 — 1/1000s(ms) 수준이면 충분하다는 판단.
 const MAX_TIME_DECIMALS = 3;
 const MIN_TIME_DECIMALS = 0;
 
-// 두 데이터 포인트 사이의 최소 시간 간격을 서로 구분할 수 있는 최소 소수 자릿수를 계산한다.
-// 예: 480 samples/48kHz(기본 분석 프레임) = 10ms 간격 → 3자리(ms)로 충분히 구분됨.
 export function timeDecimalsForInterval(intervalSec: number): number {
   if (!isFinite(intervalSec) || intervalSec <= 0) return MAX_TIME_DECIMALS;
-  // 간격의 두 번째 유효자리까지 구분되도록 +1
   const decimals = Math.ceil(-Math.log10(intervalSec)) + 1;
   return Math.min(MAX_TIME_DECIMALS, Math.max(MIN_TIME_DECIMALS, decimals));
 }
@@ -35,8 +26,6 @@ export function resolveTimeDecimals(windowFrames: AnalysisFrame[]): number {
   return timeDecimalsForInterval(minDelta);
 }
 
-// 현재 화면에 보이는 구간 폭(초)에 맞춰 필요한 소수 자릿수를 고른다 — 넓게 보면(수십 초 단위)
-// 자릿수를 줄여 깔끔하게, 좁게 확대할수록(수백 ms 이하) 자릿수를 늘려 시인성을 높인다.
 function decimalsForVisibleSpan(spanSec: number): number {
   if (!isFinite(spanSec) || spanSec <= 0) return MAX_TIME_DECIMALS;
   if (spanSec >= 10) return 0;
@@ -45,8 +34,6 @@ function decimalsForVisibleSpan(spanSec: number): number {
   return MAX_TIME_DECIMALS;
 }
 
-// 줌 상태(zoom.start~end, %) 기준으로 동적 소수 자릿수를 계산한다. 데이터 해상도(dataDecimals)와
-// 표시 상한(MAX_TIME_DECIMALS)을 넘지는 않는다.
 function resolveDynamicDecimals(dataMin: number, dataMax: number, dataDecimals: number, zoom: ZoomState): number {
   const totalSpan = dataMax - dataMin;
   const visibleSpan = totalSpan * Math.max(0, zoom.end - zoom.start) / 100;
@@ -55,18 +42,12 @@ function resolveDynamicDecimals(dataMin: number, dataMax: number, dataDecimals: 
   return Math.min(effectiveMax, Math.max(MIN_TIME_DECIMALS, spanDecimals));
 }
 
-// 소수 자릿수까지 내림(버림) 처리 후 고정 자릿수로 표시 — shared/lib/utils.ts의 formatTime()
-// (진행바, Math.floor 기반)과 반올림 규칙을 맞추기 위함. toFixed()는 반올림이라 초 경계 근처에서
-// 진행바(내림)와 최대 1초 가까이 어긋나 보이는 문제가 있었다.
 function floorFixed(v: number, decimals: number): string {
   const factor = 10 ** decimals;
-  // 부동소수점 오차로 예: 14.000000001이 13으로 잘못 내려가는 것을 방지하는 아주 작은 보정값.
   const floored = Math.floor(v * factor + 1e-9) / factor;
   return floored.toFixed(decimals);
 }
 
-// buildTimeAxis와 buildDataZoom(슬라이더 라벨), 그리고 프레임이 아닌 원본 샘플 기반 축을 쓰는
-// ChannelWaveformCanvas가 공유하는 동적 소수 자릿수 포매터.
 export function buildDynamicTimeFormatter(
   zoomRef: ZoomStateRef,
   domain: { dataMin: number; dataMax: number; dataDecimals: number },
@@ -116,9 +97,6 @@ function buildTimeAxis(opts: {
   zoomRef: ZoomStateRef;
 }) {
   const { windowFrames, zoomRef } = opts;
-  // 왼쪽 끝(원점)은 항상 0초로 고정하고 오른쪽만 최신 프레임까지 늘어난다 —
-  // 파일/마이크 공통. 이렇게 하면 "0초~현재" 구간이 그대로 유지되고 왼쪽이 스크롤되지 않는다
-  // (전체 이력을 버리지 않고 유지하는 DashboardClient의 버퍼 정책과 짝을 이룬다).
   const dataMin = 0;
   const dataMax = windowFrames[windowFrames.length - 1]?.time ?? 10;
   const dataDecimals = resolveTimeDecimals(windowFrames);
@@ -151,15 +129,8 @@ export function buildValueTooltip(opts: { unit: string; decimals: number; timeDe
   };
 }
 
-// 확대(zoom)했을 때 화면에 보이는 데이터 포인트가 이 수 이하일 때만 프레임 점을 그린다 —
-// 그 이상이면 점이 서로 뭉개져 오히려 프레임 간격을 읽기 어렵고 드로우 비용도 커진다.
 export const SYMBOL_VISIBLE_MAX = 80;
 
-/**
- * 현재 줌 상태에서 프레임별 점(symbol)을 표시할지 결정한다. 윈도우 전체 포인트 수 × 보이는
- * 구간 비율로 "화면에 실제로 보이는 포인트 수"를 근사하고, 그 값이 SYMBOL_VISIBLE_MAX 이하로
- * 충분히 확대됐을 때만 true. 각 차트가 datazoom 이벤트에서 호출해 점 표시를 토글한다.
- */
 export function shouldShowFrameSymbols(pointCount: number, zoom: ZoomState): boolean {
   const visible = pointCount * Math.max(0, zoom.end - zoom.start) / 100;
   return visible > 0 && visible <= SYMBOL_VISIBLE_MAX;
@@ -171,7 +142,6 @@ function buildLegend(channelMode: ChannelMode) {
     : { show: false as const };
 }
 
-/** 지표 선(series) 아래를 채우는 세로 그라디언트 areaStyle — 위→아래 두 색만 지표별로 다르다. */
 export function buildAreaGradient(topColor: string, bottomColor: string) {
   return {
     color: {
@@ -184,10 +154,6 @@ export function buildAreaGradient(topColor: string, bottomColor: string) {
   };
 }
 
-/**
- * 값(Y) 축 — Temperature/Excursion 공통 스타일. labelFormatter만 지표별로 다르므로
- * 있을 때만 axisLabel에 얹는다(없으면 색/크기만 — 온도축은 formatter 없음).
- */
 export function buildValueYAxis(opts: {
   name: string;
   min: number;
@@ -210,14 +176,6 @@ export function buildValueYAxis(opts: {
   };
 }
 
-/**
- * 지표 선 series 하나. type/symbol/샘플링/lineStyle 골격은 공통이고, area(그라디언트)와
- * markLine은 지표·채널 모드에 따라 호출부가 넘긴다(area는 없으면 undefined, markLine은 생략).
- *
- * showSymbol=true(확대 상태)이면 각 프레임 위치에 원형 점을 그려 프레임 간격이 눈에 보이게 한다.
- * 이때 large/LTTB 샘플링은 심볼을 무시하거나 포인트를 솎아내므로 끈다 — 확대 상태에서는
- * dataZoom(filterMode:"filter")이 이미 보이는 포인트만 남겨 렌더 비용이 낮다.
- */
 export function buildLineSeries(opts: {
   name: string;
   data: number[][];
@@ -247,10 +205,6 @@ export function buildLineSeries(opts: {
   };
 }
 
-/**
- * 두 차트가 동일하게 두르던 옵션 골격(animation/grid/legend/dataZoom/시간축)을 조립한다.
- * 지표별로 다른 부분(grid 좌측 여백, dataZoom 색, yAxis/series/tooltip)만 인자로 받는다.
- */
 export function buildBaseChartOption(opts: {
   channelMode: ChannelMode;
   windowFrames: AnalysisFrame[];
@@ -267,7 +221,7 @@ export function buildBaseChartOption(opts: {
     grid: { top: 8, right: 16, bottom: 52, left: opts.gridLeft },
     legend: buildLegend(opts.channelMode),
     dataZoom: buildDataZoom(opts.zoomRef, opts.zoomColors, {
-      dataMin: 0, // 시간축 원점 고정과 동일 — 슬라이더 라벨도 0 기준
+      dataMin: 0,
       dataMax: opts.windowFrames[opts.windowFrames.length - 1]?.time ?? 10,
       dataDecimals: opts.timeDecimals,
     }),

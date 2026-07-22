@@ -1,8 +1,5 @@
 "use client";
 
-// 파일 선택 자체는 Workspace 드로어의 "폴더" 섹션이 담당한다(폴더 업로드 → 파일 선택).
-// 파일이 선택된 뒤의 미리보기/저장 버튼은 플로팅 플레이어 독(WaveformPlayer)으로 이전했다 —
-// 이 컴포넌트는 "파일 없음" 안내(=Workspace 여는 진입점)만 남는다.
 import { FolderOpen } from "lucide-react";
 import { useWorkspace } from "@/features/audio/components/workspace/WorkspaceContext";
 

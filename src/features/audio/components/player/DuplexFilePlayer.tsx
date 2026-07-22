@@ -1,13 +1,5 @@
 "use client";
 
-// Electron 파일 모드 전용 플레이어 — 재생과 캡처를 네이티브 play-capture 헬퍼의 단일
-// IOProc(단일 클록)으로 돌린다. WaveformPlayer(웹 파일 모드)와 동일한 Props/Handle 계약이라
-// DashboardClient 배선은 그대로지만, 재생 자체가 네이티브로 넘어가므로 WaveSurfer 없이
-// 표시 전용 진행바만 그린다(파형 없음, 클릭 seek 없음 — v1 결정).
-//
-// 재생 위치는 별도 타이머 없이 캡처 스트림에서 유도한다: 단일 IOProc이므로 수신한 캡처
-// 프레임 수 = 재생된 프레임 수이고, pause 중에는 chunk 이벤트가 recordingActiveRef 게이트에
-// 막혀 오지 않으므로 진행바도 저절로 멈춘다.
 import { useEffect, useRef, useState, useCallback, forwardRef, useImperativeHandle } from "react";
 import { Play, Pause, Square, Save, X } from "lucide-react";
 import { cn, formatTime } from "@/shared/lib/utils";
@@ -22,31 +14,22 @@ interface Props {
   status: AppStatus;
   onTimeUpdate: (currentTime: number) => void;
   onStatusChange: (status: AppStatus) => void;
-  /** 캡처 세션(V/I)에서 분석된 프레임 콜백 */
   onFrameReceived: (frame: AnalysisFrame) => void;
-  /** 새 캡처 세션 시작 시 — 누적 프레임 초기화 신호 */
   onStreamStart: () => void;
-  /** AMP 출력 전력 / 스피커 모델 파라미터 */
   inputParams?: InputParameterValues;
-  /** 오디오 총 길이 확정 시 콜백 (초 단위) */
   onDurationReady?: (duration: number) => void;
-  /** 작업 영역에 현재 음원+분석 그래프 저장 (플로팅 독의 저장 아이콘) */
   onSave?: () => void;
   canSave?: boolean;
-  /** 선택된 파일 초기화 (플로팅 독의 X 아이콘) */
   onReset?: () => void;
-  /** 전체 화면 오버레이 위로 독을 끌어올릴 때 (WaveformPlayer와 동일) */
   elevated?: boolean;
 }
 
-/** 재생용으로 디코드된 파일 — pcm은 rate(요청 SR)의 mono mixdown, 헬퍼 --ref로 그대로 나간다 */
 interface DecodedPlayback {
   pcm: Float32Array;
   rate: number;
   duration: number;
 }
 
-/** File → 요청 SR·mono Float32 (표준 Web Audio 다운믹스 + 리샘플을 OfflineAudioContext 한 번에) */
 async function decodeFileToMono(file: File, targetRate: number): Promise<DecodedPlayback> {
   const arrayBuf = await file.arrayBuffer();
   const probeCtx = new AudioContext();
@@ -63,7 +46,6 @@ async function decodeFileToMono(file: File, targetRate: number): Promise<Decoded
   src.connect(offline.destination);
   src.start();
   const rendered = await offline.startRendering();
-  // getChannelData가 돌려주는 버퍼를 그대로 refPcm 전송에 쓰므로 복사해 소유권을 확실히 한다
   return { pcm: rendered.getChannelData(0).slice(), rate: targetRate, duration: decoded.duration };
 }
 
@@ -88,10 +70,7 @@ const DuplexFilePlayer = forwardRef<WaveformPlayerHandle, Props>(function Duplex
   const [isReady, setIsReady]         = useState(false);
   const [decodeError, setDecodeError] = useState<string | null>(null);
   const decodedRef = useRef<DecodedPlayback | null>(null);
-  // WaveformPlayer와 동일한 세션 재사용 규칙 — 열려 있으면 pause/resume만, 재시작하면
-  // WASM 온도 누적이 리셋되므로 세션은 파일당 한 번만 연다.
   const captureStartedRef = useRef(false);
-  // 캡처 스트림 기반 재생 위치 — 수신 프레임 수를 세션 SR로 나눈 값 (단일 클록 전제)
   const capturedFramesRef = useRef(0);
   const lastUiUpdateRef = useRef(0);
 
@@ -100,7 +79,6 @@ const DuplexFilePlayer = forwardRef<WaveformPlayerHandle, Props>(function Duplex
     inputParams,
   });
 
-  // ── 파일 변경 시: 이전 세션 정리 + 재생용 디코드 (WaveSurfer 초기화 대응) ──────
   useEffect(() => {
     captureSession.cleanup();
     captureStartedRef.current = false;
@@ -132,33 +110,22 @@ const DuplexFilePlayer = forwardRef<WaveformPlayerHandle, Props>(function Duplex
     })();
 
     return () => { cancelled = true; };
-    // calibration.sampleRate는 의도적으로 제외 — SR 변경은 "다음 세션 시작"에 적용한다는
-    // 규칙(CLAUDE.md)에 따라 재생 시작 시점에 rate가 다르면 그때 다시 디코드한다.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [audioFile]);
 
-  // ── 에러 전이 시 세션 재시작 가능하게 리셋 ─────────────────────────────────
-  // useCaptureSession이 에러(예: 디스커넥트 exit 3)에서 이미 cleanup()으로 세션을 정리했지만,
-  // captureStartedRef는 이 컴포넌트 소유라 훅이 직접 못 건드린다 — 리셋 안 하면 다음 "재생"
-  // 클릭이 handlePlayPause의 "재개(resumeRecording)" 분기로 빠져 죽은 세션에 재개 신호만
-  // 보내고 끝난다(captureSession.start()가 안 불리므로 micError도 안 지워짐 — 새로고침
-  // 없이는 재시작 불가능해지는 버그).
   useEffect(() => {
     if (status === "error") captureStartedRef.current = false;
   }, [status]);
 
-  // ── 진행바: 캡처 스트림 구독 — chunk 프레임 수 누적 = 재생 위치 (단일 클록) ──────
   useEffect(() => {
     const off = captureSession.subscribeCaptureStream((ev) => {
       if (ev.type === "reset") {
         capturedFramesRef.current = 0;
         return;
       }
-      // 진행바는 원본 캡처 청크 수로만 센다 — "protected"까지 세면 두 배로 흐른다.
       if (ev.type !== "chunk") return;
       capturedFramesRef.current += ev.chunk.byteLength / (ev.channels * 2);
       const pos = Math.min(capturedFramesRef.current / ev.sampleRate, decodedRef.current?.duration ?? Infinity);
-      // 청크는 ~10ms마다 오므로 UI 갱신은 100ms로 스로틀 (진행바 10Hz면 충분)
       const now = performance.now();
       if (now - lastUiUpdateRef.current >= 100) {
         lastUiUpdateRef.current = now;
@@ -169,7 +136,6 @@ const DuplexFilePlayer = forwardRef<WaveformPlayerHandle, Props>(function Duplex
     return off;
   }, [captureSession.subscribeCaptureStream, onTimeUpdate]);
 
-  // ── 재생 완료 (헬퍼 exit 0) — WaveSurfer "finish"와 동일 의미론 ────────────────
   const handlePlaybackEnded = useCallback(() => {
     captureSession.cleanup();
     captureStartedRef.current = false;
@@ -177,14 +143,12 @@ const DuplexFilePlayer = forwardRef<WaveformPlayerHandle, Props>(function Duplex
     onStatusChange("paused");
   }, [captureSession.cleanup, onStatusChange]);
 
-  // ── 일시정지 — 세션 유지, 헬퍼 재생 위치 동결 + 데이터 게이트만 닫는다 ─────────
   const pausePlayback = useCallback(() => {
     if (!captureStartedRef.current || status !== "playing") return;
     captureSession.pauseRecording();
     onStatusChange("paused");
   }, [status, captureSession.pauseRecording, onStatusChange]);
 
-  // ── 재생/일시정지 ─────────────────────────────────────────────────────────
   const handlePlayPause = useCallback(async () => {
     if (!isReady) return;
 
@@ -193,14 +157,10 @@ const DuplexFilePlayer = forwardRef<WaveformPlayerHandle, Props>(function Duplex
       return;
     }
     if (captureStartedRef.current) {
-      // 일시정지에서 재개 — 헬퍼 재생 위치와 데이터 게이트를 함께 다시 연다.
       captureSession.resumeRecording();
       onStatusChange("playing");
       return;
     }
-    // 최초 재생 — SR이 디코드 시점과 달라졌으면(캘리브레이션 변경) 다시 디코드한 뒤,
-    // 디코드 PCM을 그대로 헬퍼 --ref로 넘겨 재생+캡처 세션을 연다. "playing" 전이는
-    // 분석 소켓의 ready 메시지가 담당한다(마이크 모드와 동일).
     let decoded = decodedRef.current;
     if (!decoded) return;
     const reqRate = Number(calibration.sampleRate) || SAMPLE_RATE;
@@ -226,7 +186,6 @@ const DuplexFilePlayer = forwardRef<WaveformPlayerHandle, Props>(function Duplex
     captureSession.resumeRecording, captureSession.start, handlePlaybackEnded, onStatusChange,
   ]);
 
-  // ── 정지 ─────────────────────────────────────────────────────────────────
   const handleStop = useCallback(() => {
     captureSession.cleanup();
     captureStartedRef.current = false;
@@ -247,7 +206,6 @@ const DuplexFilePlayer = forwardRef<WaveformPlayerHandle, Props>(function Duplex
   const errorText = decodeError ?? captureSession.micError;
   const progressPct = duration > 0 ? Math.min(100, (currentTime / duration) * 100) : 0;
 
-  // 플로팅 필 독 — WaveformPlayer와 같은 레이아웃, 파형 캔버스 자리에 표시 전용 진행바.
   return (
     <div
       id="waveform-player"
@@ -272,7 +230,6 @@ const DuplexFilePlayer = forwardRef<WaveformPlayerHandle, Props>(function Duplex
         {isPlaying ? <Pause size={16} /> : <Play size={16} className="ml-0.5" />}
       </button>
 
-      {/* 진행바 (표시 전용 — seek 없음) */}
       <div id="duplex-progress" className="flex-1 min-w-0 h-9 flex items-center">
         {audioFile ? (
           <div className="w-full h-1.5 rounded-full bg-iron-100 overflow-hidden">
@@ -288,7 +245,6 @@ const DuplexFilePlayer = forwardRef<WaveformPlayerHandle, Props>(function Duplex
         )}
       </div>
 
-      {/* 현재 재생 시간 */}
       <span
         id="playback-time"
         className={cn(
@@ -302,12 +258,10 @@ const DuplexFilePlayer = forwardRef<WaveformPlayerHandle, Props>(function Duplex
 
       <div className="hidden sm:block w-px h-5 bg-iron-200 shrink-0" />
 
-      {/* 파일명 */}
       <span className="hidden md:inline shrink-0 max-w-[150px] truncate text-[13px] text-iron-500">
         {audioFile?.name ?? "—"}
       </span>
 
-      {/* 스트리밍 연결 상태 / 에러 */}
       <span
         className={cn(
           "hidden sm:flex shrink-0 items-center gap-1.5 text-xs",

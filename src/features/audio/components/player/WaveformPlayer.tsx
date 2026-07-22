@@ -7,7 +7,6 @@ import { AppStatus, AnalysisFrame, InputParameterValues } from "@/features/audio
 import { useCalibration } from "@/features/audio/components/calibration/CalibrationContext";
 import { useCaptureSession, type CaptureStreamListener } from "./capture/useCaptureSession";
 
-// 'auto' = 파형 컨테이너 높이(CSS)에 자동으로 맞춤.
 const WAVEFORM_CANVAS_HEIGHT: number | "auto" = "auto";
 
 interface Props {
@@ -15,47 +14,21 @@ interface Props {
   status: AppStatus;
   onTimeUpdate: (currentTime: number) => void;
   onStatusChange: (status: AppStatus) => void;
-  /** 캡처 세션(V/I)에서 분석된 프레임 콜백 */
   onFrameReceived: (frame: AnalysisFrame) => void;
-  /** 새 캡처 세션 시작 시 — 누적 프레임 초기화 신호 */
   onStreamStart: () => void;
-  /** AMP 출력 전력 / 스피커 모델 파라미터 */
   inputParams?: InputParameterValues;
-  /** 오디오 총 길이 확정 시 콜백 (초 단위) */
   onDurationReady?: (duration: number) => void;
-  /** 작업 영역에 현재 음원+분석 그래프 저장 (플로팅 독의 저장 아이콘) — SelectedFilePanel에서 이전 */
   onSave?: () => void;
   canSave?: boolean;
-  /** 선택된 파일 초기화 (플로팅 독의 X 아이콘) — SelectedFilePanel에서 이전 */
   onReset?: () => void;
-  /**
-   * ChartDetailOverlay(z-[60])처럼 전체 화면을 덮는 뷰가 열려 있을 때, 플로팅 독을 그 위로
-   * 끌어올려 재생 중에도 계속 보이게 한다(같은 인스턴스를 그대로 노출하는 것 — 캡처 세션을 새로 열지 않는다).
-   */
   elevated?: boolean;
 }
 
-/** page.tsx에서 ref로 접근할 수 있는 WaveformPlayer 핸들 */
 export interface WaveformPlayerHandle {
-  /** 분석 소켓이 열려 있을 때 JSON 메시지를 전송 */
   sendMessage: (msg: object) => void;
-  /**
-   * 재생을 일시정지한다 (캡처 세션은 유지 → 재개 시 스트림/차트 보존).
-   * 모드 전환 시 떠나는 플레이어의 오디오만 멈추는 용도.
-   */
   pause: () => void;
-  /**
-   * 캡처 세션 버퍼(ch0=V/ch1=I + Calibration에서 확장한 채널)를 WAV로 인코딩해 반환한다.
-   * 원본 업로드 파일이 아니라, 재생 중 MCHStreamer 등에서 실제로 캡처된 신호를 담는다.
-   * 캡처 세션이 없었거나(재생한 적 없음) 데이터가 없으면 null.
-   */
   exportRecordedAudio: () => Blob | null;
-  /** 보호 감쇠가 적용된 PCM(엔진 buf In/Out 결과)의 WAV 스냅샷 — 감쇠 전/후 비교·내보내기용 */
   exportProtectedAudio: () => Blob | null;
-  /**
-   * 원본 캡처 청크 실시간 스트림 구독 — ChartDetailOverlay 채널 뷰가 폴링 없이
-   * 청크 도착 즉시 갱신하는 경로(마이크 모드 MicrophonePlayerHandle과 동일 계약).
-   */
   subscribeCaptureStream: (fn: CaptureStreamListener) => () => void;
 }
 
@@ -80,21 +53,14 @@ const WaveformPlayer = forwardRef<WaveformPlayerHandle, Props>(function Waveform
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration]       = useState(0);
   const [isReady, setIsReady]         = useState(false);
-  // 캡처 세션이 이미 열려 있는지 — 열려 있으면 재생 재개 시 세션을 다시 여는 대신
-  // 저장 버퍼만 재개한다(resumeRecording). 세션을 통째로 재시작하면 WASM 온도 누적
-  // 상태가 리셋되고 차트도 비워지기 때문.
   const captureStartedRef = useRef(false);
 
-  // ── 캡처 세션 — 재생과 동시에 시작/종료된다. 파일 자체를 분석하지 않고, 재생을 통해
-  // 실제 하드웨어(MCHStreamer 등)에서 캡처되는 ch0(V)/ch1(I)를 분석한다(마이크 모드와 동일 파이프라인).
   const captureSession = useCaptureSession({
     status, onStatusChange, onFrameReceived, onStreamStart,
     inputParams,
   });
 
-  // ── 파일 변경 시: WaveSurfer 재초기화 + 이전 캡처 세션 정리 ────────────────
   useEffect(() => {
-    // 이전 세션 정리(파일이 바뀌면 이전 파일에 연결된 캡처는 의미 없음)
     captureSession.cleanup();
     captureStartedRef.current = false;
     setIsReady(false);
@@ -162,35 +128,19 @@ const WaveformPlayer = forwardRef<WaveformPlayerHandle, Props>(function Waveform
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [audioFile]);
 
-  // ── 에러 전이 시 세션 재시작 가능하게 리셋 ─────────────────────────────────
-  // useCaptureSession이 에러에서 이미 cleanup()으로 세션을 정리했지만, captureStartedRef는
-  // 이 컴포넌트 소유라 훅이 직접 못 건드린다 — 리셋 안 하면 다음 "재생" 클릭이
-  // handlePlayPause의 "재개(resumeRecording)" 분기로 빠져 죽은 세션에 재개 신호만 보내고
-  // 끝난다(captureSession.start()가 안 불리므로 micError도 안 지워짐 — 새로고침 없이는
-  // 재시작 불가능해지는 버그. DuplexFilePlayer.tsx와 동일 패턴).
   useEffect(() => {
     if (status === "error") captureStartedRef.current = false;
   }, [status]);
 
-  // ── 재생 출력 라우팅 (setSinkId) ─────────────────────────────────────────
-  // 캘리브레이션의 outputDeviceId로 재생을 특정 출력(예: 앰프/스피커가 물린 MCHStreamer 출력)에
-  // 보낸다. WaveSurfer(미디어 엘리먼트)가 준비된 뒤 + 값이 바뀔 때마다 적용. 표준 웹 setSinkId라
-  // 웹·Electron 공통이며, "" 이면 시스템 기본 출력. 미지원/권한 미충족 시엔 조용히 무시한다.
   useEffect(() => {
     const wv = wavesurferRef.current as (import("wavesurfer.js").default & {
       setSinkId?: (id: string) => Promise<void>;
     }) | null;
     if (!isReady || !wv || typeof wv.setSinkId !== "function") return;
     wv.setSinkId(calibration.outputDeviceId || "").catch(() => {
-      /* setSinkId 미지원(비보안 컨텍스트 등)·잘못된 deviceId — 기본 출력 유지 */
     });
   }, [isReady, calibration.outputDeviceId]);
 
-  // ── 일시정지 (캡처 세션 연결은 유지하되, 분석 프레임 전송 + 저장 버퍼 축적을 함께 멈춘다) ──
-  // 세션(소켓/네이티브 캡처)까지 통째로 끊으면 재개 시 다시 열어야 하는데, 그러면 WASM의
-  // 온도 누적 상태가 리셋되고 차트도 비워진다. 그래서 세션은 열어 둔 채(pauseRecording)
-  // 데이터 흐름만 멈춘다 — 이러면 소켓 frameCount(= 차트 시간축)와 온도가 정지 지점에 고정되어,
-  // 재개 시 시간축이 튀지 않고 그 지점부터 이어진다(정지 지점 10s → 재개 시 10s부터).
   const pausePlayback = useCallback(() => {
     const wv = wavesurferRef.current;
     if (!wv || !wv.isPlaying()) return;
@@ -199,7 +149,6 @@ const WaveformPlayer = forwardRef<WaveformPlayerHandle, Props>(function Waveform
     onStatusChange("paused");
   }, [onStatusChange, captureSession.pauseRecording]);
 
-  // ── 재생/일시정지 ─────────────────────────────────────────────────────────
   const handlePlayPause = useCallback(() => {
     if (!wavesurferRef.current || !isReady) return;
 
@@ -209,17 +158,14 @@ const WaveformPlayer = forwardRef<WaveformPlayerHandle, Props>(function Waveform
       wavesurferRef.current.play();
       onStatusChange("playing");
       if (captureStartedRef.current) {
-        // 일시정지에서 재개 — 이미 열린 세션의 저장 버퍼만 다시 켠다.
         captureSession.resumeRecording();
       } else {
-        // 최초 재생 — 파일 출력과 동시에 캡처 세션을 시작해 실제 하드웨어 응답(V/I)을 분석한다.
         captureStartedRef.current = true;
         void captureSession.start();
       }
     }
   }, [isReady, pausePlayback, onStatusChange, captureSession.start, captureSession.resumeRecording]);
 
-  // ── 정지 ─────────────────────────────────────────────────────────────────
   const handleStop = useCallback(() => {
     if (!wavesurferRef.current) return;
     wavesurferRef.current.stop();
@@ -229,7 +175,6 @@ const WaveformPlayer = forwardRef<WaveformPlayerHandle, Props>(function Waveform
     onStatusChange("ready");
   }, [captureSession.cleanup, onStatusChange]);
 
-  // page.tsx에서 ref.current.sendMessage()로 WS 전송
   useImperativeHandle(ref, () => ({
     sendMessage: captureSession.sendMessage,
     pause: pausePlayback,
@@ -240,7 +185,6 @@ const WaveformPlayer = forwardRef<WaveformPlayerHandle, Props>(function Waveform
 
   const isPlaying = status === "playing";
 
-  // 플로팅 필 독 — #content-column 기준 하단 중앙 고정 (WaveformPlayer.tsx의 리스킨 계획 참고).
   return (
     <div
       id="waveform-player"
@@ -265,7 +209,6 @@ const WaveformPlayer = forwardRef<WaveformPlayerHandle, Props>(function Waveform
         {isPlaying ? <Pause size={16} /> : <Play size={16} className="ml-0.5" />}
       </button>
 
-      {/* WaveSurfer 캔버스 */}
       <div
         id="waveform-canvas"
         ref={containerRef}
@@ -279,7 +222,6 @@ const WaveformPlayer = forwardRef<WaveformPlayerHandle, Props>(function Waveform
         )}
       </div>
 
-      {/* 현재 재생 시간 */}
       <span
         id="playback-time"
         className={cn(
@@ -293,12 +235,10 @@ const WaveformPlayer = forwardRef<WaveformPlayerHandle, Props>(function Waveform
 
       <div className="hidden sm:block w-px h-5 bg-iron-200 shrink-0" />
 
-      {/* 파일명 */}
       <span className="hidden md:inline shrink-0 max-w-[150px] truncate text-[13px] text-iron-500">
         {audioFile?.name ?? "—"}
       </span>
 
-      {/* 스트리밍 연결 상태 */}
       <span className="hidden sm:flex shrink-0 items-center gap-1.5 text-xs text-iron-500">
         <span
           className={cn(

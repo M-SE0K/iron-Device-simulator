@@ -1,10 +1,5 @@
 "use client";
 
-// sessionStorage 프레임 캐시(chart data) + IndexedDB 오디오 blob 복원 — 탭 전환 후 재마운트나
-// F5 새로고침 시 파형/차트를 그대로 되살린다. 실패해도 실시간 온도/익스커션 표시 자체와는
-// 무관하고 F5 복원만 영향을 받는다. refs(streamingFramesRef 등)는 handleSaveToWorkspace와
-// 파일 선택/리셋/입력모드전환 라이프사이클도 함께 읽고 쓰므로 DashboardClient(부모)가
-// 계속 소유하고 이 훅에 주입한다(MicrophonePlayer capture 훅과 동일 패턴).
 import { useCallback, useEffect, type MutableRefObject } from "react";
 import type { AppStatus, AnalysisFrame } from "@/features/audio/types";
 import { saveFrameCache, loadFrameCache } from "@/features/audio/lib/cache/frame";
@@ -28,7 +23,6 @@ export function useFrameCachePersistence(deps: FrameCachePersistenceDeps) {
     setStreamingFrames, setAudioDuration, setAudioFile,
   } = deps;
 
-  // ── sessionStorage 저장 헬퍼 ──────────────────────────────────────────────
   const persistCache = useCallback(() => {
     saveFrameCache({
       fileName:       audioFile?.name ?? fileNameRef.current,
@@ -37,7 +31,6 @@ export function useFrameCachePersistence(deps: FrameCachePersistenceDeps) {
     });
   }, [audioFile]);
 
-  // ── 마운트 시 캐시 복원 (탭 전환 후 재마운트 / 새로고침 대응) ──────────────
   useEffect(() => {
     const snap = loadFrameCache();
     if (snap) {
@@ -46,8 +39,6 @@ export function useFrameCachePersistence(deps: FrameCachePersistenceDeps) {
       fileNameRef.current = snap.fileName;
     }
 
-    // 오디오 원본(IndexedDB) 복원 → WaveformPlayer가 재디코딩하여 파형을 다시 그린다.
-    // handleFileSelected를 거치지 않으므로 복원된 차트 캐시를 비우지 않는다.
     let cancelled = false;
     void getCachedAudio().then((file) => {
       if (cancelled || !file) return;
@@ -58,13 +49,11 @@ export function useFrameCachePersistence(deps: FrameCachePersistenceDeps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // ── 재생 정지(paused/ready) 시 캐시 저장 ──────────────────────────────────
   useEffect(() => {
     const stalled = (s: AppStatus) => s === "paused" || s === "ready";
     if (stalled(realtimeStatus)) persistCache();
   }, [realtimeStatus, persistCache]);
 
-  // ── 탭 숨김/이탈(새로고침 포함) 직전 캐시 저장 ────────────────────────────
   useEffect(() => {
     const onPageHide = () => persistCache();
     const onVisibility = () => { if (document.visibilityState === "hidden") persistCache(); };

@@ -1,10 +1,5 @@
 "use client";
 
-// 우측 슬라이딩 드로어(사이드바 "측정 기록" 내비) — 저장된 측정 세션(음원 + 분석 그래프)의
-// 관리 지점. 원본 파일별로 그룹핑해 "파일 → 측정 기록" 트리로 보여주고, 각 기록에서
-// 이름 변경/삭제(CRUD) 및 JSON/CSV/오디오/채널 내보내기(export)를 수행한다.
-// (기존 Workspace 드로어의 아이템 CRUD/export 를 이곳으로 이전했다.)
-// 데이터는 WorkspaceContext.items(lib/cache/workspace.ts, IndexedDB)를 그대로 공유한다.
 import { memo, useEffect, useMemo, useRef, useState } from "react";
 import { ChevronRight, History, Music, Pencil, Trash2 } from "lucide-react";
 import { useWorkspace } from "./WorkspaceContext";
@@ -23,7 +18,6 @@ interface FileGroup {
   items: WorkspaceItemMeta[];
 }
 
-// ── 측정 기록 한 줄 (트리 자식) — 이름 변경/삭제 + JSON/CSV/오디오/채널 내보내기 ──────────
 function RecordRow({ item }: { item: WorkspaceItemMeta }) {
   const { rename, remove, exportJson, exportCsv, downloadAudio, downloadProtectedAudio } = useWorkspace();
   const [editing, setEditing] = useState(false);
@@ -63,7 +57,6 @@ function RecordRow({ item }: { item: WorkspaceItemMeta }) {
 
   return (
     <div className="group/rec my-0.5 flex flex-col gap-1.5 rounded-lg px-2.5 py-2 transition hover:bg-iron-50">
-      {/* 1행 — 이름(편집) + 상태 + 이름변경/삭제 */}
       <div className="flex items-center gap-1.5 min-w-0">
         {editing ? (
           <input
@@ -109,7 +102,6 @@ function RecordRow({ item }: { item: WorkspaceItemMeta }) {
         </button>
       </div>
 
-      {/* 2행 — 메타 (생성일 · 모드 · Peak · Exc · 프레임 수) */}
       <div className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-[11px] text-iron-400 tabular-nums">
         <span>{new Date(item.createdAt).toLocaleString()}</span>
         <span>· {modeLabel}</span>
@@ -119,7 +111,6 @@ function RecordRow({ item }: { item: WorkspaceItemMeta }) {
         <span>· {item.frameCount}fr</span>
       </div>
 
-      {/* 3행 — 내보내기 */}
       <div className="flex items-center gap-1.5">
         {exportActions.map((action) => (
           <button
@@ -133,7 +124,6 @@ function RecordRow({ item }: { item: WorkspaceItemMeta }) {
         ))}
       </div>
 
-      {/* 채널별 파형 뷰 — 저장된 N채널 WAV를 디코딩해 채널마다 렌더링 (드로어 위 전체 화면) */}
       {channelView && <ChannelViewerOverlay item={item} onClose={() => setChannelView(false)} />}
     </div>
   );
@@ -194,7 +184,6 @@ function RecordsDrawer() {
             </div>
           ) : (
             <div className="flex flex-col gap-1">
-              {/* 섹션 헤더 — Workspace 폴더 섹션과 동일 톤 */}
               <div className="flex items-center justify-between px-1 pb-1">
                 <span className="text-sm font-medium text-iron-400">파일별 기록</span>
                 <CountBadge count={groups.length} suffix="개 파일" />
@@ -204,7 +193,6 @@ function RecordsDrawer() {
                 const isOpen = expanded.has(group.key);
                 return (
                   <div key={group.key} className="flex flex-col">
-                    {/* 파일 그룹 행 (폴더 역할) */}
                     <button
                       type="button"
                       onClick={() => toggle(group.key)}
@@ -228,7 +216,6 @@ function RecordsDrawer() {
                       </span>
                     </button>
 
-                    {/* 측정 기록 트리 — 세로 트렁크 + L자 커넥터 */}
                     {isOpen && (
                       <div className="ml-[25px] mt-1 flex flex-col border-l border-iron-200 animate-expand-down">
                         {group.items.map((item) => (
@@ -250,6 +237,4 @@ function RecordsDrawer() {
   );
 }
 
-// props 없는 드로어 — 캡처 중 대시보드의 실시간 프레임 리렌더에 딸려 다시 그려지지 않게
-// memo로 차단한다(갱신은 자체 Context/상태로만).
 export default memo(RecordsDrawer);

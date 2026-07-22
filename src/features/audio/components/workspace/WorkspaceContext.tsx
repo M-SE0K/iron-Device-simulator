@@ -1,9 +1,5 @@
 "use client";
 
-// 작업 영역(Workspace) 단일 소스 (앱 전역 Context)
-// 대시보드 "저장" 버튼(DashboardClient)과 좌측 드로어(WorkspaceDrawer)가 같은 목록을 공유한다.
-// 실제 절차는 hooks/(useWorkspaceItems·useLocalFolderConnection·useBrowserFolderUpload)로 갈라져 있고,
-// 이 Context는 그것들을 조합해 값을 노출하는 역할만 한다(calibration/ CalibrationContext와 동일한 분리 패턴).
 import { createContext, useCallback, useContext, useMemo, useState, type ReactNode } from "react";
 import { useWorkspaceItems } from "./hooks/useWorkspaceItems";
 import { useLocalFolderConnection } from "./hooks/useLocalFolderConnection";
@@ -23,9 +19,6 @@ interface WorkspaceCtx {
   exportCsv: (meta: WorkspaceItemMeta) => Promise<void>;
   downloadAudio: (meta: WorkspaceItemMeta) => Promise<void>;
   downloadProtectedAudio: (meta: WorkspaceItemMeta) => Promise<void>;
-  // 로컬 폴더 연결(Electron 데스크톱 전용) — 폴더 선택/감시는 electron/main.js가 담당하고
-  // 여기서는 그 결과 상태만 들고 있는다. pendingLocalFile은 DashboardClient가 소비해
-  // 기존 handleFileSelected(File) 파이프라인에 그대로 흘려보낸다.
   localFolderPath: string | null;
   localFolderFiles: LocalAudioFileEntry[];
   localFolderError: string | null;
@@ -33,15 +26,11 @@ interface WorkspaceCtx {
   connectLocalFolder: () => Promise<void>;
   disconnectLocalFolder: () => void;
   loadLocalFile: (entry: LocalAudioFileEntry) => Promise<void>;
-  // 브라우저(웹/모바일) 폴더 업로드 — <input webkitdirectory>. Electron localFolder 가
-  // 없는 빌드에서 같은 "폴더에서 파일 고르기" UX 를 제공한다. File 을 직접 들고 있으므로
-  // 별도 IPC 읽기 없이 loadBrowserFile 이 pendingLocalFile 로 바로 흘려보낸다.
   browserFolderName: string | null;
   browserFolderFiles: File[];
   selectBrowserFolder: (files: FileList | File[]) => void;
   disconnectBrowserFolder: () => void;
   loadBrowserFile: (file: File) => void;
-  // 마지막으로 로드한(=현재 분석 중인) 파일 이름 — 폴더 목록에서 선택 항목 하이라이트용
   activeFileName: string | null;
   pendingLocalFile: File | null;
   clearPendingLocalFile: () => void;
@@ -60,8 +49,6 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
   const { items, saveCurrent, rename, remove, exportJson, exportCsv, downloadAudio, downloadProtectedAudio } =
     useWorkspaceItems(() => activeDrawer.openDrawer("records"));
 
-  // 로컬/브라우저 두 폴더 소스가 공유하는 다리 상태 — 어느 쪽에서 로드하든 DashboardClient의
-  // 기존 handleFileSelected(File) 파이프라인으로 그대로 흘려보낸다.
   const [pendingLocalFile, setPendingLocalFile] = useState<File | null>(null);
   const [activeFileName, setActiveFileName]     = useState<string | null>(null);
   const onFileLoad = useCallback((file: File, name: string) => {

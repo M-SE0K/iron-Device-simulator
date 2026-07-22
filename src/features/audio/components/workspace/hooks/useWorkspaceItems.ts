@@ -1,7 +1,5 @@
 "use client";
 
-// 워크스페이스 항목 CRUD + export — WorkspaceContext가 조합하는 훅 중 하나.
-// 영속화는 lib/cache/workspace.ts(IndexedDB)가 담당하고, 이 훅은 그 위의 목록 상태 + 액션만 감싼다.
 import { useCallback, useEffect, useState } from "react";
 import {
   listWorkspaceItems,
@@ -74,12 +72,10 @@ export function useWorkspaceItems(onSaved: () => void) {
   const downloadAudio = useCallback(async (meta: WorkspaceItemMeta) => {
     const payload = await getWorkspacePayload(meta.id);
     if (!payload?.audioBlob) return;
-    // 편집한 기록 이름(meta.name)을 파일명으로 쓰되, 확장자는 원본 오디오 파일명에서 보존한다.
     const ext = splitFileName(meta.audioFileName).ext || "audio";
     downloadBlob(payload.audioBlob, `${sanitizeFileName(meta.name)}.${ext}`);
   }, []);
 
-  // 보호 감쇠가 적용된 PCM WAV 다운로드 — 원본 오디오와 구분되게 파일명에 -protected를 붙인다.
   const downloadProtectedAudio = useCallback(async (meta: WorkspaceItemMeta) => {
     const payload = await getWorkspacePayload(meta.id);
     if (!payload?.protectedAudioBlob) return;

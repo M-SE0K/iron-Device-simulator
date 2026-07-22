@@ -1,20 +1,3 @@
-// ─── 5단계 지연 측정 하네스 — 수집기(싱글턴) ────────────────────────────────
-//
-// 계측 지점이 4개 레이어(캡처 훅 / 세션 훅 / 엔진 메시지 / 차트)에 흩어져 있어 prop/ref
-// 드릴링 대신 모듈 싱글턴 하나(perf)를 각 지점이 직접 import한다. 세션 생명주기는
-// useCaptureSession이 소유한다(캡처 시작 → startSession, cleanup → endSession).
-//
-//   useNativeCapture / useWebAudioWorkletCapture
-//     → markChunkArrival()          : 캡처 콜백 진입(1. HW capture 간격의 기준점)
-//     → markFrameSent(encodingMs)   : 와이어 프레임 send 직전(2. Encoding 확정,
-//                                     1·2단계 값을 프레임 순서 그대로 FIFO에 페어링)
-//   useCaptureSession(onmessage "frame")
-//     → recordFrame(audioTime, wasmMs, decodingMs) : 3·4단계 + FIFO에서 1·2단계 회수
-//   TemperatureChart / ExcursionChart (perfTrack 인스턴스만 — 상세 오버레이 중복 방지)
-//     → recordRender(chart, renderMs) : 5. ECharts 렌더
-//
-// 측정 데이터는 세션이 끝나도 다음 세션 시작 전까지 보존된다 — 콘솔/러너가
-// window.__ironPerf.summary()/export()/download()로 꺼내 간다.
 import type {
   PerfExport, PerfFrameSample, PerfRenderSample, PerfSessionMeta, PerfStageStats,
 } from "./types";
@@ -47,14 +30,10 @@ class PerfCollector {
   private frames: PerfFrameSample[] = [];
   private renders: PerfRenderSample[] = [];
   private frameIdx = 0;
-  // 1단계 — 직전 캡처 콜백 도착 시각. 간격은 markFrameSent 시점에 청크당 1회만 소비된다.
   private lastChunkAt = 0;
   private pendingHwCaptureMs: number | null = null;
-  // 1·2단계 → 3·4단계 페어링 FIFO — send는 캡처 스레드 콜백에서, frame 수신은 마이크로태스크
-  // 에서 일어나 한 청크가 여러 프레임을 연속 send할 수 있으므로 단일 슬롯 대신 큐로 잇는다.
   private sentQueue: Array<{ hwCaptureMs: number | null; encodingMs: number | null }> = [];
 
-  /** 새 캡처 세션 시작 — 이전 세션 데이터를 버리고 수집을 켠다(캡처 훅이 호출). */
   startSession(meta: PerfSessionMeta): void {
     this.active = true;
     this.meta = meta;
@@ -69,7 +48,6 @@ class PerfCollector {
     this.sentQueue = [];
   }
 
-  /** 세션 종료 — 수집만 멈추고 데이터는 다음 startSession까지 보존한다(cleanup이 호출). */
   endSession(): void {
     if (!this.active) return;
     this.active = false;
@@ -80,7 +58,6 @@ class PerfCollector {
     return this.active;
   }
 
-  /** 1. HW capture — 캡처 콜백(네이티브 onData / 워클릿 message) 진입 시 호출. */
   markChunkArrival(): void {
     if (!this.active) return;
     const now = performance.now();
@@ -88,17 +65,15 @@ class PerfCollector {
     this.lastChunkAt = now;
   }
 
-  /** 2. Encoding — 와이어 프레임 send 직전 호출. 1단계 간격과 함께 프레임 순서로 페어링. */
   markFrameSent(encodingMs: number | null): void {
     if (!this.active) return;
     this.sentQueue.push({
       hwCaptureMs: this.pendingHwCaptureMs,
       encodingMs: encodingMs !== null ? round3(encodingMs) : null,
     });
-    this.pendingHwCaptureMs = null; // 같은 청크의 2번째 이후 프레임엔 싣지 않는다
+    this.pendingHwCaptureMs = null;
   }
 
-  /** 3·4. WASM 분석 + Decoding — frame 메시지 처리 완료 시 호출(useCaptureSession). */
   recordFrame(audioTime: number, wasmMs: number, decodingMs: number): void {
     if (!this.active) return;
     const sent = this.sentQueue.shift() ?? { hwCaptureMs: null, encodingMs: null };
@@ -112,7 +87,6 @@ class PerfCollector {
     });
   }
 
-  /** 5. ECharts 렌더 — 차트가 프레임 커밋→rendered 구간을 잰 뒤 호출(perfTrack 인스턴스만). */
   recordRender(chart: PerfRenderSample["chart"], renderMs: number): void {
     if (!this.active) return;
     this.renders.push({
@@ -143,7 +117,6 @@ class PerfCollector {
     };
   }
 
-  /** 세션 전체 스냅샷 — 세션이 한 번도 시작되지 않았으면 null. */
   export(): PerfExport | null {
     if (!this.meta) return null;
     const endPerf = this.endedAtPerf ?? performance.now();
@@ -160,7 +133,6 @@ class PerfCollector {
     };
   }
 
-  /** export()를 JSON 파일로 다운로드(브라우저 콘솔용 편의 함수). */
   download(filename?: string): void {
     const data = this.export();
     if (!data || typeof document === "undefined") return;
@@ -190,7 +162,6 @@ class PerfCollector {
 
 export const perf = new PerfCollector();
 
-// ── 브라우저 콘솔 접근용 전역 노출 (자동화 Puppeteer 러너는 제거됨, 수동 호출만) ──
 declare global {
   interface Window {
     __ironPerf?: Pick<

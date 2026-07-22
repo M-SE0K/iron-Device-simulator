@@ -1,28 +1,15 @@
-// TemperatureChart/ExcursionChart이 각자 구현하던 "표시 윈도우 계산"·"Y축 동적 범위 계산"을 공유 순수 함수로 뽑아둔다. 두 차트의 실제 알고리즘(Y축 범위)은 지표별로 다르므로 하나로 합치지 않고, 각 차트가 자신에게 맞는 함수를 골라 쓴다.
 import type { AnalysisFrame } from "@/features/audio/types";
 import { findFrameIndex } from "@/shared/lib/utils";
 
 export type ChannelMode = "L" | "R" | "Both";
 
-/** 차트가 유지하는 슬라이딩 표시 윈도우 프레임 수 — Temperature/Excursion 공통. */
 export const WINDOW_SIZE = 1000;
 
 export interface StreamWindowResult {
-  /** 헤더에 표시할 현재값(스트리밍: 마지막 프레임 / 비스트리밍: currentTime 위치 프레임) */
   current: [number, number] | null;
-  /** 차트에 그릴 윈도우 프레임 목록 */
   windowFrames: AnalysisFrame[];
 }
 
-/**
- * 실시간(streaming)/비실시간(seek) 공용 표시 윈도우 계산.
- *   - streaming(파일/마이크 공통): 0초부터 전체 누적 프레임 — 왼쪽 끝(0초)을 고정한 채
- *     오른쪽만 늘어나는 뷰. 표시 윈도우를 최근 N개로 자르면 왼쪽 끝이 스크롤돼 0초가 밀리므로
- *     자르지 않는다(버퍼 상한 제거는 DashboardClient 쪽 정책).
- *   - 비streaming(seek): currentTime 위치까지 최대 windowSize 프레임 — 배치 분석 제거로
- *     현재 앱에서는 이 분기를 호출하는 곳이 없다(항상 streaming=true). 함수는 재사용
- *     가능성을 위해 남겨둔다.
- */
 export function computeStreamWindow(
   frames: AnalysisFrame[],
   currentTime: number,
@@ -37,7 +24,6 @@ export function computeStreamWindow(
   }
 
   if (streaming) {
-    // 파일/마이크 모두 전체 누적 프레임을 그린다 — 0초 원점 고정(왼쪽 끝 스크롤 방지).
     const lastFrame = frames[frames.length - 1];
     return { current: lastFrame ? pick(lastFrame) : null, windowFrames: frames };
   }
@@ -48,10 +34,6 @@ export function computeStreamWindow(
   return { current, windowFrames: frames.slice(start, frameIdx + 1) };
 }
 
-/**
- * 익스커션 Y축 동적 범위 — 표시 채널의 메인값 + envelope(min/max)까지 포함해 범위를 잡고
- * 대칭 패딩을 둔다(mm 등 표시 단위로 변환된 값 기준).
- */
 export function computeExcursionYRange(
   windowFrames: AnalysisFrame[],
   channelMode: ChannelMode,
@@ -84,10 +66,6 @@ export function computeExcursionYRange(
   return { yMin: dataMin - pad, yMax: dataMax + pad };
 }
 
-/**
- * 온도 Y축 동적 범위 — 기본 0~100°C 고정, 표시 채널 값이 범위를 벗어나면 8% 헤드룸을 두고
- * '깔끔한' 단위(10/25/50/100)로 확장한다.
- */
 export function computeTemperatureYRange(
   windowFrames: AnalysisFrame[],
   channelMode: ChannelMode,

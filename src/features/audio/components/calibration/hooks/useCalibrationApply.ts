@@ -1,8 +1,5 @@
 "use client";
 
-// "적용" 버튼 오케스트레이션 — Context에 draft를 커밋하고, 네이티브 브리지가 있으면 capture
-// probe(TN2321: 아주 잠깐 열었다 닫기)로 실제 반영된 SampleRate/BufferFrameSize를 확인한다.
-// 결과(요청→실제)는 sessionStorage에 저장해 새로고침 후에도 "연결된 장치" 패널에 남는다.
 import { useCallback, useEffect, useState, type Dispatch, type SetStateAction } from "react";
 import {
   loadDeviceActualCache, saveDeviceActualCache, type DeviceActualCache,
@@ -29,16 +26,12 @@ export function useCalibrationApply(deps: UseCalibrationApplyDeps) {
   const [deviceStatus, setDeviceStatus] = useState<DeviceApplyStatus>("idle");
   const [deviceActual, setDeviceActual] = useState<{ sampleRate: number | null; bufferSize: number | null; channels?: number } | null>(null);
   const [deviceError, setDeviceError] = useState<string | null>(null);
-  // "적용" 시 capture probe로 확인한 실제 런타임 값 — sessionStorage에 저장되어 새로고침(F5)
-  // 후에도 "연결된 장치" 패널에 마지막 적용값이 그대로 렌더링된다.
   const [appliedRuntime, setAppliedRuntime] = useState<DeviceActualCache | null>(null);
 
   useEffect(() => {
-    // 새로고침 후에도 마지막으로 적용된 런타임 값을 복원해 "연결된 장치" 패널에 표시
     setAppliedRuntime(loadDeviceActualCache());
   }, []);
 
-  /** 드로어가 열릴 때마다 이전 적용 결과 표시를 지운다 (CalibrationDrawer의 [open] 오케스트레이션 effect가 호출). */
   const resetStatus = useCallback(() => {
     setDeviceStatus("idle");
     setDeviceActual(null);
@@ -54,15 +47,9 @@ export function useCalibrationApply(deps: UseCalibrationApplyDeps) {
       return;
     }
 
-    // BufferFrameSize는 per-client 프로퍼티(TN2321)라 set만으로는 실제 반영 여부를 확인할
-    // 수 없다 — capture(IOProc)를 아주 잠깐 열었다가 즉시 닫아 그 순간의 진짜 적용값만
-    // 읽어온다(SampleRate는 capture 내부에서도 동일하게 설정됨). 결과를 보여줘야 하므로
-    // 드로어는 사용자가 직접 닫는다. 이미 녹음 중이면 실패(capture-already-running)한다.
     setDeviceStatus("applying");
     setDeviceError(null);
     const requested = { sampleRate: Number(draft.sampleRate), bufferSize: Number(draft.bufferSize) };
-    // 드롭다운이 이미 장치의 inputChannels 이하로 제한돼 있지만, sessionStorage 복원 등으로
-    // draft가 그 제약 이전 값을 들고 있을 가능성에 대비해 여기서도 한 번 더 상한을 건다.
     const requestedChannels = clampCaptureChannels(draft.channels);
     const captureChannels = deviceInfo?.inputChannels
       ? Math.min(requestedChannels, deviceInfo.inputChannels)
@@ -76,14 +63,11 @@ export function useCalibrationApply(deps: UseCalibrationApplyDeps) {
 
     if (result.success) {
       await window.audioCapture.stop();
-      // result.channels는 actual과 형제 필드로 온다(네이티브 헬퍼 capture 응답 — mac.swift) —
-      // actual 안에 없으므로 여기서 합쳐줘야 화면/캐시 어디서도 채널이 빠지지 않는다.
       const actualWithChannels = result.actual
         ? { ...result.actual, channels: result.channels }
         : null;
       setDeviceActual(actualWithChannels);
       setDeviceStatus("applied");
-      // 실제 반영된 런타임 값을 저장 → 새로고침 후에도 "연결된 장치" 패널에 유지된다.
       const runtime: DeviceActualCache = {
         requested: { ...requested, channels: captureChannels },
         actual: actualWithChannels ?? { sampleRate: null, bufferSize: null },
@@ -99,8 +83,6 @@ export function useCalibrationApply(deps: UseCalibrationApplyDeps) {
       );
     }
 
-    // capture probe(IOProc)가 닫힌 뒤 "연결된 장치" 패널의 CoreAudio query()도 새로고침해
-    // 적용 결과를 바로 확인할 수 있게 한다("새로고침" 버튼과 동일 동작).
     await refreshDeviceInfo();
   }, [draft, setValues, onApply, hasAudioDeviceBridge, deviceInfo, setOpen, refreshDeviceInfo]);
 

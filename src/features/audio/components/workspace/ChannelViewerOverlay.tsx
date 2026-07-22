@@ -1,9 +1,5 @@
 "use client";
 
-// 저장 세션의 채널별 파형 뷰 — 측정 기록 드로어(RecordsDrawer)의 "채널" 액션으로 진입하는
-// 전체 화면 오버레이(ChartDetailOverlay와 동일한 전환 패턴). 워크스페이스에 보존된
-// N채널 WAV(마이크 전 채널 캡처: ch0=V, ch1=I, ch2..=확장 / 파일 모드: 2ch V·I)를
-// 디코딩해 채널마다 파형(LTTB 단일 선) + peak/RMS 통계를 렌더링한다.
 import { useEffect, useState } from "react";
 import { ArrowLeft, AudioLines, X } from "lucide-react";
 import { getWorkspacePayload, type WorkspaceItemMeta } from "@/features/audio/lib/cache/workspace";
@@ -24,10 +20,8 @@ export default function ChannelViewerOverlay({ item, onClose }: Props) {
   const [decoded, setDecoded] = useState<DecodedChannels | null>(null);
   const [error, setError]     = useState<string | null>(null);
 
-  // 진입/이탈 애니메이션 — ChartDetailOverlay와 동일 패턴(useOverlayTransition 공용)
   const { show, close } = useOverlayTransition(onClose);
 
-  // 페이로드(IndexedDB) 로드 → 디코딩. 언마운트 후 setState 방지 가드.
   useEffect(() => {
     let cancelled = false;
     (async () => {
@@ -48,7 +42,6 @@ export default function ChannelViewerOverlay({ item, onClose }: Props) {
 
   return (
     <FullscreenOverlay show={show} ariaLabel={`${item.name} 채널별 파형`}>
-      {/* 상단 바 */}
       <header className="shrink-0 h-14 px-3 sm:px-5 flex items-center gap-3 border-b border-iron-100 bg-white">
         <button
           type="button"
@@ -80,7 +73,6 @@ export default function ChannelViewerOverlay({ item, onClose }: Props) {
         </button>
       </header>
 
-      {/* 본문 — 채널별 스택 */}
       <div className="flex-1 min-h-0 overflow-y-auto p-3 sm:p-5">
         {error && <p className="text-sm text-red-500 text-center py-10">{error}</p>}
         {!error && !decoded && (

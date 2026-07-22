@@ -6,16 +6,11 @@ import { cn } from "@/shared/lib/utils";
 import { AppStatus, AnalysisFrame, InputParameterValues } from "@/features/audio/types";
 import { useCaptureSession, type CaptureRecordingExport, type CaptureStreamListener } from "./capture/useCaptureSession";
 
-/** 저장 요청 시 상위(DashboardClient)로 넘기는 전 채널 캡처 내보내기 */
 export type MicRecordingExport = CaptureRecordingExport;
 
-/** page.tsx에서 ref로 접근할 수 있는 MicrophonePlayer 핸들 — WaveformPlayerHandle과 동일 계약 */
 export interface MicrophonePlayerHandle {
-  /** 캡처 세션 버퍼(ch0=V/ch1=I + 확장 채널)를 WAV로 인코딩해 반환한다. 캡처 이력이 없으면 null. */
   exportRecordedAudio: () => Blob | null;
-  /** 보호 감쇠가 적용된 PCM(엔진 buf In/Out 결과)의 WAV 스냅샷 — 감쇠 전/후 비교·내보내기용 */
   exportProtectedAudio: () => Blob | null;
-  /** 원본 캡처 청크 실시간 스트림을 구독한다(ChartDetailOverlay 채널 뷰) — WaveformPlayer와 동일 계약. */
   subscribeCaptureStream: (fn: CaptureStreamListener) => () => void;
 }
 
@@ -26,7 +21,6 @@ interface Props {
   onStreamStart: () => void;
   onSaveRecording?: (rec: MicRecordingExport) => Promise<void> | void;
   inputParams: InputParameterValues;
-  /** ChartDetailOverlay(z-[60])가 열려 있을 때 플로팅 독을 그 위로 끌어올린다 — WaveformPlayer와 동일 계약. */
   elevated?: boolean;
 }
 
@@ -55,11 +49,8 @@ const MicrophonePlayer = forwardRef<MicrophonePlayerHandle, Props>(function Micr
     subscribeCaptureStream,
   }), [getRecordedBlob, getProtectedBlob, subscribeCaptureStream]);
 
-  // 언마운트 시 정리
   useEffect(() => () => { cleanup(); }, [cleanup]);
 
-  // 플로팅 필 독 — WaveformPlayer(파일 모드)와 같은 위치/폭. 파형 스크러버 대신 녹음
-  // 상태/장치 정보(대기) 또는 송수신 프레임 카운터(녹음 중)를 보여준다.
   return (
     <div
       className={cn(
@@ -106,7 +97,6 @@ const MicrophonePlayer = forwardRef<MicrophonePlayerHandle, Props>(function Micr
         )}
       </div>
 
-      {/* 전 채널 저장 — 정지 후 세션 버퍼(ch0=V, ch1=I + 확장 채널)를 WAV로 워크스페이스에 보존 */}
       {hasRecording && onSaveRecording && (
         <button
           onClick={saveRecording}

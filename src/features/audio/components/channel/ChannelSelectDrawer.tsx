@@ -1,10 +1,5 @@
 "use client";
 
-// 표시 항목 선택 드로어 — ChartDetailOverlay(차트 상세 뷰) 안에서 여는 우측 슬라이딩 드로어.
-// WorkspaceDrawer/RecordsDrawer와 동일한 컴포넌트 구조(배경 오버레이 + translate-x 패널)를
-// 그대로 쓰되, 데이터만 "저장된 항목 목록" 대신 "현재 화면에 쌓을 수 있는 항목(메인 차트 +
-// 캡처된 오디오의 채널 번호)"으로 바꿔 재사용한다. 메인 차트(Temperature/Excursion)도 채널과
-// 동일하게 여기서 체크 해제해 스택에서 제거하거나 다시 추가할 수 있다.
 import type { LucideIcon } from "lucide-react";
 import { AudioLines } from "lucide-react";
 import { cn } from "@/shared/lib/utils";
@@ -84,7 +79,6 @@ export default function ChannelSelectDrawer({ open, onClose, entries, selected, 
       layer="overlay"
       safeAreaTop
     >
-          {/* 메인 차트 — 채널과 동일한 체크 방식으로 스택에서 제거/추가 */}
           {metricEntries.length > 0 && (
             <div className="flex flex-col gap-1 mb-3 pb-3 border-b border-iron-100">
               <div className="px-1 pb-1">

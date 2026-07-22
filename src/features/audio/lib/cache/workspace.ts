@@ -1,9 +1,3 @@
-// ── 작업 영역(Workspace) IndexedDB 저장소 ───────────────────────────────────
-// 대시보드 "저장" 버튼으로 만든 세션(오디오 원본 + 분석 그래프 프레임)을 브라우저에
-// 영구 보관한다 — 탭을 닫아도 유지된다(sessionStorage 기반 차트 캐시 lib/cache/frame.ts
-// 와는 다른 수명. 그쪽은 "표시용" 임시 캐시, 이쪽은 사용자가 명시적으로 보존한 세션).
-//   · meta 스토어: 목록 렌더용 가벼운 메타데이터(이름/생성일/길이/프레임수 등)
-//   · payload 스토어: 실제 프레임 배열 + 오디오 Blob — 목록에는 안 실어 무거운 로드를 피한다.
 import { AnalysisFrame } from "@/features/audio/types";
 import { slimAnalysisFrames } from "./frame-utils";
 import { hasIndexedDb, openIndexedDb } from "./idb";
@@ -27,9 +21,6 @@ export interface WorkspaceItemMeta {
   peakTemp: number | null;
   peakExcursion: number | null;
   status: SessionStatus | null;
-  // 보호 감쇠가 적용된 PCM(V/I 2ch) WAV가 payload에 함께 저장됐는지 — 목록/내보내기 UI가
-  // payload를 열지 않고도 "보호 WAV" 버튼 노출 여부를 판단하는 데 쓴다. 구버전 항목에는
-  // 없어(undefined) 자연히 false로 취급된다.
   hasProtectedAudio?: boolean;
 }
 
@@ -37,8 +28,6 @@ export interface WorkspacePayload {
   frames: AnalysisFrame[];
   audioBlob: Blob | null;
   audioType: string | null;
-  // 보호 감쇠가 적용된 PCM(엔진이 buf를 In/Out으로 되쓴 결과, 항상 2ch=V/I)의 WAV.
-  // 원본 캡처(audioBlob)와 짝을 이뤄 저장되며, 캡처/보호 데이터가 없으면 null이다.
   protectedAudioBlob?: Blob | null;
   protectedAudioType?: string | null;
 }
@@ -145,7 +134,6 @@ export async function renameWorkspaceItem(id: string, name: string): Promise<voi
     });
     db.close();
   } catch {
-    // ignore
   }
 }
 
@@ -162,7 +150,6 @@ export async function deleteWorkspaceItem(id: string): Promise<void> {
     });
     db.close();
   } catch {
-    // ignore
   }
 }
 

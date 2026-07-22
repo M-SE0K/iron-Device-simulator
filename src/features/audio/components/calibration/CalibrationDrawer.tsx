@@ -1,12 +1,5 @@
 "use client";
 
-// 우측 슬라이딩 드로어 — 캘리브레이션 파라미터 편집(앱 전역 단일 소스).
-// 값은 CalibrationProvider(Context)에 보관되어 대시보드 분석에 그대로 쓰인다("캘리브레이션 단일 적용").
-// 편집은 로컬 draft 에서 하고 "적용" 시 Context 에 커밋한다.
-//   · Input·Output·Capture Device
-//   · Sample Rate / Buffer Size / Capture Channels (+ 연결된 장치 능력 패널)
-// 좌측 WorkspaceDrawer와 동일하게 항상 마운트된 순수 DOM(비Radix)로 구현 — open 불리언으로
-// 클래스만 토글해 열기/닫기 양방향 슬라이드·페이드 애니메이션을 대칭적으로 재생한다.
 import { memo, useCallback, useEffect } from "react";
 import { RefreshCw, RotateCcw, X } from "lucide-react";
 import AnimatedSelect from "@/shared/components/ui/AnimatedSelect";
@@ -23,7 +16,6 @@ import { useEscapeKey } from "@/shared/hooks/useEscapeKey";
 import SideDrawer from "@/shared/components/overlay/SideDrawer";
 import LabeledField from "@/shared/components/ui/LabeledField";
 
-/** 드롭다운 선택 필드 */
 function SelectField({
   label,
   unit,
@@ -53,7 +45,6 @@ function SelectField({
   );
 }
 
-/** 숫자 자유 입력 필드 — 고정 옵션 목록이 없는 값(온도 임계값 등)용. AnimatedSelect 트리거와 톤을 맞췄다. */
 function NumberField({
   label,
   unit,
@@ -82,7 +73,6 @@ function NumberField({
   );
 }
 
-/** 장치 정보 한 줄 (label · value) */
 function DeviceRow({ label, value }: { label: string; value: string }) {
   return (
     <div className="flex items-start justify-between gap-3 px-3 py-2">
@@ -93,16 +83,12 @@ function DeviceRow({ label, value }: { label: string; value: string }) {
 }
 
 interface Props {
-  /** 선택된 프로젝트명(컨텍스트 표시용, 선택) */
   projectName?: string | null;
-  /** 적용 콜백(선택) — 커밋 후 추가 동작 */
   onApply?: (values: CalibrationValues) => void;
 }
 
 function CalibrationDrawer({ projectName, onApply }: Props) {
   const { values, setValues } = useCalibration();
-  // 우측 드로어 슬롯은 ActiveDrawerContext가 배타적으로 관리한다 — open은 그 파생값.
-  // (입력 소스(파일/마이크) 토글은 대시보드 상단 세그먼트 컨트롤로 이동했다.)
   const activeDrawer = useActiveDrawer();
   const open = activeDrawer.active === "calibration";
   const setOpen = useCallback(
@@ -126,7 +112,6 @@ function CalibrationDrawer({ projectName, onApply }: Props) {
     deviceStatus, deviceActual, deviceError, appliedRuntime, apply, resetStatus,
   } = useCalibrationApply({ draft, setValues, setOpen, hasAudioDeviceBridge, deviceInfo, refreshDeviceInfo, onApply });
 
-  // 열 때마다 적용상태/adjustedNote 리셋 + 장치 정보 새로고침 (draft 자체의 동기화는 useCalibrationDraft가 별도 [open] effect로 담당 — React는 같은 의존성의 effect 여러 개를 선언 순서대로 전부 실행하므로 하나였을 때와 동작이 같다).
   useEffect(() => {
     if (!open) return;
     resetStatus();
@@ -137,7 +122,6 @@ function CalibrationDrawer({ projectName, onApply }: Props) {
   }, [open]);
   useEscapeKey(() => setOpen(false), open);
 
-  // Input/Output Device 헤더의 새로고침 버튼 — 동작이 완전히 동일해 하나로 공유한다.
   const refreshDevicesButton = (
     <button
       type="button"
@@ -193,12 +177,8 @@ function CalibrationDrawer({ projectName, onApply }: Props) {
             </div>
           )}
 
-          {/* 입력 소스(파일/마이크) 토글은 대시보드 상단 세그먼트 컨트롤로 이동했다 — 여기서는 제거. */}
 
-          {/* 기본 입력 */}
           <section className="space-y-3">
-            {/* 입력 장치 — 웹/모바일(getUserMedia) 전용. Electron에서는 아래 "연결된 장치"의
-                Capture Device(CoreAudio UID)가 캡처 대상을 담당하므로 이 선택기는 숨긴다(중복 방지). */}
             {hasMediaDevices && !hasAudioDeviceBridge && (
               <DeviceSelectField
                 label="Input Device"
@@ -223,10 +203,6 @@ function CalibrationDrawer({ projectName, onApply }: Props) {
               />
             )}
 
-            {/* 출력 장치 — 재생을 어느 출력으로 보낼지(WaveSurfer setSinkId). 웹 전용:
-                Electron 파일 모드는 play-capture 단일 IOProc이 Capture Device의 출력 ch0으로
-                직접 재생하므로 별도 출력 선택이 없다(출력 = 캡처 장치). 웹에서는 V/I 센싱
-                루프에서 음원을 앰프/스피커(예: MCHStreamer 출력)로 라우팅하는 데 쓴다. */}
             {hasMediaDevices && !hasAudioDeviceBridge && (
               <DeviceSelectField
                 label="Output Device"
@@ -252,10 +228,6 @@ function CalibrationDrawer({ projectName, onApply }: Props) {
             )}
           </section>
 
-          {/* 온도 임계값 — TemperatureChart의 WARN/DANGER markLine과 렌더 이벤트 감지(detectEvents)가
-              공유한다. 값이 비어있거나 숫자가 아니면 기본값(65/75°C)으로 fallback.
-              Ambient Temp는 임계값이 아니라 ff_prot_start_exec에 그대로 전달되는 엔진 입력값이다
-              (미설정/숫자 아님 시 기본값 25°C로 fallback, engine/protocol/analysis.ts parseEngineParams). */}
           <section className="space-y-3">
             <h4 className="text-xs font-semibold text-iron-500">THRESHOLD</h4>
             <div className="grid grid-cols-2 gap-3">
@@ -280,11 +252,6 @@ function CalibrationDrawer({ projectName, onApply }: Props) {
             </div>
           </section>
 
-          {/* INPUT DEVICE — 네이티브(Swift/CoreAudio) 입력 장치에 적용할 캡처 설정.
-              query()로 받은 지원 SampleRate/Buffer 범위로 옵션을 구성하고, "적용" 시 capture
-              probe(짧게 열었다 닫기)로 실제 장치에 반영·확인한다(브라우저에서는 데모 목록).
-              Buffer는 per-client(TN2321)라 이 probe로만 실제 반영값을 확인할 수 있으며, 결과는
-              아래 상태 문구로 표시한다. */}
           <section className="space-y-3">
             <div className="flex items-center gap-2">
               <h4 className="text-xs font-semibold text-iron-500">DEVICE</h4>
@@ -311,8 +278,6 @@ function CalibrationDrawer({ projectName, onApply }: Props) {
                 disabled={deviceOptionsLoading}
               />
             </div>
-            {/* 장치 미지원 값이 지원값으로 자동 보정됐을 때의 안내 — 사용자가 직접 다시 고르거나
-                드로어를 다시 열면 사라진다. */}
             {adjustedNote && !deviceOptionsLoading && (
               <p className="text-[11px] text-amber-600 leading-relaxed">⚠️ {adjustedNote}</p>
             )}
@@ -326,9 +291,6 @@ function CalibrationDrawer({ projectName, onApply }: Props) {
                 disabled={deviceOptionsLoading}
               />
             )}
-            {/* 파일 재생(play-capture)이 --ref 신호를 내보낼 출력 채널 — 멀티채널 앰프 구성에서
-                ch0이 아닌 다른 출력으로 라우팅할 때 쓴다. 출력 채널이 없는 장치는 애초에 파일
-                재생이 불가하므로(위 경고 참고) 필드 자체를 숨긴다. */}
             {hasAudioDeviceBridge && (deviceInfo?.outputChannels ?? 0) > 0 && (
               <SelectField
                 label="Output Channel (파일 재생)"
@@ -339,8 +301,6 @@ function CalibrationDrawer({ projectName, onApply }: Props) {
                 disabled={deviceOptionsLoading}
               />
             )}
-            {/* "적용" 시 capture probe(TN2321)로 확인한 실제 하드웨어 반영값 — CoreAudio가
-                돌려준 SampleRate/Buffer/Channels 를 요청값과 나란히 보여준다. */}
             {hasAudioDeviceBridge && (
               <div className="text-xs">
                 {deviceStatus === "applying" && <p className="text-iron-400">디바이스에 적용 중…</p>}
@@ -355,7 +315,6 @@ function CalibrationDrawer({ projectName, onApply }: Props) {
             )}
           </section>
 
-          {/* 연결된 장치 정보 (Electron 전용) */}
           {hasAudioDeviceBridge && (
             <section className="space-y-3">
               <div className="flex items-center justify-between">
@@ -370,22 +329,17 @@ function CalibrationDrawer({ projectName, onApply }: Props) {
                 </button>
               </div>
 
-              {/* 캡처 대상 장치 선택 — CoreAudio UID로 특정 장치를 골라 query/capture를 그 장치로 라우팅.
-                  선택은 draft.captureDeviceUID에 저장되어 "적용" 시 MicrophonePlayer의 네이티브 캡처 대상이 된다. */}
               <DeviceSelectField
                 label="Capture Device"
                 aria-label="Capture Device"
                 value={draft.captureDeviceUID}
                 onChange={(uid) => {
                   set({ captureDeviceUID: uid });
-                  refreshDeviceInfo(uid); // 선택 즉시 그 장치의 능력으로 아래 패널을 갱신
+                  refreshDeviceInfo(uid);
                 }}
                 devices={nativeDevices.map((d) => ({
                   value: d.uid,
                   label: d.name || "이름 없음",
-                  // probed=false면 채널 수를 읽지 못한 것이라 "0ch"로 쓰면 장치가 고장 난 것처럼
-                  // 보인다. Windows/ASIO는 드라이버가 배타적이라 녹음 중인 장치가 바로 이 상태가
-                  // 된다 — 흔한 정상 상황이므로 사유를 그대로 보여준다.
                   hint: `${d.probed === false ? "사용 중" : `${d.inputChannels}ch`}${d.isDefault ? " · 기본" : ""}`,
                 }))}
                 placeholderLabel="OS 기본 입력"
@@ -398,9 +352,6 @@ function CalibrationDrawer({ projectName, onApply }: Props) {
               {deviceInfo && (
                 <dl className="rounded-lg border border-iron-200 bg-iron-50/60 divide-y divide-iron-100 text-xs font-mono">
                   <DeviceRow label="Device" value={deviceInfo.device || "—"} />
-                  {/* "적용"으로 확인한 실제 런타임 값이 있으면 그 값을(새로고침 후에도 유지),
-                      없으면 query()의 장치 기본값을 보여준다. Buffer는 per-client(TN2321)라
-                      적용 후에는 런타임 값이 실제 반영값이다. */}
                   <DeviceRow
                     label={appliedRuntime ? "현재(적용값)" : "현재(기본값)"}
                     value={
@@ -409,8 +360,6 @@ function CalibrationDrawer({ projectName, onApply }: Props) {
                         : `${deviceInfo.current?.sampleRate ?? "?"}Hz / ${deviceInfo.current?.bufferSize ?? "?"} frames`
                     }
                   />
-                  {/* 장치의 총 입력 채널 "능력치"(고정값)가 아니라, "적용"으로 실제 캡처에
-                      반영된 채널 수를 보여준다 — 적용 전에는 장치 최대치를 기본값으로 표시. */}
                   <DeviceRow
                     label={appliedRuntime?.actual.channels != null ? "채널(적용값)" : "채널(기본값)"}
                     value={
@@ -419,8 +368,6 @@ function CalibrationDrawer({ projectName, onApply }: Props) {
                         : `${deviceInfo.inputChannels ?? "?"} ch`
                     }
                   />
-                  {/* 출력 채널 — 파일 모드(play-capture 단일 IOProc)가 이 장치의 출력 ch0으로
-                      재생하므로, 0이면 파일 재생이 불가능함을 미리 알린다. */}
                   <DeviceRow
                     label="출력 채널"
                     value={deviceInfo.outputChannels != null ? `${deviceInfo.outputChannels} ch` : "—"}
@@ -460,6 +407,4 @@ function CalibrationDrawer({ projectName, onApply }: Props) {
   );
 }
 
-// 캡처 중 대시보드의 실시간 프레임 리렌더에 딸려 다시 그려지지 않게 memo로 차단한다 —
-// 대시보드 사용처는 props 없이 렌더하므로 항상 스킵되고, 갱신은 자체 Context 구독으로 일어난다.
 export default memo(CalibrationDrawer);

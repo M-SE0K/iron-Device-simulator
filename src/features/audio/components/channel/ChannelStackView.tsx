@@ -1,11 +1,5 @@
 "use client";
 
-// 표시 항목 스택 — ChannelSelectDrawer에서 체크한 항목들(메인 차트 + 채널)을 하나의 부모
-// 컨테이너 안에 세로로 쌓는다. 체크/해제 시 대응하는 자식 패널이 그대로 마운트/언마운트되어
-// 인터랙티브하게 추가/제거되고, 각 패널 하단의 손잡이를 드래그하면 그 패널의 높이만
-// 독립적으로 조절할 수 있다(전체 컨테이너는 overflow-y-auto로 스크롤). 헤더의 그립 아이콘을
-// 드래그하면 패널 순서 자체를 재배치할 수 있다(HTML5 드래그&드롭, 기본 순서는 호출자가
-// items 배열로 넘긴 순서 그대로).
 import { useCallback, useRef, useState, type DragEvent, type PointerEvent, type ReactNode } from "react";
 import { GripHorizontal, GripVertical } from "lucide-react";
 import { cn } from "@/shared/lib/utils";
@@ -71,7 +65,6 @@ export interface StackItem {
 interface Props {
   items: StackItem[];
   emptyLabel?: string;
-  /** 패널을 드래그로 재배치했을 때, 화면에 보이는 항목들의 새 id 순서를 통째로 넘긴다. */
   onReorder?: (ids: string[]) => void;
 }
 

@@ -1,6 +1,3 @@
-// local-folder.ts — window.localFolder(Electron preload) 브리지를 다루는 얇은 헬퍼.
-// 브라우저/모바일 빌드에서는 window.localFolder가 없으므로(Electron 데스크톱 전용 기능)
-// readLocalAudioFile 이 호출 시점에 window.localFolder 존재 여부를 인라인으로 확인한다.
 import type { LocalAudioFileEntry } from "@/shared/types/electron-bridge";
 
 export type { LocalAudioFileEntry };

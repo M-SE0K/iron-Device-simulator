@@ -1,12 +1,7 @@
-// 채널 행 헤더 내용 — 색 점 + 채널명(mono) + 역할 + (있으면) peak·rms 배지.
-// ChannelViewerOverlay(저장 세션 뷰)와 ChartDetailOverlay(라이브 스택 뷰)가 공유한다.
-// 바깥 컨테이너(div/Fragment)는 호출부마다 달라 여기서는 내용(Fragment)만 그린다.
-
 interface ChannelRowHeaderProps {
   color: string;
   name: string;
   role: string;
-  /** peak/rms 통계 — 없으면(라이브 데이터 미도착 등) 배지를 숨긴다. */
   stats?: { peak: number; rms: number } | null;
 }
 

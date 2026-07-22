@@ -362,11 +362,9 @@ export default function ChartDetailOverlay({
               <span className="text-[11px] text-iron-400">{entry.role}</span>
             </>
           ),
-          content: subscribeChannelStream && getProtectedBlob && getChannelsBlob ? (
+          content: subscribeChannelStream ? (
             <ProtectedComparePanel
               subscribeCaptureStream={subscribeChannelStream}
-              getProtectedBlob={getProtectedBlob}
-              getRecordedBlob={getChannelsBlob}
               sourceFile={sourceFile}
               bare
             />

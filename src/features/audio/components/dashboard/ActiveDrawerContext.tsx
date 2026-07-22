@@ -1,8 +1,5 @@
 "use client";
 
-// 우측 드로어 배타 전환 (Sidebar 내비 4개 중 하나만 슬롯을 차지) — 앱 전역 단일 소스.
-// Workspace/Calibration/측정 기록 세 드로어가 이 컨텍스트로 open 여부를 파생시킨다
-// (WorkspaceContext.open, CalibrationDrawer 로컬 open 이 각각 이 값을 감싸는 얇은 wrapper가 됨).
 import { createContext, useCallback, useContext, useMemo, useState, type ReactNode } from "react";
 
 export type DrawerKey = "workspace" | "records" | "calibration";
