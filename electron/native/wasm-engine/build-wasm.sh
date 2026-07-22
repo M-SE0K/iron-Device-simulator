@@ -15,7 +15,28 @@ cd "$(dirname "$0")"
 
 mkdir -p ../../../public/wasm
 
-emcc ff_prot.c -O3 -o ../../../public/wasm/ff_prot.js \
+# ── 컴파일 대상 소스 결정 ────────────────────────────────────────────────────
+# 정품 소스는 단일 파일이 아니라 다중 모듈(sm_power_meter/biquad_filter/drc_func 등,
+# VENDOR-API-SPEC.md 2.1)일 수 있다. 벤더 소스를 이 폴더에 드롭인하면 편집 없이 그대로
+# 빌드되도록, selftest 계열(자체 main 보유)을 뺀 모든 *.c 를 컴파일한다.
+# 특정 파일만 골라 빌드하려면: FF_PROT_SRCS="a.c b.c" ./build-wasm.sh
+if [[ -n "${FF_PROT_SRCS:-}" ]]; then
+  read -r -a SRCS <<< "$FF_PROT_SRCS"
+else
+  SRCS=()
+  for f in *.c; do
+    [[ "$f" == *selftest* ]] && continue   # 순수 C 셀프테스트(main 보유) 제외
+    SRCS+=("$f")
+  done
+fi
+if [[ ${#SRCS[@]} -eq 0 ]]; then
+  echo "✗ 컴파일할 .c 소스가 없습니다 (electron/native/wasm-engine/)." >&2
+  exit 1
+fi
+echo "→ 컴파일 대상: ${SRCS[*]}"
+
+# 내보내는 함수 목록도 정품 API 확장(예: _ff_prot_end, _sm_power_meter_*) 시 여기에 추가한다.
+emcc "${SRCS[@]}" -O3 -o ../../../public/wasm/ff_prot.js \
   -sMODULARIZE=1 \
   -sEXPORT_NAME=FfProtModule \
   -sEXPORTED_FUNCTIONS=_ff_prot_init,_ff_prot_set_param,_ff_prot_start_exec,_ff_prot_stop_exec,_malloc,_free \
