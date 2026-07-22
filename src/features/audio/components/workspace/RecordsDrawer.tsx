@@ -45,7 +45,7 @@ function RecordRow({ item }: { item: WorkspaceItemMeta }) {
     { key: "csv", label: "CSV", onClick: () => exportCsv(item) },
     ...(item.audioFileName
       ? [
-          { key: "audio", label: "오디오", onClick: () => downloadAudio(item) },
+          { key: "audio", label: "V/I", onClick: () => downloadAudio(item) },
         ]
       : []),
     ...(item.hasProtectedAudio
