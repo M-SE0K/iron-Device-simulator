@@ -161,16 +161,24 @@ class LocalWasmSocket implements SocketLike {
 
 /**
  * 분석 소켓을 생성한다. 두 백엔드 모두 같은 브라우저 WASM 엔진을 쓰지만 실행 위치가 다르다:
- *   - LocalWasmSocket    : 메인 스레드 in-process (기본, 폴백)
- *   - WorkerAnalysisSocket: Web Worker (NEXT_PUBLIC_USE_WORKER_ENGINE=1일 때)
+ *   - WorkerAnalysisSocket : Web Worker (기본) — 100fps 분석을 렌더 스레드에서 뺀다
+ *   - LocalWasmSocket      : 메인 스레드 in-process (opt-out / 폴백)
  *
- * 워커 경로는 100fps 분석 부하를 렌더 스레드에서 뺀다. 아직 검증 단계라 env 플래그로 옵트인하며
- * (미설정 시 기존 동작 그대로), 롤백은 이 플래그 하나로 끝난다. SocketLike 인터페이스가 같아
- * 상위 컴포넌트(useCaptureSession 등)는 어느 쪽이든 코드 변경이 없다.
+ * 기본이 워커 경로다. NEXT_PUBLIC_USE_WORKER_ENGINE=0 으로 명시적으로 끄면 메인 스레드 엔진을
+ * 쓴다(롤백은 이 플래그 하나). 또한 워커 생성 자체가 막힌 환경에선 자동으로 in-process로
+ * 폴백한다. SocketLike 인터페이스가 같아 상위 컴포넌트(useCaptureSession 등)는 어느 쪽이든
+ * 코드 변경이 없다.
  */
 export function createAnalysisSocket(): SocketLike {
-  if (process.env.NEXT_PUBLIC_USE_WORKER_ENGINE === "1") {
-    return new WorkerAnalysisSocket();
+  // 명시적 opt-out만 메인 스레드 경로.
+  if (process.env.NEXT_PUBLIC_USE_WORKER_ENGINE === "0") {
+    return new LocalWasmSocket();
   }
-  return new LocalWasmSocket();
+  try {
+    return new WorkerAnalysisSocket();
+  } catch (err) {
+    // 워커 생성이 막힌 런타임(구형 등)에선 in-process 엔진으로 폴백해 앱이 죽지 않게 한다.
+    console.warn("Web Worker 분석 엔진 생성 실패 — 메인 스레드 엔진으로 폴백합니다.", err);
+    return new LocalWasmSocket();
+  }
 }

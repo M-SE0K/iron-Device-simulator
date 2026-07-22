@@ -9,12 +9,16 @@
  * 않는다. WASM glue(ff_prot.js)는 classic worker의 importScripts로 로드된다
  * (adapters/wasm-client.ts loadFactory 분기 + Phase 0 스파이크로 DOM-free 검증 완료).
  *
- * 프로토콜(메인 → 워커):   ← LocalWasmSocket.send()와 동일한 구분(문자열=제어, 바이너리=PCM)
- *   string(JSON)  { type: 'init' | 'stop', ... }   제어 메시지
- *   ArrayBuffer   PCM 프레임(transfer)              와이어 프레임(+선택적 V/I sensing 꼬리)
- * 프로토콜(워커 → 메인):   ← 실제 WebSocket 수신 모양 그대로(worker-socket이 투명 중계)
- *   string(JSON)  ready / frame / error
- *   ArrayBuffer   보호 PCM 바이너리(transfer)
+ * 프로토콜(메인 → 워커):
+ *   string(JSON)         { type: 'init' | 'stop', ... }     제어 메시지
+ *   { frames: [...] }    PCM 프레임 배치(모든 버퍼 transfer)  한 청크치 와이어 프레임 묶음
+ * 프로토콜(워커 → 메인):
+ *   string(JSON)         ready / error                       (worker-socket이 그대로 중계)
+ *   { results: [...] }   프레임별 { json, bin } 배치           (worker-socket이 프레임별로 풂)
+ *
+ * 배치(Stage 1): 메인이 한 청크의 프레임들을 {frames:[…]}로 한 번에 보내고, 워커는 각각
+ * 분석해 결과를 {results:[…]}로 한 번에 돌려준다 — 고레이트(작은 버퍼)에서 폭증하던
+ * postMessage 왕복을 프레임당 → 청크당으로 줄인다. 프레임 처리·인코딩은 그대로다.
  */
 
 import { openClientWasmSession } from "../adapters/wasm-client";
@@ -43,14 +47,13 @@ let config: EngineRuntimeConfig = DEFAULT_ENGINE_CONFIG;
 let frameCount = 0;
 let initialized = false;
 
-/** JSON 제어/결과 메시지는 문자열로 보낸다 — 소비자(useCaptureSession)가 문자열 e.data를 JSON.parse. */
+/** ready/error 제어 메시지는 문자열로 보낸다 — worker-socket이 그대로 중계, 소비자가 JSON.parse. */
 function postJson(msg: unknown): void {
   ctx.postMessage(JSON.stringify(msg));
 }
-/** 보호 PCM은 ArrayBuffer로 보낸다 — transfer로 넘겨 메인 스레드 복사를 없앤다. */
-function postBinary(buf: ArrayBuffer): void {
-  ctx.postMessage(buf, [buf]);
-}
+
+/** 워커→메인 배치 결과 한 항목 — frameJson(문자열) + 보호 PCM(있으면). */
+interface FrameResultItem { json: string; bin: ArrayBuffer | null }
 
 // ── JSON 제어 메시지 (init/stop) — LocalWasmSocket.handleControl 이식 ──────────
 async function handleControl(msg: { type: string } & Record<string, unknown>): Promise<void> {
@@ -86,28 +89,40 @@ async function handleControl(msg: { type: string } & Record<string, unknown>): P
   // pause: 서버와 동일하게 별도 처리 없음(스트림은 클라이언트가 멈춤)
 }
 
-// ── Binary: PCM 프레임 — LocalWasmSocket.handleFrame 이식 ─────────────────────
-function handleFrame(data: ArrayBuffer): void {
-  if (!initialized || !session) return;
+// ── PCM 프레임 1개 처리 — LocalWasmSocket.handleFrame 이식. 결과를 배치 항목으로 돌려준다. ──
+function handleFrame(data: ArrayBuffer): FrameResultItem | null {
+  if (!initialized || !session) return null;
   // 와이어 크기 미만이면 프레임 인덱스를 소비하지 않고 버린다(짧은/깨진 프레임).
-  if (data.byteLength < frameBytes(config)) return;
+  if (data.byteLength < frameBytes(config)) return null;
 
   const currentFrame = frameCount++;
   try {
     const out = processAnalysisFrame(session, data, engineParams, config, currentFrame);
-    if (!out) return;
-    postJson(out.frameJson);
-    if (out.binary) postBinary(out.binary);
+    if (!out) return null;
+    // frameJson은 여기서 문자열화한다 — worker-socket이 문자열 그대로 소비자에 넘겨 JSON.parse된다.
+    return { json: JSON.stringify(out.frameJson), bin: out.binary ?? null };
   } catch (err) {
-    postJson(createErrorMessage(`ff_prot_start_exec 오류: ${err}`));
+    return { json: JSON.stringify(createErrorMessage(`ff_prot_start_exec 오류: ${err}`)), bin: null };
   }
 }
 
 ctx.onmessage = (e: MessageEvent) => {
-  const data = e.data;
+  const data = e.data as unknown;
   if (typeof data === "string") {
     void handleControl(JSON.parse(data));
-  } else if (data instanceof ArrayBuffer) {
-    handleFrame(data);
+    return;
+  }
+  // 프레임 배치({frames:[…]}) — 각 프레임을 분석해 결과를 하나의 배치로 되돌린다.
+  if (data && typeof data === "object" && Array.isArray((data as { frames?: unknown }).frames)) {
+    const frames = (data as { frames: ArrayBuffer[] }).frames;
+    const results: FrameResultItem[] = [];
+    const transfer: Transferable[] = [];
+    for (const buf of frames) {
+      const item = handleFrame(buf);
+      if (!item) continue;
+      results.push(item);
+      if (item.bin) transfer.push(item.bin);
+    }
+    if (results.length > 0) ctx.postMessage({ results }, transfer);
   }
 };
