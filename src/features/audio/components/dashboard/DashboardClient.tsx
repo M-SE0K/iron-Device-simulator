@@ -27,6 +27,7 @@ import { coalesceFrames } from "@/features/audio/lib/render/coalesce";
 import { detectEvents, DEFAULT_TEMP_WARN, DEFAULT_TEMP_DANGER, type TempThresholds } from "@/features/audio/lib/render/detect-events";
 import type { QueuedFrame } from "@/features/audio/lib/render/types";
 import { useFrameCachePersistence } from "@/features/audio/components/dashboard/hooks/useFrameCachePersistence";
+import { useCtrlBToggle } from "@/shared/hooks/useCtrlBToggle";
 
 interface DashboardPageProps {
   useQueue: boolean;
@@ -92,16 +93,7 @@ export default function DashboardPage({ useQueue }: DashboardPageProps) {
   const closeMobileNav = useCallback(() => setMobileNavOpen(false), []);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
 
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "b") {
-        e.preventDefault();
-        setSidebarCollapsed((prev) => !prev);
-      }
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, []);
+  useCtrlBToggle(() => setSidebarCollapsed((prev) => !prev));
 
   const streamingFramesRef = useRef<AnalysisFrame[]>([]);
   const audioDurationRef   = useRef<number | null>(null);

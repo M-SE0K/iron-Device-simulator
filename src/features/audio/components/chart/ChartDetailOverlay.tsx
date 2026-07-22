@@ -11,6 +11,7 @@ import { Activity, Rows3, ShieldAlert, Thermometer, X } from "lucide-react";
 import type { AnalysisFrame } from "@/features/audio/types";
 import { cn } from "@/shared/lib/utils";
 import { useOverlayTransition } from "@/shared/hooks/useOverlayTransition";
+import { useCtrlBToggle } from "@/shared/hooks/useCtrlBToggle";
 import FullscreenOverlay from "@/shared/components/overlay/FullscreenOverlay";
 import { BYTES_PER_SAMPLE, INT16_SCALE } from "@/features/audio/lib/engine/core";
 import { appendWindowed, decodeWavRange, peekWavHeader } from "@/features/audio/lib/codec/wav-incremental";
@@ -279,16 +280,7 @@ export default function ChartDetailOverlay({
   }, []);
 
   // Ctrl/Cmd+B — 표시 항목 드로어 열림/숨김 토글 (기존 우측 드로어들과 동일한 단축키 규약)
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "b") {
-        e.preventDefault();
-        setDrawerOpen((prev) => !prev);
-      }
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, []);
+  useCtrlBToggle(() => setDrawerOpen((prev) => !prev));
 
   const channelCount = header?.channels ?? 0;
 
