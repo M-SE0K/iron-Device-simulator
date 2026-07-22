@@ -15,7 +15,7 @@
 //
 // ⚠️ 현재 엔진은 참조 스텁(electron/native/wasm-engine/ff_prot.c)이라 감쇠 커브가 임의값이다.
 //    파이프라인 검증용이며 실제 보호 성능이 아니다 — 배지로 화면에도 명시한다.
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Download } from "lucide-react";
 import ReactECharts from "@/shared/components/ReactECharts";
 import { cn } from "@/shared/lib/utils";
@@ -113,7 +113,7 @@ function downloadBlob(blob: Blob, filename: string) {
   setTimeout(() => URL.revokeObjectURL(url), 0);
 }
 
-export function ProtectedComparePanel({
+function ProtectedComparePanelImpl({
   subscribeCaptureStream,
   getProtectedBlob,
   getRecordedBlob,
@@ -429,3 +429,8 @@ export function ProtectedComparePanel({
     </div>
   );
 }
+
+// 캡처 중 DashboardClient가 streamingFrames/currentTime 갱신으로 주기적으로 리렌더되지만
+// 이 패널의 props(구독 함수/blob getter/sourceFile)는 세션 내내 안정적이다 — memo로 부모발
+// 리렌더를 차단하고, 화면 갱신은 내부 version(20fps 스로틀)로만 일어나게 한다.
+export const ProtectedComparePanel = memo(ProtectedComparePanelImpl);

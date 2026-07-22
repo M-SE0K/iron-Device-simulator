@@ -79,5 +79,12 @@ export function useWorkspaceItems(onSaved: () => void) {
     downloadBlob(payload.audioBlob, `${sanitizeFileName(meta.name)}.${ext}`);
   }, []);
 
-  return { items, saveCurrent, rename, remove, exportJson, exportCsv, downloadAudio };
+  // 보호 감쇠가 적용된 PCM WAV 다운로드 — 원본 오디오와 구분되게 파일명에 -protected를 붙인다.
+  const downloadProtectedAudio = useCallback(async (meta: WorkspaceItemMeta) => {
+    const payload = await getWorkspacePayload(meta.id);
+    if (!payload?.protectedAudioBlob) return;
+    downloadBlob(payload.protectedAudioBlob, `${sanitizeFileName(meta.name)}-protected.wav`);
+  }, []);
+
+  return { items, saveCurrent, rename, remove, exportJson, exportCsv, downloadAudio, downloadProtectedAudio };
 }

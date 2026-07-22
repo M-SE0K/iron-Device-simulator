@@ -33,7 +33,12 @@ interface DashboardPageProps {
 }
 
 // ── Step 3: Render Scheduler 주기 (ms) ──────────────────────────────────────
-const RENDER_INTERVAL = 16;
+// 16ms(60fps)로 돌리면 매 틱 setStreamingFrames → 페이지 전체 리렌더 + 두 차트가 누적 프레임
+// 전체로 option 재구성 + ECharts setOption이 초당 60회 일어나 캡처 중 UI가 버벅인다.
+// 반대로 100ms(10fps)까지 낮추면 차트 갱신이 뚝뚝 끊겨 보인다 — 48ms(~21fps)가 부드러움과
+// 부하의 절충점. coalesceFrames가 버킷 내 피크(min/max envelope, temperatureMax)를,
+// detectEvents가 임계값 교차 프레임을 보존하므로 주기를 늘려도 데이터 유실은 없다.
+const RENDER_INTERVAL = 100;
 
 // 측정 기록(사이드바 "측정 기록" 드로어)용 — 저장 시점에 프레임 버퍼에서 Peak 온도/진폭과
 // WARN/DANGER 임계값 기준 상태를 한 번만 계산해 워크스페이스 아이템에 함께 저장한다.
@@ -102,6 +107,8 @@ export default function DashboardPage({ useQueue }: DashboardPageProps) {
 
   // ── 모바일(lg 미만) 사이드바 슬라이드 오버레이 토글 ─────────────────────────
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
+  // Sidebar는 memo — 인라인 화살표로 넘기면 매 렌더 새 참조가 되어 memo가 무력화된다.
+  const closeMobileNav = useCallback(() => setMobileNavOpen(false), []);
   // ── 데스크톱(lg 이상) 네이비 사이드바 접힘 토글 — Cmd/Ctrl+B ────────────────
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
 
@@ -183,6 +190,8 @@ export default function DashboardPage({ useQueue }: DashboardPageProps) {
     if (frames.length === 0) return;
     const name = splitFileName(audioFile.name).stem || "Untitled";
     const recordedAudio = realtimeWaveRef.current?.exportRecordedAudio() ?? null;
+    // 보호 감쇠가 적용된 PCM(V/I 2ch) WAV — 캡처/보호 데이터가 없으면 null.
+    const protectedAudio = getProtectedBlob();
     const { peakTemp, peakExcursion, status } = computeMeasurementSummary(frames, tempThresholds);
     await saveCurrent({
       name,
@@ -192,9 +201,10 @@ export default function DashboardPage({ useQueue }: DashboardPageProps) {
       frames,
       audioBlob: recordedAudio ?? audioFile,
       audioType: recordedAudio ? "audio/wav" : audioFile.type,
+      protectedAudioBlob: protectedAudio,
       peakTemp, peakExcursion, status,
     });
-  }, [audioFile, saveCurrent, tempThresholds]);
+  }, [audioFile, saveCurrent, tempThresholds, getProtectedBlob]);
 
   // ── 마이크(네이티브 캡처) 녹음 저장 — 전 채널 WAV + 실시간 분석 그래프를 워크스페이스에 보존 ──
   // 오디오는 엔진에 나간 ch0(V)/ch1(I)만이 아니라 Calibration에서 지정한 채널 수 전체가
@@ -206,6 +216,8 @@ export default function DashboardPage({ useQueue }: DashboardPageProps) {
       `capture-${stamp.getFullYear()}${pad(stamp.getMonth() + 1)}${pad(stamp.getDate())}` +
       `-${pad(stamp.getHours())}${pad(stamp.getMinutes())}${pad(stamp.getSeconds())}-${rec.channels}ch`;
     const frames = streamingFramesRef.current;
+    // 보호 감쇠가 적용된 PCM(V/I 2ch) WAV — 마이크 모드에서도 엔진 보호 버퍼에서 나온다.
+    const protectedAudio = getProtectedBlob();
     const { peakTemp, peakExcursion, status } = computeMeasurementSummary(frames, tempThresholds);
     await saveCurrent({
       name,
@@ -215,9 +227,10 @@ export default function DashboardPage({ useQueue }: DashboardPageProps) {
       frames,
       audioBlob: rec.blob,
       audioType: "audio/wav",
+      protectedAudioBlob: protectedAudio,
       peakTemp, peakExcursion, status,
     });
-  }, [saveCurrent, tempThresholds]);
+  }, [saveCurrent, tempThresholds, getProtectedBlob]);
 
   // ── 파일 선택 / 초기화 ────────────────────────────────────────────────────
   // 모든 분석 버퍼/상태를 새 음원 기준으로 비우는 공통 루틴 (캐시 I/O 제외)
@@ -363,7 +376,7 @@ export default function DashboardPage({ useQueue }: DashboardPageProps) {
     >
       <Sidebar
         mobileOpen={mobileNavOpen}
-        onMobileClose={() => setMobileNavOpen(false)}
+        onMobileClose={closeMobileNav}
         collapsed={sidebarCollapsed}
       />
 

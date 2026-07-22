@@ -1,5 +1,6 @@
 "use client";
 
+import { memo } from "react";
 import { LayoutDashboard, FolderOpen, History, SlidersHorizontal } from "lucide-react";
 import { useActiveDrawer, type DrawerKey } from "@/features/audio/components/dashboard/ActiveDrawerContext";
 
@@ -15,7 +16,7 @@ interface SidebarProps {
   collapsed?: boolean;
 }
 
-export default function Sidebar({ mobileOpen = false, onMobileClose, collapsed = false }: SidebarProps) {
+function Sidebar({ mobileOpen = false, onMobileClose, collapsed = false }: SidebarProps) {
   const { active, openDrawer, closeDrawer } = useActiveDrawer();
 
   const handleNav = (fn: () => void) => {
@@ -86,3 +87,7 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, collapsed =
     </>
   );
 }
+
+// 대시보드가 실시간 프레임 갱신으로 주기적으로 리렌더돼도 사이드바 props는 토글 시에만
+// 바뀐다 — memo로 캡처 중 불필요한 리렌더를 차단한다(onMobileClose는 부모에서 useCallback).
+export default memo(Sidebar);

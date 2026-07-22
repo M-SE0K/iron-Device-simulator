@@ -22,6 +22,7 @@ interface WorkspaceCtx {
   exportJson: (meta: WorkspaceItemMeta) => Promise<void>;
   exportCsv: (meta: WorkspaceItemMeta) => Promise<void>;
   downloadAudio: (meta: WorkspaceItemMeta) => Promise<void>;
+  downloadProtectedAudio: (meta: WorkspaceItemMeta) => Promise<void>;
   // 로컬 폴더 연결(Electron 데스크톱 전용) — 폴더 선택/감시는 electron/main.js가 담당하고
   // 여기서는 그 결과 상태만 들고 있는다. pendingLocalFile은 DashboardClient가 소비해
   // 기존 handleFileSelected(File) 파이프라인에 그대로 흘려보낸다.
@@ -56,7 +57,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     [activeDrawer],
   );
 
-  const { items, saveCurrent, rename, remove, exportJson, exportCsv, downloadAudio } =
+  const { items, saveCurrent, rename, remove, exportJson, exportCsv, downloadAudio, downloadProtectedAudio } =
     useWorkspaceItems(() => activeDrawer.openDrawer("records"));
 
   // 로컬/브라우저 두 폴더 소스가 공유하는 다리 상태 — 어느 쪽에서 로드하든 DashboardClient의
@@ -80,7 +81,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
 
   const ctx = useMemo<WorkspaceCtx>(
     () => ({
-      items, open, setOpen, saveCurrent, rename, remove, exportJson, exportCsv, downloadAudio,
+      items, open, setOpen, saveCurrent, rename, remove, exportJson, exportCsv, downloadAudio, downloadProtectedAudio,
       localFolderPath, localFolderFiles, localFolderError, localFolderConnecting,
       connectLocalFolder, disconnectLocalFolder, loadLocalFile,
       browserFolderName, browserFolderFiles, selectBrowserFolder, disconnectBrowserFolder,
@@ -88,7 +89,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       pendingLocalFile, clearPendingLocalFile,
     }),
     [
-      items, open, saveCurrent, rename, remove, exportJson, exportCsv, downloadAudio,
+      items, open, saveCurrent, rename, remove, exportJson, exportCsv, downloadAudio, downloadProtectedAudio,
       localFolderPath, localFolderFiles, localFolderError, localFolderConnecting,
       connectLocalFolder, disconnectLocalFolder, loadLocalFile,
       browserFolderName, browserFolderFiles, selectBrowserFolder, disconnectBrowserFolder,
