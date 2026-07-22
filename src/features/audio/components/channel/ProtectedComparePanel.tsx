@@ -18,7 +18,7 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Download } from "lucide-react";
 import ReactECharts from "@/shared/components/ReactECharts";
-import { cn } from "@/shared/lib/utils";
+import { cn, downloadBlob } from "@/shared/lib/utils";
 import { INT16_SCALE, CHANNELS } from "@/features/audio/lib/engine/core";
 import {
   buildValueTooltip, buildDataZoom, buildDynamicTimeFormatter,
@@ -101,16 +101,6 @@ function envelopeToSeries(env: BucketEnvelope, durationSec: number): [number, nu
     out.push([t, env.min[b]], [t + dt * 0.5, env.max[b]]);
   }
   return out;
-}
-
-function downloadBlob(blob: Blob, filename: string) {
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = filename;
-  a.click();
-  // revoke를 동기로 하면 일부 브라우저에서 다운로드가 취소된다 — 다음 tick으로 미룬다.
-  setTimeout(() => URL.revokeObjectURL(url), 0);
 }
 
 function ProtectedComparePanelImpl({
@@ -390,30 +380,6 @@ function ProtectedComparePanelImpl({
       <div className={bare ? "flex items-center justify-between gap-2 px-1 pb-2 flex-wrap" : "card-header"}>
         <div className="chart-title-group flex items-center gap-2">
           <span className="card-title">보호 감쇠 비교</span>
-        </div>
-
-        <div className="flex items-center gap-2">
-          {attenuationDb !== null && (
-            <span className="text-xs text-iron-400">
-              구간 피크 {attenuationDb.toFixed(1)} dB
-            </span>
-          )}
-          <div className="flex items-center gap-1">
-            <button
-              type="button"
-              onClick={() => handleDownload("original")}
-              className="flex items-center gap-1 rounded border border-iron-200 px-2 py-1 text-xs text-iron-600 hover:bg-iron-50 hover:text-iron-800 transition-colors"
-            >
-              <Download size={12} /> 원본 WAV
-            </button>
-            <button
-              type="button"
-              onClick={() => handleDownload("protected")}
-              className="flex items-center gap-1 rounded border border-iron-200 px-2 py-1 text-xs text-iron-600 hover:bg-iron-50 hover:text-iron-800 transition-colors"
-            >
-              <Download size={12} /> 보호 WAV
-            </button>
-          </div>
         </div>
       </div>
 
