@@ -9,19 +9,11 @@ import {
   renameWorkspaceItem,
   deleteWorkspaceItem,
   getWorkspacePayload,
-  framesToCsv,
-  sanitizeFileName,
   type WorkspaceItemMeta,
   type SaveWorkspaceInput,
 } from "@/features/audio/lib/cache/workspace";
-import { downloadBlob } from "@/shared/lib/utils";
-
-/** 파일명에서 확장자만 추출 (없으면 ""). export 시 편집한 이름 + 원본 확장자 조합에 사용 */
-function fileExtension(fileName: string | null): string {
-  if (!fileName) return "";
-  const dot = fileName.lastIndexOf(".");
-  return dot > 0 && dot < fileName.length - 1 ? fileName.slice(dot + 1) : "";
-}
+import { framesToCsv } from "@/features/audio/lib/export/csv";
+import { downloadBlob, sanitizeFileName, splitFileName } from "@/shared/lib/utils";
 
 export function useWorkspaceItems(onSaved: () => void) {
   const [items, setItems] = useState<WorkspaceItemMeta[]>([]);
@@ -83,9 +75,16 @@ export function useWorkspaceItems(onSaved: () => void) {
     const payload = await getWorkspacePayload(meta.id);
     if (!payload?.audioBlob) return;
     // 편집한 기록 이름(meta.name)을 파일명으로 쓰되, 확장자는 원본 오디오 파일명에서 보존한다.
-    const ext = fileExtension(meta.audioFileName) || "audio";
+    const ext = splitFileName(meta.audioFileName).ext || "audio";
     downloadBlob(payload.audioBlob, `${sanitizeFileName(meta.name)}.${ext}`);
   }, []);
 
-  return { items, saveCurrent, rename, remove, exportJson, exportCsv, downloadAudio };
+  // 보호 감쇠가 적용된 PCM WAV 다운로드 — 원본 오디오와 구분되게 파일명에 -protected를 붙인다.
+  const downloadProtectedAudio = useCallback(async (meta: WorkspaceItemMeta) => {
+    const payload = await getWorkspacePayload(meta.id);
+    if (!payload?.protectedAudioBlob) return;
+    downloadBlob(payload.protectedAudioBlob, `${sanitizeFileName(meta.name)}-protected.wav`);
+  }, []);
+
+  return { items, saveCurrent, rename, remove, exportJson, exportCsv, downloadAudio, downloadProtectedAudio };
 }

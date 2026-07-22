@@ -5,7 +5,7 @@
 // 헬퍼 stdout: 첫 줄 JSON 헤더 → 이후 int16 인터리브 raw PCM. 청크를 그대로 렌더러에 중계한다.
 const { ipcMain } = require("electron");
 const { AUDIO_HELPER_PATH, SUPPORTED_PLATFORMS, withDevice } = require("./audio-device");
-const { runStreamingHelper } = require("./run-streaming-helper");
+const { runStreamingHelper, stopStreamingChild } = require("./run-streaming-helper");
 
 let captureChild = null;
 
@@ -13,7 +13,7 @@ function stopCapture() {
   if (!captureChild) return { success: true };
   const child = captureChild;
   captureChild = null; // exit 핸들러가 "ended" 이벤트를 보내지 않도록 먼저 비운다 (사용자 주도 종료)
-  child.kill("SIGTERM");
+  stopStreamingChild(child);
   return { success: true };
 }
 

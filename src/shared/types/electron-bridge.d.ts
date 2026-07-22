@@ -10,9 +10,15 @@ interface AudioDeviceActual {
 export interface AudioInputDevice {
   uid: string;
   name: string;
+  // probed=false면 이 두 값은 미상이다(0 / null) — "능력이 0"이 아니라 "읽지 못했다".
   inputChannels: number;
   sampleRate: number | null;
   isDefault: boolean; // OS 기본 입력 장치 여부
+  // 헬퍼가 드라이버를 실제로 열어 능력을 읽었는지. Windows/ASIO는 드라이버가 배타적이라
+  // 다른 프로세스(우리 자신의 capture 포함)가 점유 중이면 열지 못한다 — 그래도 목록에서
+  // 빼지 않는다(드롭다운에서 사라지면 선택 자체가 불가능해지므로). macOS(CoreAudio)는
+  // 열기가 배타적이지 않아 항상 true다.
+  probed?: boolean;
 }
 
 interface AudioDeviceListResult {

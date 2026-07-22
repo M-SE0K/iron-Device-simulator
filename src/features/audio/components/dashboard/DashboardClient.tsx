@@ -12,6 +12,7 @@ import type { CaptureStreamListener } from "@/features/audio/components/player/c
 import TemperatureChart from "@/features/audio/components/chart/TemperatureChart";
 import ExcursionChart from "@/features/audio/components/chart/ExcursionChart";
 import ChartDetailOverlay, { type DetailMetric } from "@/features/audio/components/chart/ChartDetailOverlay";
+import { ProtectedComparePanel } from "@/features/audio/components/channel/ProtectedComparePanel";
 import WorkspaceDrawer from "@/features/audio/components/workspace/WorkspaceDrawer";
 import RecordsDrawer from "@/features/audio/components/workspace/RecordsDrawer";
 import CalibrationDrawer from "@/features/audio/components/calibration/CalibrationDrawer";
@@ -20,7 +21,7 @@ import type { SessionStatus } from "@/features/audio/lib/cache/workspace";
 import { useCalibration } from "../calibration/CalibrationContext";
 import { useWorkspace } from "../workspace/WorkspaceContext";
 import { clearFrameCache } from "@/features/audio/lib/cache/frame";
-import { formatTime } from "@/shared/lib/utils";
+import { formatTime, splitFileName } from "@/shared/lib/utils";
 import { putAudio, clearAudio } from "@/features/audio/lib/cache/audio-blob";
 import { coalesceFrames } from "@/features/audio/lib/render/coalesce";
 import { detectEvents, DEFAULT_TEMP_WARN, DEFAULT_TEMP_DANGER, type TempThresholds } from "@/features/audio/lib/render/detect-events";
@@ -30,6 +31,14 @@ import { useFrameCachePersistence } from "@/features/audio/components/dashboard/
 interface DashboardPageProps {
   useQueue: boolean;
 }
+
+// ── Step 3: Render Scheduler 주기 (ms) ──────────────────────────────────────
+// 16ms(60fps)로 돌리면 매 틱 setStreamingFrames → 페이지 전체 리렌더 + 두 차트가 누적 프레임
+// 전체로 option 재구성 + ECharts setOption이 초당 60회 일어나 캡처 중 UI가 버벅인다.
+// 반대로 100ms(10fps)까지 낮추면 차트 갱신이 뚝뚝 끊겨 보인다 — 48ms(~21fps)가 부드러움과
+// 부하의 절충점. coalesceFrames가 버킷 내 피크(min/max envelope, temperatureMax)를,
+// detectEvents가 임계값 교차 프레임을 보존하므로 주기를 늘려도 데이터 유실은 없다.
+const RENDER_INTERVAL = 100;
 
 // 측정 기록(사이드바 "측정 기록" 드로어)용 — 저장 시점에 프레임 버퍼에서 Peak 온도/진폭과
 // WARN/DANGER 임계값 기준 상태를 한 번만 계산해 워크스페이스 아이템에 함께 저장한다.
@@ -98,6 +107,8 @@ export default function DashboardPage({ useQueue }: DashboardPageProps) {
 
   // ── 모바일(lg 미만) 사이드바 슬라이드 오버레이 토글 ─────────────────────────
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
+  // Sidebar는 memo — 인라인 화살표로 넘기면 매 렌더 새 참조가 되어 memo가 무력화된다.
+  const closeMobileNav = useCallback(() => setMobileNavOpen(false), []);
   // ── 데스크톱(lg 이상) 네이비 사이드바 접힘 토글 — Cmd/Ctrl+B ────────────────
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
 
@@ -124,18 +135,31 @@ export default function DashboardPage({ useQueue }: DashboardPageProps) {
   const micWaveRef = useRef<MicrophonePlayerHandle>(null);
   // 채널 상세 뷰(ChartDetailOverlay)의 데이터 소스 — 입력 모드에 맞는 플레이어 핸들에서
   // 현재 캡처 버퍼를 WAV Blob으로 스냅샷 반환한다.
+  const getProtectedBlob = useCallback(
+    () => (inputMode === "file" ? realtimeWaveRef.current?.exportProtectedAudio() : micWaveRef.current?.exportProtectedAudio()) ?? null,
+    [inputMode],
+  );
+
   const getChannelsBlob = useCallback(
     () => (inputMode === "file" ? realtimeWaveRef.current?.exportRecordedAudio() : micWaveRef.current?.exportRecordedAudio()) ?? null,
     [inputMode],
   );
-  // ChartDetailOverlay 채널 뷰가 폴링 없이 실시간으로 구독하는 원본 캡처 청크 스트림 —
-  // 입력 모드에 맞는 플레이어 핸들의 subscribeCaptureStream을 그대로 위임한다.
+  // ChartDetailOverlay/ProtectedComparePanel이 폴링 없이 실시간으로 구독하는 원본 캡처 청크
+  // 스트림 — 입력 모드에 맞는 플레이어 핸들의 subscribeCaptureStream을 그대로 위임한다.
+  // isElectron을 deps에 포함해야 한다: 파일 모드 첫 렌더는 isElectron이 false로 시작해
+  // WaveformPlayer(세션 A)가 먼저 마운트되고, 곧이어 true로 바뀌며 DuplexFilePlayer(세션 B)로
+  // 교체된다. isElectron이 빠지면 이 함수 참조가 안 바뀌어 구독자(ProtectedComparePanel 등)의
+  // 구독 effect가 재실행되지 않고, realtimeWaveRef.current가 세션 B로 넘어간 뒤에도 이미 죽은
+  // 세션 A의 리스너 목록에 남아 이후 이벤트를 전혀 받지 못하는 버그가 있었다.
   const subscribeChannelStream = useCallback(
     (fn: CaptureStreamListener) => {
       const handle = inputMode === "file" ? realtimeWaveRef.current : micWaveRef.current;
       return handle?.subscribeCaptureStream(fn) ?? (() => {});
     },
-    [inputMode],
+    // isElectron은 본문에서 직접 읽지 않지만, 이 값이 바뀔 때 함수 참조를 새로 만들어
+    // 구독자들의 재구독 effect를 강제로 재실행시키기 위해 의도적으로 deps에 포함한다.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [inputMode, isElectron],
   );
   // ── Step 3: Output Queue ────────────────────────────────────────────────
   const outputQueueRef       = useRef<QueuedFrame[]>([]);
@@ -164,8 +188,10 @@ export default function DashboardPage({ useQueue }: DashboardPageProps) {
     if (!audioFile) return;
     const frames = streamingFramesRef.current;
     if (frames.length === 0) return;
-    const name = audioFile.name.replace(/\.[^./]+$/, "") || "Untitled";
+    const name = splitFileName(audioFile.name).stem || "Untitled";
     const recordedAudio = realtimeWaveRef.current?.exportRecordedAudio() ?? null;
+    // 보호 감쇠가 적용된 PCM(V/I 2ch) WAV — 캡처/보호 데이터가 없으면 null.
+    const protectedAudio = getProtectedBlob();
     const { peakTemp, peakExcursion, status } = computeMeasurementSummary(frames, tempThresholds);
     await saveCurrent({
       name,
@@ -175,9 +201,10 @@ export default function DashboardPage({ useQueue }: DashboardPageProps) {
       frames,
       audioBlob: recordedAudio ?? audioFile,
       audioType: recordedAudio ? "audio/wav" : audioFile.type,
+      protectedAudioBlob: protectedAudio,
       peakTemp, peakExcursion, status,
     });
-  }, [audioFile, saveCurrent, tempThresholds]);
+  }, [audioFile, saveCurrent, tempThresholds, getProtectedBlob]);
 
   // ── 마이크(네이티브 캡처) 녹음 저장 — 전 채널 WAV + 실시간 분석 그래프를 워크스페이스에 보존 ──
   // 오디오는 엔진에 나간 ch0(V)/ch1(I)만이 아니라 Calibration에서 지정한 채널 수 전체가
@@ -189,6 +216,8 @@ export default function DashboardPage({ useQueue }: DashboardPageProps) {
       `capture-${stamp.getFullYear()}${pad(stamp.getMonth() + 1)}${pad(stamp.getDate())}` +
       `-${pad(stamp.getHours())}${pad(stamp.getMinutes())}${pad(stamp.getSeconds())}-${rec.channels}ch`;
     const frames = streamingFramesRef.current;
+    // 보호 감쇠가 적용된 PCM(V/I 2ch) WAV — 마이크 모드에서도 엔진 보호 버퍼에서 나온다.
+    const protectedAudio = getProtectedBlob();
     const { peakTemp, peakExcursion, status } = computeMeasurementSummary(frames, tempThresholds);
     await saveCurrent({
       name,
@@ -198,9 +227,10 @@ export default function DashboardPage({ useQueue }: DashboardPageProps) {
       frames,
       audioBlob: rec.blob,
       audioType: "audio/wav",
+      protectedAudioBlob: protectedAudio,
       peakTemp, peakExcursion, status,
     });
-  }, [saveCurrent, tempThresholds]);
+  }, [saveCurrent, tempThresholds, getProtectedBlob]);
 
   // ── 파일 선택 / 초기화 ────────────────────────────────────────────────────
   // 모든 분석 버퍼/상태를 새 음원 기준으로 비우는 공통 루틴 (캐시 I/O 제외)
@@ -238,14 +268,10 @@ export default function DashboardPage({ useQueue }: DashboardPageProps) {
 
   const handleInputModeChange = useCallback((mode: "file" | "mic") => {
     setInputMode(mode);
-    setAudioDuration(null);
-    setStreamingFrames([]);
+    resetAnalysisState();
     clearFrameCache();
     void clearAudio();
-    setCurrentTime(0);
-    setRealtimeStatus("idle");
-    setErrorMsg(null);
-  }, []);
+  }, [resetAnalysisState]);
 
   const handleStreamStart = useCallback(() => {
     setStreamingFrames([]);
@@ -261,8 +287,6 @@ export default function DashboardPage({ useQueue }: DashboardPageProps) {
   //   ?lttb=0 → 차트 LTTB 끔. 미지정 시 기본값(lttb=on) = 프로덕션 동작.
   const expParams    = typeof window !== "undefined" ? new URLSearchParams(window.location.search) : null;
   const LTTB_ENABLED  = expParams?.get("lttb") !== "0";
-  // ── Step 3: Render Scheduler 주기 (ms) ──────────────────────────────────
-  const RENDER_INTERVAL = 16;
   // 출력 큐 스케줄러는 실시간 스트리밍 경로(파일 재생+캡처 / 마이크)에서만 동작
   const isPlaying = realtimeStatus === "playing";
 
@@ -352,7 +376,7 @@ export default function DashboardPage({ useQueue }: DashboardPageProps) {
     >
       <Sidebar
         mobileOpen={mobileNavOpen}
-        onMobileClose={() => setMobileNavOpen(false)}
+        onMobileClose={closeMobileNav}
         collapsed={sidebarCollapsed}
       />
 
@@ -419,7 +443,29 @@ export default function DashboardPage({ useQueue }: DashboardPageProps) {
             )}
 
             <div id="dashboard-grid" className="flex flex-col gap-4 lg:flex-1 lg:min-h-[528px]">
-              <div id="charts-section" className="flex flex-col gap-4 min-h-0 lg:flex-1">
+              {/* 1행: 보호 감쇠 전/후 비교 — 전체 폭 */}
+              <div id="protected-compare-section" className="h-[280px] shrink-0">
+                <ProtectedComparePanel
+                  subscribeCaptureStream={subscribeChannelStream}
+                  getProtectedBlob={getProtectedBlob}
+                  getRecordedBlob={getChannelsBlob}
+                  sourceFile={audioFile}
+                />
+              </div>
+              {/* 2행: 좌(Excursion) · 우(Temperature) */}
+              <div id="charts-section" className="flex flex-col lg:flex-row gap-4 min-h-0 lg:flex-1">
+                <div className="h-[264px] lg:h-auto lg:min-h-0 lg:flex-1">
+                  <ExcursionChart
+                    frames={streamingFrames}
+                    currentTime={currentTime}
+                    isActive={isActive}
+                    streaming
+                    audioDuration={audioDuration}
+                    lttb={LTTB_ENABLED}
+                    perfTrack
+                    onExpand={() => setDetailChart("excursion")}
+                  />
+                </div>
                 <div className="h-[264px] lg:h-auto lg:min-h-0 lg:flex-1">
                   <TemperatureChart
                     frames={streamingFrames}
@@ -432,18 +478,6 @@ export default function DashboardPage({ useQueue }: DashboardPageProps) {
                     onExpand={() => setDetailChart("temperature")}
                     warnThreshold={tempThresholds.warn}
                     dangerThreshold={tempThresholds.danger}
-                  />
-                </div>
-                <div className="h-[264px] lg:h-auto lg:min-h-0 lg:flex-1">
-                  <ExcursionChart
-                    frames={streamingFrames}
-                    currentTime={currentTime}
-                    isActive={isActive}
-                    streaming
-                    audioDuration={audioDuration}
-                    lttb={LTTB_ENABLED}
-                    perfTrack
-                    onExpand={() => setDetailChart("excursion")}
                   />
                 </div>
               </div>
@@ -519,7 +553,9 @@ export default function DashboardPage({ useQueue }: DashboardPageProps) {
           warnThreshold={tempThresholds.warn}
           dangerThreshold={tempThresholds.danger}
           getChannelsBlob={getChannelsBlob}
+          getProtectedBlob={getProtectedBlob}
           subscribeChannelStream={subscribeChannelStream}
+          sourceFile={audioFile}
           onClose={() => setDetailChart(null)}
         />
       )}

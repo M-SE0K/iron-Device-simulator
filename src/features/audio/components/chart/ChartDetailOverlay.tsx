@@ -7,12 +7,12 @@
 // 체크/해제(추가·제거) + 리사이즈할 수 있는 하나의 스택으로 구성한다 — ChannelSelectDrawer가
 // 항목 목록을, ChannelStackView가 실제 스택 렌더링을 맡는다.
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Activity, Rows3, Thermometer, X } from "lucide-react";
+import { Activity, Rows3, ShieldAlert, Thermometer, X } from "lucide-react";
 import type { AnalysisFrame } from "@/features/audio/types";
 import { cn } from "@/shared/lib/utils";
 import { useOverlayTransition } from "@/shared/hooks/useOverlayTransition";
 import FullscreenOverlay from "@/shared/components/overlay/FullscreenOverlay";
-import { BYTES_PER_SAMPLE } from "@/features/audio/lib/engine/core";
+import { BYTES_PER_SAMPLE, INT16_SCALE } from "@/features/audio/lib/engine/core";
 import { appendWindowed, decodeWavRange, peekWavHeader } from "@/features/audio/lib/codec/wav-incremental";
 import type { CaptureStreamEvent, CaptureStreamListener } from "@/features/audio/components/player/capture/useCaptureSession";
 import { channelLabel, channelColor } from "@/features/audio/lib/render/channel-meta";
@@ -21,12 +21,15 @@ import ExcursionChart from "./ExcursionChart";
 import ChannelSelectDrawer, { type DrawerEntry } from "../channel/ChannelSelectDrawer";
 import ChannelStackView, { type StackItem } from "../channel/ChannelStackView";
 import { ChannelWaveformCanvas, channelStats, type WaveformWindow } from "../channel/ChannelWaveformCanvas";
+import { ProtectedComparePanel } from "../channel/ProtectedComparePanel";
 
 // 채널 라이브 뷰가 화면에 유지하는 슬라이딩 윈도우 길이(초) — 이보다 오래된 샘플은 버려서
 // 세션이 길어져도 채널당 메모리 사용량이 상한(윈도우 크기)을 넘지 않게 한다.
 const LIVE_WINDOW_SEC = 30;
 
 const METRIC_ID = "metric";
+// 보호 감쇠 전/후 비교 뷰 — 원본 채널(channel 섹션)이 아니라 분석 결과라 metric 섹션에 둔다.
+const PROTECT_ID = "protected-compare";
 const channelId = (ch: number) => `ch:${ch}`;
 const parseChannelId = (id: string) => Number(id.slice(3));
 
@@ -60,6 +63,16 @@ interface Props {
    * subscribeCaptureStream) — 채널 뷰가 폴링 없이 청크 도착 즉시 갱신되는 핵심 경로.
    */
   subscribeChannelStream?: (fn: CaptureStreamListener) => () => void;
+  /**
+   * 보호 감쇠가 적용된 PCM(엔진이 buf를 In/Out으로 되쓴 결과)의 WAV 스냅샷. 없으면
+   * "보호 감쇠 비교" 항목이 드로어에 나타나지 않는다.
+   */
+  getProtectedBlob?: () => Blob | null;
+  /**
+   * 재생 대상 음원 파일. 보호 감쇠 비교 뷰가 재생 전에 원본 전체 파형을 깔기 위해 직접
+   * 디코드한다 — 캡처 스트림은 재생이 진행된 만큼만 도착해 전체 구간의 소스가 될 수 없다.
+   */
+  sourceFile?: File | null;
   onClose: () => void;
 }
 
@@ -74,6 +87,8 @@ export default function ChartDetailOverlay({
   dangerThreshold,
   getChannelsBlob,
   subscribeChannelStream,
+  getProtectedBlob,
+  sourceFile,
   onClose,
 }: Props) {
   const isTemp = metric === "temperature";
@@ -90,7 +105,10 @@ export default function ChartDetailOverlay({
   const [selected, setSelected] = useState<Set<string>>(() => new Set([METRIC_ID]));
 
   const wantedChannels = useMemo(
-    () => Array.from(selected).filter((id) => id !== METRIC_ID).map(parseChannelId).sort((a, b) => a - b),
+    // 채널이 아닌 항목(메인 차트·보호 비교)은 parseChannelId에 넘기면 NaN이 된다 — 먼저 뺀다.
+    () => Array.from(selected)
+      .filter((id) => id !== METRIC_ID && id !== PROTECT_ID)
+      .map(parseChannelId).sort((a, b) => a - b),
     [selected],
   );
   const hasSelectedChannel = wantedChannels.length > 0;
@@ -150,7 +168,7 @@ export default function ChartDetailOverlay({
         if (!seededRef.current.has(ch)) continue; // 백필 전 — 백필이 곧 지금까지를 커버
         const incoming = new Float32Array(frameCount);
         for (let i = 0; i < frameCount; i++) {
-          incoming[i] = view.getInt16(i * bytesPerFrame + ch * BYTES_PER_SAMPLE, true) / 0x8000;
+          incoming[i] = view.getInt16(i * bytesPerFrame + ch * BYTES_PER_SAMPLE, true) / INT16_SCALE;
         }
         const existing = next.get(ch) ?? { data: new Float32Array(0), startSec: durationSec };
         const merged = appendWindowed(existing.data, incoming, maxSamples);
@@ -170,6 +188,8 @@ export default function ChartDetailOverlay({
       setHeader({ channels: ev.channels, sampleRate: ev.sampleRate, durationSec: 0 });
       return;
     }
+    // "protected"(보호 감쇠 PCM)는 이 뷰의 관심사가 아니다 — 원본 채널 파형만 그린다.
+    if (ev.type !== "chunk") return;
     handleChunk(ev.chunk, ev.channels, ev.sampleRate);
   }, [handleChunk]);
 
@@ -283,12 +303,23 @@ export default function ChartDetailOverlay({
       color: accent,
       icon: Icon,
     };
+    // 보호 감쇠 비교 — 엔진이 감쇠 결과를 돌려주는 경로가 있을 때만 노출한다.
+    const protectEntry: DrawerEntry[] = getProtectedBlob
+      ? [{
+          id: PROTECT_ID,
+          section: "metric",
+          name: "보호 감쇠",
+          role: "전/후 비교",
+          color: "#F59E0B",
+          icon: ShieldAlert,
+        }]
+      : [];
     const channelEntries: DrawerEntry[] = Array.from({ length: channelCount }, (_, ch) => {
       const { name, role } = channelLabel(ch);
       return { id: channelId(ch), section: "channel", name, role, color: channelColor(ch) };
     });
-    return [metricEntry, ...channelEntries];
-  }, [title, isTemp, accent, Icon, channelCount]);
+    return [metricEntry, ...protectEntry, ...channelEntries];
+  }, [title, isTemp, accent, Icon, channelCount, getProtectedBlob]);
 
   // 사용자가 드래그로 재배치한 항목 순서 — 기본값은 entries가 나열되는 순서(메인 차트 →
   // 채널 오름차순) 그대로다. 채널이 새로 발견되면(헤더 갱신) 기존 배치는 건드리지 않고
@@ -321,6 +352,35 @@ export default function ChartDetailOverlay({
     const items: StackItem[] = [];
     for (const entry of orderedEntries) {
       if (!selected.has(entry.id)) continue;
+      if (entry.id === PROTECT_ID) {
+        items.push({
+          id: entry.id,
+          header: (
+            <>
+              <ShieldAlert size={13} style={{ color: entry.color }} className="shrink-0" />
+              <span className="text-xs font-semibold text-iron-800 font-mono">{entry.name}</span>
+              <span className="text-[11px] text-iron-400">{entry.role}</span>
+            </>
+          ),
+          content: subscribeChannelStream && getProtectedBlob && getChannelsBlob ? (
+            <ProtectedComparePanel
+              subscribeCaptureStream={subscribeChannelStream}
+              getProtectedBlob={getProtectedBlob}
+              getRecordedBlob={getChannelsBlob}
+              sourceFile={sourceFile}
+              bare
+            />
+          ) : (
+            <div className="flex items-center justify-center h-full text-xs text-iron-400">
+              캡처 세션이 없어 비교할 데이터가 없습니다.
+            </div>
+          ),
+          defaultHeight: 240,
+          minHeight: 180,
+          maxHeight: 480,
+        });
+        continue;
+      }
       if (entry.section === "metric") {
         items.push({
           id: entry.id,
@@ -399,6 +459,7 @@ export default function ChartDetailOverlay({
   }, [
     orderedEntries, selected, Icon, accent, title, isTemp, frames, currentTime, isActive,
     audioDuration, lttb, warnThreshold, dangerThreshold, windows, header, channelError, fetchRangeFor,
+    subscribeChannelStream, getProtectedBlob, getChannelsBlob, sourceFile,
   ]);
 
   return (

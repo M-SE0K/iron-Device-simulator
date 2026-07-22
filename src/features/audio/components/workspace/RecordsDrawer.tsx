@@ -5,21 +5,17 @@
 // 이름 변경/삭제(CRUD) 및 JSON/CSV/오디오/채널 내보내기(export)를 수행한다.
 // (기존 Workspace 드로어의 아이템 CRUD/export 를 이곳으로 이전했다.)
 // 데이터는 WorkspaceContext.items(lib/cache/workspace.ts, IndexedDB)를 그대로 공유한다.
-import { useEffect, useMemo, useRef, useState } from "react";
+import { memo, useEffect, useMemo, useRef, useState } from "react";
 import { ChevronRight, History, Music, Pencil, Trash2 } from "lucide-react";
 import { useWorkspace } from "./WorkspaceContext";
 import { useActiveDrawer } from "@/features/audio/components/dashboard/ActiveDrawerContext";
 import { cn, formatTime } from "@/shared/lib/utils";
+import { formatMm } from "@/features/audio/lib/units";
 import type { WorkspaceItemMeta } from "@/features/audio/lib/cache/workspace";
 import ChannelViewerOverlay from "./ChannelViewerOverlay";
 import { useEscapeKey } from "@/shared/hooks/useEscapeKey";
 import SideDrawer from "@/shared/components/overlay/SideDrawer";
 import CountBadge from "@/shared/components/ui/CountBadge";
-
-function formatMm(raw: number | null | undefined): string {
-  if (raw === null || raw === undefined || !Number.isFinite(raw)) return "—";
-  return (raw / 1000).toFixed(3);
-}
 
 interface FileGroup {
   key: string;
@@ -29,7 +25,7 @@ interface FileGroup {
 
 // ── 측정 기록 한 줄 (트리 자식) — 이름 변경/삭제 + JSON/CSV/오디오/채널 내보내기 ──────────
 function RecordRow({ item }: { item: WorkspaceItemMeta }) {
-  const { rename, remove, exportJson, exportCsv, downloadAudio } = useWorkspace();
+  const { rename, remove, exportJson, exportCsv, downloadAudio, downloadProtectedAudio } = useWorkspace();
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(item.name);
   const [channelView, setChannelView] = useState(false);
@@ -56,6 +52,11 @@ function RecordRow({ item }: { item: WorkspaceItemMeta }) {
     ...(item.audioFileName
       ? [
           { key: "audio", label: "오디오", onClick: () => downloadAudio(item) },
+        ]
+      : []),
+    ...(item.hasProtectedAudio
+      ? [
+          { key: "protected", label: "보호 WAV", onClick: () => downloadProtectedAudio(item) },
         ]
       : []),
   ];
@@ -138,7 +139,7 @@ function RecordRow({ item }: { item: WorkspaceItemMeta }) {
   );
 }
 
-export default function RecordsDrawer() {
+function RecordsDrawer() {
   const { items } = useWorkspace();
   const { active, openDrawer, closeDrawer } = useActiveDrawer();
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
@@ -248,3 +249,7 @@ export default function RecordsDrawer() {
     </SideDrawer>
   );
 }
+
+// props 없는 드로어 — 캡처 중 대시보드의 실시간 프레임 리렌더에 딸려 다시 그려지지 않게
+// memo로 차단한다(갱신은 자체 Context/상태로만).
+export default memo(RecordsDrawer);

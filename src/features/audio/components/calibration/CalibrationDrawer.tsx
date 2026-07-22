@@ -7,7 +7,7 @@
 //   · Sample Rate / Buffer Size / Capture Channels (+ 연결된 장치 능력 패널)
 // 좌측 WorkspaceDrawer와 동일하게 항상 마운트된 순수 DOM(비Radix)로 구현 — open 불리언으로
 // 클래스만 토글해 열기/닫기 양방향 슬라이드·페이드 애니메이션을 대칭적으로 재생한다.
-import { useCallback, useEffect } from "react";
+import { memo, useCallback, useEffect } from "react";
 import { RefreshCw, RotateCcw, X } from "lucide-react";
 import AnimatedSelect from "@/shared/components/ui/AnimatedSelect";
 import DeviceSelectField from "./DeviceSelectField";
@@ -99,7 +99,7 @@ interface Props {
   onApply?: (values: CalibrationValues) => void;
 }
 
-export default function CalibrationDrawer({ projectName, onApply }: Props) {
+function CalibrationDrawer({ projectName, onApply }: Props) {
   const { values, setValues } = useCalibration();
   // 우측 드로어 슬롯은 ActiveDrawerContext가 배타적으로 관리한다 — open은 그 파생값.
   // (입력 소스(파일/마이크) 토글은 대시보드 상단 세그먼트 컨트롤로 이동했다.)
@@ -383,7 +383,10 @@ export default function CalibrationDrawer({ projectName, onApply }: Props) {
                 devices={nativeDevices.map((d) => ({
                   value: d.uid,
                   label: d.name || "이름 없음",
-                  hint: `${d.inputChannels}ch${d.isDefault ? " · 기본" : ""}`,
+                  // probed=false면 채널 수를 읽지 못한 것이라 "0ch"로 쓰면 장치가 고장 난 것처럼
+                  // 보인다. Windows/ASIO는 드라이버가 배타적이라 녹음 중인 장치가 바로 이 상태가
+                  // 된다 — 흔한 정상 상황이므로 사유를 그대로 보여준다.
+                  hint: `${d.probed === false ? "사용 중" : `${d.inputChannels}ch`}${d.isDefault ? " · 기본" : ""}`,
                 }))}
                 placeholderLabel="OS 기본 입력"
                 savedLabel="저장된 장치"
@@ -456,3 +459,7 @@ export default function CalibrationDrawer({ projectName, onApply }: Props) {
     </SideDrawer>
   );
 }
+
+// 캡처 중 대시보드의 실시간 프레임 리렌더에 딸려 다시 그려지지 않게 memo로 차단한다 —
+// 대시보드 사용처는 props 없이 렌더하므로 항상 스킵되고, 갱신은 자체 Context 구독으로 일어난다.
+export default memo(CalibrationDrawer);

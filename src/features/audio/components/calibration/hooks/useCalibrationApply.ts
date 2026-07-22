@@ -8,6 +8,7 @@ import {
   loadDeviceActualCache, saveDeviceActualCache, type DeviceActualCache,
 } from "@/features/audio/lib/cache/calibration";
 import type { CalibrationValues } from "@/features/audio/types";
+import { clampCaptureChannels } from "@/features/audio/lib/engine/core";
 import type { DeviceInfo } from "./useNativeAudioDevice";
 
 export type DeviceApplyStatus = "idle" | "applying" | "applied" | "error";
@@ -62,7 +63,7 @@ export function useCalibrationApply(deps: UseCalibrationApplyDeps) {
     const requested = { sampleRate: Number(draft.sampleRate), bufferSize: Number(draft.bufferSize) };
     // 드롭다운이 이미 장치의 inputChannels 이하로 제한돼 있지만, sessionStorage 복원 등으로
     // draft가 그 제약 이전 값을 들고 있을 가능성에 대비해 여기서도 한 번 더 상한을 건다.
-    const requestedChannels = Math.max(2, Number(draft.channels) || 2);
+    const requestedChannels = clampCaptureChannels(draft.channels);
     const captureChannels = deviceInfo?.inputChannels
       ? Math.min(requestedChannels, deviceInfo.inputChannels)
       : requestedChannels;

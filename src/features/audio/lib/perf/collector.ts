@@ -18,8 +18,7 @@
 import type {
   PerfExport, PerfFrameSample, PerfRenderSample, PerfSessionMeta, PerfStageStats,
 } from "./types";
-
-const round3 = (v: number) => parseFloat(v.toFixed(3));
+import { round3 } from "@/shared/lib/utils";
 
 function stageStats(values: number[]): PerfStageStats {
   if (values.length === 0) {

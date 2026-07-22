@@ -7,20 +7,10 @@
 import { useCallback, useEffect, useState } from "react";
 import { Folder, FileText, FolderOpen } from "lucide-react";
 import { useWorkspace } from "./WorkspaceContext";
-import { cn, formatFileSize } from "@/shared/lib/utils";
+import { cn, formatFileSize, splitPath } from "@/shared/lib/utils";
 import CountBadge from "@/shared/components/ui/CountBadge";
 
 interface FolderFile { key: string; name: string; size: number }
-
-// 경로에서 폴더명(마지막 세그먼트)과 상위 경로를 분리 — 홈 디렉터리는 ~ 로 축약
-function splitPath(path: string): { name: string; parent: string } {
-  const clean = path.replace(/[/\\]+$/, "");
-  const idx = Math.max(clean.lastIndexOf("/"), clean.lastIndexOf("\\"));
-  const name = idx < 0 ? clean : clean.slice(idx + 1);
-  let parent = idx < 0 ? "" : clean.slice(0, idx) || "/";
-  parent = parent.replace(/^\/Users\/[^/]+/, "~").replace(/^\/home\/[^/]+/, "~");
-  return { name, parent };
-}
 
 // 이미지의 파일 트리 — 폴더 행 + L자 커넥터 + 파일 행(이름/크기)
 function FolderTree({

@@ -27,12 +27,20 @@ export interface WorkspaceItemMeta {
   peakTemp: number | null;
   peakExcursion: number | null;
   status: SessionStatus | null;
+  // 보호 감쇠가 적용된 PCM(V/I 2ch) WAV가 payload에 함께 저장됐는지 — 목록/내보내기 UI가
+  // payload를 열지 않고도 "보호 WAV" 버튼 노출 여부를 판단하는 데 쓴다. 구버전 항목에는
+  // 없어(undefined) 자연히 false로 취급된다.
+  hasProtectedAudio?: boolean;
 }
 
 export interface WorkspacePayload {
   frames: AnalysisFrame[];
   audioBlob: Blob | null;
   audioType: string | null;
+  // 보호 감쇠가 적용된 PCM(엔진이 buf를 In/Out으로 되쓴 결과, 항상 2ch=V/I)의 WAV.
+  // 원본 캡처(audioBlob)와 짝을 이뤄 저장되며, 캡처/보호 데이터가 없으면 null이다.
+  protectedAudioBlob?: Blob | null;
+  protectedAudioType?: string | null;
 }
 
 export interface SaveWorkspaceInput {
@@ -43,6 +51,8 @@ export interface SaveWorkspaceInput {
   frames: AnalysisFrame[];
   audioBlob: Blob | null;
   audioType: string | null;
+  protectedAudioBlob?: Blob | null;
+  protectedAudioType?: string | null;
   peakTemp: number | null;
   peakExcursion: number | null;
   status: SessionStatus | null;
@@ -80,6 +90,7 @@ export async function saveWorkspaceItem(input: SaveWorkspaceInput): Promise<Work
   if (!hasIndexedDb()) return null;
   const frames = slimAnalysisFrames(input.frames);
   const now = Date.now();
+  const protectedAudioBlob = input.protectedAudioBlob ?? null;
   const meta: WorkspaceItemMeta = {
     id: crypto.randomUUID(),
     name: input.name,
@@ -92,11 +103,14 @@ export async function saveWorkspaceItem(input: SaveWorkspaceInput): Promise<Work
     peakTemp: input.peakTemp,
     peakExcursion: input.peakExcursion,
     status: input.status,
+    hasProtectedAudio: protectedAudioBlob !== null,
   };
   const payload: WorkspacePayload = {
     frames,
     audioBlob: input.audioBlob,
     audioType: input.audioType,
+    protectedAudioBlob,
+    protectedAudioType: protectedAudioBlob ? (input.protectedAudioType ?? "audio/wav") : null,
   };
   try {
     const db = await openDb();
@@ -169,16 +183,3 @@ export async function getWorkspacePayload(id: string): Promise<WorkspacePayload 
   }
 }
 
-/** 프레임 배열 → CSV 문자열 (time, L/R 온도, L/R 익스커션) */
-export function framesToCsv(frames: AnalysisFrame[]): string {
-  const header = "time,temperature_L,temperature_R,excursion_L,excursion_R";
-  const rows = frames.map(
-    (f) => `${f.time},${f.temperature[0]},${f.temperature[1]},${f.excursion[0]},${f.excursion[1]}`,
-  );
-  return [header, ...rows].join("\n");
-}
-
-/** 파일명으로 쓰기 부적합한 문자를 안전하게 치환 */
-export function sanitizeFileName(name: string): string {
-  return name.replace(/[/\\:*?"<>|]/g, "_").trim() || "untitled";
-}
