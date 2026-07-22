@@ -1,6 +1,6 @@
 import { CHANNELS, BYTES_PER_SAMPLE } from "@/features/audio/lib/engine/core";
 
-export const SENSING_CHANNEL_INDEX = { v: 2, i: 3 } as const;
+const SENSING_CHANNEL_INDEX = { v: 2, i: 3 } as const;
 
 export function createNativeFrameReframer(
   captureChannels: number,

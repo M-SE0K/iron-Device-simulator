@@ -1,4 +1,4 @@
-export const MM_SCALE = 1 / 1000;
+const MM_SCALE = 1 / 1000;
 
 export const MM_DECIMALS = 3;
 

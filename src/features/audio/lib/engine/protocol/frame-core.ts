@@ -6,7 +6,7 @@ import {
 import { deinterleave } from "../utils";
 import { createFrameMessage, encodeProcessedPcmMessage } from "./analysis";
 
-export function selectSensing(data: ArrayBuffer, config: EngineRuntimeConfig): RealSensingPair {
+function selectSensing(data: ArrayBuffer, config: EngineRuntimeConfig): RealSensingPair {
   const wireBytes = frameBytes(config);
   const samplesPerCh = config.samplesPerCh;
   const sensingStreamBytes = samplesPerCh * BYTES_PER_SAMPLE;

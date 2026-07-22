@@ -45,7 +45,7 @@ export function createFrameMessage(
   };
 }
 
-export const PROCESSED_PCM_HEADER_BYTES = 8;
+const PROCESSED_PCM_HEADER_BYTES = 8;
 
 export function encodeProcessedPcmMessage(
   frameIndex: number,
