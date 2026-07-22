@@ -21,7 +21,8 @@ import TemperatureChart from "./TemperatureChart";
 import ExcursionChart from "./ExcursionChart";
 import ChannelSelectDrawer, { type DrawerEntry } from "../channel/ChannelSelectDrawer";
 import ChannelStackView, { type StackItem } from "../channel/ChannelStackView";
-import { ChannelWaveformCanvas, channelStats, type WaveformWindow } from "../channel/ChannelWaveformCanvas";
+import { ChannelWaveformCanvas } from "../channel/ChannelWaveformCanvas";
+import { channelStats, type WaveformWindow } from "@/features/audio/lib/render/waveform";
 import { ProtectedComparePanel } from "../channel/ProtectedComparePanel";
 
 // 채널 라이브 뷰가 화면에 유지하는 슬라이딩 윈도우 길이(초) — 이보다 오래된 샘플은 버려서

@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import ReactECharts from "@/shared/components/ReactECharts";
 import { buildDataZoom, buildDynamicTimeFormatter, buildValueTooltip, timeDecimalsForInterval, SYMBOL_VISIBLE_MAX } from "@/features/audio/lib/render/chart-option";
+import type { WaveformWindow } from "@/features/audio/lib/render/waveform";
 
 const LTTB_THRESHOLD = 2000;
 const PAST_EPSILON_SEC = 0.05;
@@ -15,11 +16,6 @@ function computeSymmetricYRange(data: Float32Array): { yMin: number; yMax: numbe
   for (let i = 0; i < data.length; i++) { const a = Math.abs(data[i]); if (a > peak) peak = a; }
   const yMax = Math.max(peak * Y_SCALE_PADDING, Y_MIN_SPAN);
   return { yMin: -yMax, yMax };
-}
-
-export interface WaveformWindow {
-  startSec: number;
-  data: Float32Array;
 }
 
 function buildLttb(
@@ -202,14 +198,4 @@ export function ChannelWaveformCanvas({
       onEvents={echartsEvents.current}
     />
   );
-}
-
-export function channelStats(data: Float32Array): { peak: number; rms: number } {
-  let peak = 0, sumSq = 0;
-  for (let i = 0; i < data.length; i++) {
-    const a = Math.abs(data[i]);
-    if (a > peak) peak = a;
-    sumSq += data[i] * data[i];
-  }
-  return { peak, rms: data.length ? Math.sqrt(sumSq / data.length) : 0 };
 }
