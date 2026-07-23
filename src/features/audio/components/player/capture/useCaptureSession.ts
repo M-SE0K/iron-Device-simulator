@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { AppStatus, AnalysisFrame, InputParameterValues } from "@/features/audio/types";
 import { perf } from "@/features/audio/lib/perf/collector";
+import { e2e } from "@/features/audio/lib/perf-e2e/collector";
 import { createAnalysisSocket, type SocketLike } from "@/features/audio/lib/engine/protocol/local-socket";
 import { useCalibration } from "@/features/audio/components/calibration/CalibrationContext";
 import { pcmFramesToWavBlob } from "@/features/audio/lib/codec/wav-encoder";
@@ -76,6 +77,7 @@ export function useCaptureSession(deps: UseCaptureSessionDeps) {
   const cleanup = useCallback(() => {
     isActiveRef.current = false;
     perf.endSession();
+    e2e.endSession();
 
     nativeOffsRef.current.forEach((off) => off());
     nativeOffsRef.current = [];
@@ -164,6 +166,11 @@ export function useCaptureSession(deps: UseCaptureSessionDeps) {
           excursion:   msg.excursion   as [number, number],
         };
         perf.recordFrame(frame.time, msg.processingMs as number, performance.now() - recvAt);
+        e2e.sample("N8", performance.now() - recvAt);
+        if (typeof msg.engineExecMs === "number" && typeof msg.processingMs === "number") {
+          e2e.sample("N5", msg.engineExecMs);
+          e2e.sample("N6", Math.max(0, msg.processingMs - msg.engineExecMs));
+        }
         onFrameReceived(frame);
 
       } else if (msg.type === "error") {

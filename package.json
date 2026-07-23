@@ -16,7 +16,9 @@
     "build:electron:windows": "./scripts/build-electron.sh --windows-only",
     "build:electron:linux": "./scripts/build-electron.sh --linux-only",
     "build:electron:main": "webpack --config webpack.electron.config.js",
-    "electron:preview": "npm run build:electron:main && electron ."
+    "electron:preview": "npm run build:electron:main && electron .",
+    "measure:e2e": "./scripts/measure-e2e-latency.sh",
+    "summarize:e2e": "node scripts/summarize-e2e-latency.js"
   },
   "dependencies": {
     "clsx": "^2.1.1",

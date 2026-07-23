@@ -79,7 +79,16 @@ ctx.onmessage = (e: MessageEvent) => {
     return;
   }
   if (data && typeof data === "object" && Array.isArray((data as { frames?: unknown }).frames)) {
-    const frames = (data as { frames: ArrayBuffer[] }).frames;
+    // sentAt은 E2E 지연 실험(N3/N7, src/features/audio/lib/perf-e2e/)이 켜졌을 때만 실려온다 —
+    // 없으면 그대로 무시(오버헤드 없음). 워커는 자체 e2e 컬렉터 인스턴스를 갖지 않는다(별도 JS
+    // 렐름이라 메인 스레드의 window.__ironE2E와 상태가 공유되지 않으므로) — 타임스탬프만 echo하고
+    // 실제 기록은 이 메시지를 받는 worker-socket.ts(메인 스레드)가 한다.
+    // 반드시 Date.now()(벽시계) — Worker의 performance.now()는 "이 Worker가 생성된 시점" 기준이라
+    // 메인 스레드(worker-socket.ts의 sentAt/mainRecvAt)와 시간 원점이 다르다. 섞어 쓰면 차이가
+    // Date.now()의 절대값 규모(±1.78e12ms)로 튄다.
+    const workerRecvAt = Date.now();
+    const envelope = data as { frames: ArrayBuffer[]; sentAt?: number };
+    const frames = envelope.frames;
     const results: FrameResultItem[] = [];
     const transfer: Transferable[] = [];
     for (const buf of frames) {
@@ -88,6 +97,14 @@ ctx.onmessage = (e: MessageEvent) => {
       results.push(item);
       if (item.bin) transfer.push(item.bin);
     }
-    if (results.length > 0) ctx.postMessage({ results }, transfer);
+    if (results.length > 0) {
+      const payload: { results: FrameResultItem[]; sentAt?: number; workerRecvAt?: number; workerDoneAt?: number } = { results };
+      if (envelope.sentAt !== undefined) {
+        payload.sentAt = envelope.sentAt;
+        payload.workerRecvAt = workerRecvAt;
+        payload.workerDoneAt = Date.now();
+      }
+      ctx.postMessage(payload, transfer);
+    }
   }
 };

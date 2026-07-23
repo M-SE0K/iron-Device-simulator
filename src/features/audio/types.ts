@@ -57,5 +57,5 @@ export type AppStatus =
 
 export type WsServerMessage =
   | { type: "ready" }
-  | { type: "frame"; frameIndex: number; time: number; temperature: [number, number]; excursion: [number, number]; processingMs: number }
+  | { type: "frame"; frameIndex: number; time: number; temperature: [number, number]; excursion: [number, number]; processingMs: number; engineExecMs?: number }
   | { type: "error"; message: string };

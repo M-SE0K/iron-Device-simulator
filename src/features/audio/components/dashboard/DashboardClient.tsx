@@ -24,6 +24,7 @@ import { clearFrameCache } from "@/features/audio/lib/cache/frame";
 import { formatTime, splitFileName } from "@/shared/lib/utils";
 import { putAudio, clearAudio } from "@/features/audio/lib/cache/audio-blob";
 import { coalesceFrames } from "@/features/audio/lib/render/coalesce";
+import { e2e } from "@/features/audio/lib/perf-e2e/collector";
 import { detectEvents, DEFAULT_TEMP_WARN, DEFAULT_TEMP_DANGER, type TempThresholds } from "@/features/audio/lib/render/detect-events";
 import type { QueuedFrame } from "@/features/audio/lib/render/types";
 import { useFrameCachePersistence } from "@/features/audio/components/dashboard/hooks/useFrameCachePersistence";
@@ -225,6 +226,7 @@ export default function DashboardPage({ useQueue }: DashboardPageProps) {
     if (useQueue) {
       outputQueueRef.current.push({ frame, recvAt: performance.now() });
     } else {
+      e2e.markCommit();
       setStreamingFrames((prev) => [...prev, frame]);
     }
   }, [useQueue]);
@@ -242,9 +244,15 @@ export default function DashboardPage({ useQueue }: DashboardPageProps) {
 
       if (bucket.length === 0) return;
 
-      const eventFrames = detectEvents(bucket, prevTempRef.current, thresholdsRef.current);
+      if (e2e.isActive()) {
+        const now = performance.now();
+        for (const q of bucket) e2e.sample("N9", now - q.recvAt);
+      }
 
-      const renderFrame = coalesceFrames(bucket);
+      const { eventFrames, renderFrame } = e2e.time("N10", () => ({
+        eventFrames: detectEvents(bucket, prevTempRef.current, thresholdsRef.current),
+        renderFrame: coalesceFrames(bucket),
+      }));
       const latest = bucket[bucket.length - 1];
 
       prevTempRef.current = latest.frame.temperature;
@@ -257,6 +265,7 @@ export default function DashboardPage({ useQueue }: DashboardPageProps) {
       }
       renderFrames.push(renderFrame);
 
+      e2e.markCommit();
       setStreamingFrames((prev) => [...prev, ...renderFrames]);
     };
 

@@ -3,6 +3,7 @@
 import { useCallback, type MutableRefObject } from "react";
 import type { AppStatus } from "@/features/audio/types";
 import { perf } from "@/features/audio/lib/perf/collector";
+import { e2e } from "@/features/audio/lib/perf-e2e/collector";
 import type { SocketLike } from "@/features/audio/lib/engine/protocol/local-socket";
 import { clampCaptureChannels } from "@/features/audio/lib/engine/core";
 import type { CaptureStreamEvent } from "./useCaptureSession";
@@ -84,11 +85,15 @@ export function useNativeCapture(deps: NativeCaptureDeps) {
     const { playback } = params;
 
     const captureChannels = clampCaptureChannels(params.channels);
+    const e2eActive = e2e.isEnabled();
     const baseOpts = {
       sampleRate: params.sampleRate,
       bufferSize: params.bufferSize,
       channels:   captureChannels,
       deviceUID:  params.captureDeviceUID?.trim() || undefined,
+      // 켜져 있으면 main 프로세스가 stdout 청크마다 별도 채널로 Date.now() 타임스탬프를 추가로
+      // 보낸다 — N1(네이티브 IPC 릴레이 지연) 측정용. 꺼져 있으면(기본) 추가 IPC 없음.
+      e2e: e2eActive,
     };
 
     let res;
@@ -137,6 +142,11 @@ export function useNativeCapture(deps: NativeCaptureDeps) {
       mode: "native", sampleRate: actualRate, samplesPerCh: wireSamplesPerCh,
       channels: captureChannels, deviceName: res.device || null,
     });
+    e2e.startSession({
+      mode: "native", sampleRate: actualRate, samplesPerCh: wireSamplesPerCh,
+      channels: captureChannels, deviceName: res.device || null,
+      engine: process.env.NEXT_PUBLIC_USE_WORKER_ENGINE === "0" ? "main-thread" : "worker",
+    });
 
     let encStartAt = 0;
     const reframe = createNativeFrameReframer(
@@ -161,8 +171,17 @@ export function useNativeCapture(deps: NativeCaptureDeps) {
       if (!isActiveRef.current || ws.readyState !== WebSocket.OPEN) return;
       perf.markChunkArrival();
       encStartAt = performance.now();
-      reframe(chunk);
+      e2e.time("N2", () => reframe(chunk));
     });
+    // N1(네이티브 IPC 릴레이) — main 프로세스가 stdout 청크를 받은 시각(Date.now(), baseOpts.e2e로
+    // 요청했을 때만 옴)과 이 렌더러 콜백이 실행된 시각의 차이. 프로세스 경계라 performance.now()는
+    // 서로 다른 기준시각(process 시작 시각)을 쓰므로 비교 불가 — 반드시 Date.now()(벽시계)로 잰다.
+    const offMark = e2eActive && bridge.onE2EMark
+      ? bridge.onE2EMark((info) => {
+          if (!isActiveRef.current) return;
+          e2e.sample("N1", Date.now() - info.sentAt);
+        })
+      : undefined;
     const offEnded = bridge.onEnded((info) => {
       if (!isActiveRef.current) return;
       if (playback && info.code === 0) {
@@ -179,7 +198,7 @@ export function useNativeCapture(deps: NativeCaptureDeps) {
       cleanup();
       onStatusChange("error");
     });
-    nativeOffsRef.current = [offData, offEnded];
+    nativeOffsRef.current = offMark ? [offData, offEnded, offMark] : [offData, offEnded];
   }, [
     nativeOffsRef, nativeActiveRef, playCaptureActiveRef, rawCaptureRef, recordingActiveRef, analysisActiveRef,
     isActiveRef, frameCountRef,

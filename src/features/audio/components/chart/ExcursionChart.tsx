@@ -7,6 +7,7 @@ import ReactECharts from "@/shared/components/ReactECharts";
 import { toMm, MM_DECIMALS } from "@/features/audio/lib/units";
 import SegmentedControl from "@/shared/components/ui/SegmentedControl";
 import { perf } from "@/features/audio/lib/perf/collector";
+import { e2e } from "@/features/audio/lib/perf-e2e/collector";
 import {
   computeStreamWindow, computeExcursionYRange, WINDOW_SIZE, type ChannelMode,
 } from "@/features/audio/lib/render/chart-window";
@@ -49,6 +50,9 @@ export default function ExcursionChart({ frames, currentTime, isActive, streamin
     if (perfTrack && streaming && frames.length !== prevFrameLenRef.current) {
       prevFrameLenRef.current = frames.length;
       renderStartAtRef.current = performance.now();
+      // N11 — DashboardClient가 setStreamingFrames 직전에 남긴 커밋 시각 대비, 이 레이아웃
+      // 이펙트(React 커밋 이후)까지 걸린 시간.
+      e2e.sampleSinceCommit("N11", "excursion");
     }
   });
 
@@ -56,7 +60,9 @@ export default function ExcursionChart({ frames, currentTime, isActive, streamin
   echartsEvents.current = {
     rendered: useCallback(() => {
       if (perfTrack && renderStartAtRef.current > 0) {
-        perf.recordRender("excursion", performance.now() - renderStartAtRef.current);
+        const renderMs = performance.now() - renderStartAtRef.current;
+        perf.recordRender("excursion", renderMs);
+        e2e.sample("N12", renderMs, "excursion");
         renderStartAtRef.current = 0;
       }
     }, [perfTrack]),

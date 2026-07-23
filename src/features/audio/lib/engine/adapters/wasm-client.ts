@@ -44,7 +44,7 @@ class ClientWasmMemoryLayout implements MemoryLayout {
     }
 
     this.debugFrame++;
-    if (this.debugFrame % 100 === 0) {
+    if (this.debugFrame % 10 === 0) {
       console.debug(
         `[sensing-debug] wasm-client frame=${this.debugFrame} sensing=${!!sensing} ` +
         `vArg=${vArg} iArg=${iArg} ` +

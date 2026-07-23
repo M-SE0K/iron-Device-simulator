@@ -22,6 +22,8 @@ contextBridge.exposeInMainWorld("audioCapture", {
   stop: () => ipcRenderer.invoke("audio-capture:stop"),
   onData: (callback) => onIpc("audio-capture:data", callback),
   onEnded: (callback) => onIpc("audio-capture:ended", callback),
+  // start({ e2e: true })일 때만 main이 이 채널로 보낸다 — E2E 지연 실험(N1) 전용.
+  onE2EMark: (callback) => onIpc("audio-capture:e2e-mark", callback),
 });
 
 contextBridge.exposeInMainWorld("audioPlayCapture", {
@@ -43,6 +45,8 @@ contextBridge.exposeInMainWorld("audioPlayCapture", {
   onData: (callback) => onIpc("audio-playcapture:data", callback),
   // code 0 = 재생 완료(헬퍼 자기 종료), 그 외 = 비정상 종료. 사용자 stop 시에는 오지 않는다.
   onEnded: (callback) => onIpc("audio-playcapture:ended", callback),
+  // start({ e2e: true })일 때만 main이 이 채널로 보낸다 — E2E 지연 실험(N1) 전용.
+  onE2EMark: (callback) => onIpc("audio-playcapture:e2e-mark", callback),
 });
 
 contextBridge.exposeInMainWorld("localFolder", {

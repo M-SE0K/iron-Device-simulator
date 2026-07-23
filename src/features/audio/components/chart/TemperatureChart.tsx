@@ -6,6 +6,7 @@ import { AnalysisFrame } from "@/features/audio/types";
 import ReactECharts from "@/shared/components/ReactECharts";
 import SegmentedControl from "@/shared/components/ui/SegmentedControl";
 import { perf } from "@/features/audio/lib/perf/collector";
+import { e2e } from "@/features/audio/lib/perf-e2e/collector";
 import { DEFAULT_TEMP_WARN, DEFAULT_TEMP_DANGER } from "@/features/audio/lib/render/detect-events";
 import {
   computeStreamWindow, computeTemperatureYRange, WINDOW_SIZE, type ChannelMode,
@@ -49,6 +50,9 @@ export default function TemperatureChart({ frames, currentTime, isActive, stream
     if (perfTrack && streaming && frames.length !== prevFrameLenRef.current) {
       prevFrameLenRef.current = frames.length;
       renderStartAtRef.current = performance.now();
+      // N11 — DashboardClient가 setStreamingFrames 직전에 남긴 커밋 시각 대비, 이 레이아웃
+      // 이펙트(React 커밋 이후)까지 걸린 시간.
+      e2e.sampleSinceCommit("N11", "temperature");
     }
   });
 
@@ -56,7 +60,9 @@ export default function TemperatureChart({ frames, currentTime, isActive, stream
   echartsEvents.current = {
     rendered: useCallback(() => {
       if (perfTrack && renderStartAtRef.current > 0) {
-        perf.recordRender("temperature", performance.now() - renderStartAtRef.current);
+        const renderMs = performance.now() - renderStartAtRef.current;
+        perf.recordRender("temperature", renderMs);
+        e2e.sample("N12", renderMs, "temperature");
         renderStartAtRef.current = 0;
       }
     }, [perfTrack]),
