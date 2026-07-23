@@ -57,9 +57,12 @@ ASIOSDK_DIR=/path/to/SDK ./build-win.sh
 > 남겨뒀지만 패키징 파이프라인은 쓰지 않는다. 요구사항: Visual Studio 2019+ (C++ 데스크톱
 > 워크로드), CMake 3.15+.
 
-> `dist/`는 git에서 무시하지 **않는다** — macOS 헬퍼가 산출물을 커밋하고 있어 대칭을 맞췄다.
-> (기존 계획 문서는 git-ignore를 적어두었으나 실제 관행과 달라 관행 쪽을 따랐다.)
-> SDK를 푸는 `third_party/`와 CMake 작업 폴더 `build-*/`는 `.gitignore`로 제외된다.
+> `dist/`는 `.gitignore`로 제외된다 — 산출물(`audio-device-helper.exe`)이 GPLv3/독점 듀얼
+> 라이선스인 ASIO SDK를 링크한 바이너리라, Steinberg와 별도 독점 라이선스 계약이 확인되기
+> 전까지는 커밋하지 않기로 했다(아래 "ASIO SDK 취득"의 라이선스 절 참고). 이전에는 macOS
+> 헬퍼와 대칭을 맞추려 커밋했었으나 라이선스 확인 전까지 보류한다. 패키징 시엔 매번
+> `build-win.sh`로 새로 빌드하므로 `SKIP_WIN_HELPER_BUILD=1`로 재사용은 못 한다.
+> SDK를 푸는 `third_party/`와 CMake 작업 폴더 `build-*/`도 `.gitignore`로 제외된다.
 
 ### ASIO SDK 취득
 

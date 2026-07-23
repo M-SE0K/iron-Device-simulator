@@ -4,5 +4,7 @@ third_party/
 # CMake 작업 폴더 (build.ps1 -Arch 별로 생김)
 build-*/
 
-# dist/ 는 의도적으로 무시하지 않는다 — macOS 헬퍼(native/macos/.../dist/)가 산출물을
-# 커밋하는 관행을 따르고 있어 대칭을 맞춘 것이다. 정책을 바꾼다면 양쪽을 같이 바꿔야 한다.
+# dist/ 산출물(audio-device-helper.exe)은 ASIO SDK(GPLv3/독점 듀얼 라이선스)를 링크한
+# 바이너리다. Steinberg와 별도 독점 라이선스 계약이 확인되기 전까지는 커밋하지 않는다.
+# (예전엔 macOS 헬퍼와 대칭을 맞추려 커밋했었다 — 라이선스 확인 전까지 보류)
+dist/
