@@ -3,18 +3,21 @@
 [English](README.md) | 한국어
 
 전북대학교 SW 산학협력 프로젝트로 개발된, Iron Device Corporation의 스피커 보호 알고리즘 라이브러리(`libirontune.so`)를 시연하기 위한 웹 기반 대시보드입니다.
-오디오 파일 업로드 또는 실시간 마이크 입력으로 **스피커 온도**와 **진동판 변위(excursion)**를 실시간으로 시각화합니다.
+오디오 파일 업로드 또는 실시간 마이크 입력으로 **스피커 온도**와 **진동판 변위(excursion)**를 실시간으로 시각화합니다. 
+
+**Teams에 공유된 SDK를 아래의 경로로 옮긴 뒤 진행해야 되며, third_party를 반드시 추가해야 패키징이 진행됩니다.**
+```
+./iron-Device-simulator
+ㄴ--electron
+        ㅏ----wasm-engine/custom
+        |                    ㅏ 보호 알고리즘.h
+        |                    ㄴ 보호 알고리즘.c
+        ㄴ----windows
+            ㄴ----third_party  # mkdir third_party 
+                ㄴ---- ASIOSDK # 폴더명 일치
+```
 
 <img width="1920" height="958" alt="image" src="https://github.com/user-attachments/assets/99f08e17-383e-4aec-869f-2337b5e02ed8" />
-
----
-
-## 요구 사항
-
-- Node.js 20+
-- npm 9+
-- [Emscripten](https://emscripten.org/docs/getting_started/downloads.html)(`emcc`) — WASM 엔진 빌드용(`npm run wasm:build`). **Docker가 있으면 설치 불필요**: `emcc`가 없으면 `build-wasm.sh`가 공식 `emscripten/emsdk` 이미지로 자동 폴백합니다.
-- Electron 패키징에만 필요: `electron` / `electron-builder`는 이미 devDependencies에 포함돼 있어 별도 설치가 필요 없습니다. macOS/Linux에서 Windows NSIS 설치 프로그램을 크로스 컴파일하려면 Wine이 필요한데, 그래서 이 프로젝트의 Windows 타깃은 서명·Wine 없이도 만들 수 있는 포터블 `.zip`으로 대신합니다(자세한 내용은 [데스크톱 앱 패키징(Electron)](#데스크톱-앱-패키징electron) 참고).
 
 ---
 
@@ -28,68 +31,25 @@ npm install
 
 ---
 
-## 로컬 실행
+## 빠른 시작
 
-클론 직후 원커맨드(환경 확인 → `npm install` → WASM 빌드 → dev 서버):
-
-```bash
-npm run bootstrap     # → http://localhost:3000
-```
-
-단계별로 실행하려면:
+클론 직후 원커맨드(환경 확인 → `npm install` → WASM 빌드 → dev 서버)
+이후 로컬 서버를 종료해주세요. ```Ctrl + c```
 
 ```bash
-npm run wasm:build   # 최초 1회 — electron/native/wasm-engine/*.c → public/wasm/ff_prot.{js,wasm} (emcc, 없으면 Docker 폴백)
-npm run dev           # next dev — http://localhost:3000
+npm run bootstrap
 ```
-
----
-
-## 내 알고리즘으로 실행하기
-
-내장 분석 엔진(`electron/native/wasm-engine/ff_prot.c`)은 **검증용 참조 스텁**이며, 이 폴더는 본인의 C 구현으로 갈아끼워 앱을 돌리는 것을 전제로 설계돼 있습니다:
-
-```bash
-git clone https://github.com/JBNU-CILAB/Iron-Device-Simulator.git
-cd iron-Device-simulator
-# 본인 .c/.h 파일들을 electron/native/wasm-engine/custom/ 에 넣기 — 파일명 자유
-#   (custom/ 에 소스가 있으면 빌드가 스텁 대신 그쪽만 자동 컴파일 —
-#    스텁을 지우거나 덮어쓸 필요가 없어 업스트림 갱신과 충돌하지 않음)
-npm run bootstrap     # → http://localhost:3000, 차트가 본인 알고리즘으로 구동됨
-```
-
-지켜야 할 계약은 `electron/native/wasm-engine/ff_prot.h`에 선언된 `ff_prot_*` 4개 함수(`init` / `set_param` / `start_exec` — 9-인자 / `stop_exec`)가 전부입니다. 함수명이 다르면 이 이름들로 위임하는 얇은 래퍼 `.c` 하나를 같이 넣으면 됩니다(예시: `electron/native/wasm-engine/custom/README.md`). 버퍼 규약·export 함수 목록·디버그 빌드 등 상세는 `electron/native/wasm-engine/README.md`의 "내 알고리즘 넣기" 절을 참고하세요.
-
----
-
-## 빌드
-
-### 웹 (모든 정적 호스트)
-
-```bash
-npm run build:desktop   # → out/ (WASM 컴파일 + next build --output export)
-npx serve out            # 정적 번들을 로컬에서 서빙
-```
-
-`serve`가 출력한 URL(기본값 http://localhost:3000)을 열면 됩니다. `out/`은 순수한 정적 사이트이므로 Vercel, Cloudflare Pages, Netlify, GitHub Pages, S3, Nginx 등 어떤 정적 호스트에도 동일한 방식으로 배포할 수 있습니다.
-
-> `out/index.html`을 `file://`로 직접 여는 것은 동작하지 않습니다 — 애셋 경로가 절대 경로(`/_next/...`)이기 때문에 반드시 웹 루트에서 서빙해야 합니다.
 
 ### 데스크톱 앱 패키징(Electron)
 
-```bash
-npm run build:electron   # → out/ (WASM + 정적 export) + dist-electron/ (패키징된 앱)
-```
-
 `build:desktop`과 동일한 정적 코어 빌드를 실행한 뒤, [electron-builder](https://www.electron.build/)로 감싸 **macOS, Windows, Linux**(`x64`, `arm64` 모두) 설치형 데스크톱 앱 6종을 `dist-electron/` 아래에 생성합니다.
+```bash
+npm run build:electron          # 모든 OS 패키징
 
-| 플랫폼 | 산출물 |
-|---|---|
-| macOS | `.dmg`, `.zip` (x64 + arm64) |
-| Windows | `.zip` 포터블 (x64 + arm64) |
-| Linux | `.AppImage` (x64 + arm64) |
-
-`electron/main.js`는 `127.0.0.1`에 바인딩된 작은 로컬 HTTP 서버를 띄워 `out/`을 `BrowserWindow`에 서빙합니다 — 위 웹 빌드와 같은 이유(절대 애셋 경로)로 `file://`을 직접 로드하면 동작하지 않습니다. 백엔드도, `ws://` 연결도 없습니다. WASM 엔진은 웹 빌드와 마찬가지로 여전히 Electron 렌더러 프로세스 내부에서 전부 실행됩니다.
+npm run build:electron:linux    # only-linux(개선 예정)
+npm run build:electorn:mac      # only-mac
+npm run build:electron:windows  # only-windows
+```
 
 **이 빌드들은 서명되지 않았습니다**(앱스토어/공개 배포용이 아니라 팀 내부 배포용 — `electron-builder.yml` 참고). 최초 실행 시 다음 한 단계가 필요합니다.
 
@@ -99,71 +59,30 @@ npm run build:electron   # → out/ (WASM + 정적 export) + dist-electron/ (패
 
 전체 패키징 없이 미리보기만 하려면(이미 어떤 정적 빌드로든 `out/`이 만들어져 있는 상태에서):
 
-```bash
-npm run electron:preview   # electron . — electron/main.js를 현재 out/ 기준으로 실행
-```
 
----
+```bash
+npm run build:desktop       # 빌드
+npm run electron:preview    # electron . — electron/main.js를 현재 out/ 기준으로 실행
+```
 
 ## 환경 변수
 
 | 변수 | 기본값 | 설명 |
 |---|---|---|
-| `USE_QUEUE` | `true` | `false`로 설정하면 출력 큐 스케줄러 대신 단순 FIFO 렌더 경로를 사용합니다. 렌더 시점에 서버 사이드에서 읽으므로(`next build && next start`) 정적 export 빌드에는 반영되지 않습니다. |
+| `USE_QUEUE` | `true` | `false`로 설정하면 출력 큐 스케줄러 대신 단순 FIFO 렌더 경로를 사용합니다.  |
+| `USE_WORKER_ENGINE` | `1` | `0` 로 1로 설정하여 메인 스레드의 작업을 분산시켜 온전히 UI 렌더링 작업만 진행할 수 있게합니다. |
 
----
 
 ## 개발 명령어
 
-```bash
-npm run dev          # next dev — HMR 지원 개발 서버 (WASM 엔진 항상 활성)
-npm run build        # Next.js 프로덕션 빌드
-npm start            # 프로덕션 서버 (next start)
-npm run lint         # ESLint
-
-npm run bootstrap     # 클론 직후 원커맨드: 환경 확인 → npm install → wasm:build → dev 서버
-npm run wasm:build    # electron/native/wasm-engine/*.c를 브라우저 타깃 WASM으로 컴파일 (emcc, 없으면 Docker 폴백)
-npm run build:desktop # 정적 웹 빌드 → out/ (위 빌드 항목 참고)
-npm run build:electron # 정적 빌드 + Electron 패키징 → out/ + dist-electron/ (위 빌드 항목 참고)
-npm run electron:preview # electron . — 현재 out/ 기준으로 electron/main.js 실행, 패키징 없음
-```
-
-수동 측정: 앱에서 세션을 재생한 뒤 브라우저 콘솔에서 `window.__ironPerf.summary()` / `.download()`를 실행하세요.
-
-### 지연 측정 (실험용, `scripts/실험용/`)
-
-정식 개발/빌드 루틴에 포함되지 않는 수동 프로파일링 도구입니다 — N1~N12 파이프라인 하네스의
-전체 가이드는 [docs/e2e-latency-experiment.md](docs/e2e-latency-experiment.md) 참고.
+웹에서의 동작은 배제하고 작성된 명령어로, Electron 개발 명령어이니 참고 부탁드립니다.
 
 ```bash
-npm run e2e:measure                  # dev 서버를 띄우고 ?e2e=1로 N1~N12 지연 하네스를 활성화해 접속
-npm run e2e:summarize -- report.json # window.__ironE2E.download()로 받은 JSON을 요약
-npm run loopback:measure -- --ref impulse.wav --capture vi-capture.wav
-                                      # 재생한 임펄스 + 캡처된 V/I WAV로 하드웨어 왕복(루프백) 지연을 오프라인 계산
+npm run wasm:build          # electron/native/wasm-engine/*.c를 브라우저 타깃 WASM으로 컴파일 (emcc, 없으면 Docker 폴백)
+npm run build:desktop       # 정적 빌드 → out/ (위 빌드 항목 참고)
+npm run build:electron      # {:linux, :mac, :windows} 정적 빌드 + Electron 패키징 → out/ + dist-electron/ (위 빌드 항목 참고)
+npm run electron:preview    # electron . — 현재 out/ 기준으로 electron/main.js 실행, 패키징 없음. 앱 환경에서의 빠른 확인 가능(개발할 때 주로 사용하시면 됩니다.)
 ```
-
-### WASM 빌드 (`electron/native/wasm-engine/`)
-
-> 이 폴더는 `electron/` 밑에 있지만 Electron 전용이 아닙니다 — 산출물
-> (`public/wasm/ff_prot.{js,wasm}`)은 순수 웹 빌드에도 그대로 쓰입니다.
-
-```bash
-cd electron/native/wasm-engine
-./build-wasm.sh       # → ../../../public/wasm/ff_prot.{js,wasm} (Emscripten, 브라우저 타깃 — emcc 없으면 Docker 폴백)
-make selftest         # 참조 모델의 순수 C 자체 테스트(온도 상승 + L/R excursion 차이) — 앱 빌드와는 무관
-```
-
----
-
-## 기능
-
-- **파일 모드** — WAV / MP3를 업로드하면, 재생이 실제 하드웨어 캡처 루프(V/I 센싱)를 구동하고 그 결과를 실시간으로 분석합니다 — 디코딩된 파일 오디오 자체를 분석하는 것이 아닙니다
-- **마이크 모드** — 실시간 마이크 / 하드웨어 캡처 입력을 실시간으로 분석
-- **온도 / Excursion 차트** — L / R / Both 채널 토글, ECharts 기반 실시간 렌더링
-- **캘리브레이션** — 스피커 프로필, 앰프 출력, 주변 온도, 경고/위험 임계값, 샘플레이트/버퍼 크기, 입출력 장치 라우팅 설정
-- **워크스페이스** — 세션의 캡처 오디오와 차트 데이터를 로컬(IndexedDB)에 저장, 항목별 JSON/CSV export, 채널별 파형 확인
-
----
 
 ## 기술 스택
 
@@ -176,7 +95,6 @@ make selftest         # 참조 모델의 순수 C 자체 테스트(온도 상승
 | 분석 엔진 | Emscripten(`emcc`) — `electron/native/wasm-engine/ff_prot.c` → WebAssembly, 브라우저 타깃, 프로세스 내부 실행(서버 없음) |
 | 데스크톱 패키징 | Electron + electron-builder (macOS / Windows / Linux) |
 
----
 
 ## 라이선스
 
