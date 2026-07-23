@@ -86,7 +86,7 @@ export function useWebAudioWorkletCapture(deps: WebCaptureDeps) {
     e2e.startSession({
       mode: "web", sampleRate: actualRate, samplesPerCh: params.bufferSize,
       channels: 2, deviceName,
-      engine: process.env.NEXT_PUBLIC_USE_WORKER_ENGINE === "0" ? "main-thread" : "worker",
+      engine: process.env.USE_WORKER_ENGINE === "0" ? "main-thread" : "worker",
     });
 
     worklet.port.onmessage = (e: MessageEvent<{ L: Float32Array; R: Float32Array }>) => {

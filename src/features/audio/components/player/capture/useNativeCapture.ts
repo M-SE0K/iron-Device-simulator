@@ -145,7 +145,7 @@ export function useNativeCapture(deps: NativeCaptureDeps) {
     e2e.startSession({
       mode: "native", sampleRate: actualRate, samplesPerCh: wireSamplesPerCh,
       channels: captureChannels, deviceName: res.device || null,
-      engine: process.env.NEXT_PUBLIC_USE_WORKER_ENGINE === "0" ? "main-thread" : "worker",
+      engine: process.env.USE_WORKER_ENGINE === "0" ? "main-thread" : "worker",
     });
 
     let encStartAt = 0;

@@ -133,7 +133,7 @@ class LocalWasmSocket implements SocketLike {
 }
 
 export function createAnalysisSocket(): SocketLike {
-  if (process.env.NEXT_PUBLIC_USE_WORKER_ENGINE === "0") {
+  if (process.env.USE_WORKER_ENGINE === "0") {
     return new LocalWasmSocket();
   }
   try {

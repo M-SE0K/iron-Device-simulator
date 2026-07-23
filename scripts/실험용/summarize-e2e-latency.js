@@ -16,7 +16,7 @@ const NODE_ORDER = ["N1", "N2", "N3", "N4", "N5", "N6", "N7", "N8", "N9", "N10",
 // 스레드/프로세스 경계가 있어 특정 조건에서만 값이 채워지는 노드 — count=0이어도 정상일 수 있다.
 const CONDITIONAL_NODES = {
   N1: "Electron 전용(웹 빌드) 또는 enable()을 세션 시작 전에 안 부른 경우 0",
-  N3: "메인 스레드 엔진 경로(NEXT_PUBLIC_USE_WORKER_ENGINE=0)면 0",
+  N3: "메인 스레드 엔진 경로(USE_WORKER_ENGINE=0)면 0",
   N4: "메인 스레드 엔진 경로면 0",
   N7: "메인 스레드 엔진 경로면 0",
   N9: "useQueue=false(.env의 USE_QUEUE=false 등)면 0 — 프레임이 큐 없이 바로 렌더됨",

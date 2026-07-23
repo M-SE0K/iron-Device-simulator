@@ -4,6 +4,7 @@
   "private": true,
   "main": "electron-dist/main.js",
   "scripts": {
+    "bootstrap": "bash scripts/setup/bootstrap.sh",
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
