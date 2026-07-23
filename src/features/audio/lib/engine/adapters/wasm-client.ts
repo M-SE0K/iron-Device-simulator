@@ -45,7 +45,7 @@ class ClientWasmMemoryLayout implements MemoryLayout {
 
     this.debugFrame++;
     if (this.debugFrame % 10 === 0) {
-      console.debug(
+      console.log(
         `[sensing-debug] wasm-client frame=${this.debugFrame} sensing=${!!sensing} ` +
         `vArg=${vArg} iArg=${iArg} ` +
         `in.v[0]=${sensing?.v[0]} in.i[0]=${sensing?.i[0]} ` +
@@ -104,6 +104,12 @@ class ClientWasmMemoryLayout implements MemoryLayout {
 type FfProtInstance = any;
 type FfProtFactory = (moduleArg?: Record<string, unknown>) => Promise<FfProtInstance>;
 
+// 기본은 클린 WASM(public/wasm/, 프로덕션·측정 공용). 실험(debug) 빌드(npm run wasm:build:debug →
+// public/wasm-debug/, V/I 값 printf 덤프 포함)를 쓰려면 빌드/dev 서버 기동 시
+// NEXT_PUBLIC_WASM_DIR=/wasm-debug 를 설정한다 — scripts/build/build-static-local.sh의
+// WASM_MODE=debug 가 이 값을 자동으로 맞춰준다.
+const WASM_DIR = process.env.NEXT_PUBLIC_WASM_DIR || "/wasm";
+
 let factoryPromise: Promise<FfProtFactory> | null = null;
 
 function loadFactory(): Promise<FfProtFactory> {
@@ -121,9 +127,9 @@ function loadFactory(): Promise<FfProtFactory> {
     }).importScripts;
     if (typeof importScriptsFn === "function") {
       try {
-        importScriptsFn("/wasm/ff_prot.js");
+        importScriptsFn(`${WASM_DIR}/ff_prot.js`);
       } catch (err) {
-        reject(new Error(`/wasm/ff_prot.js importScripts 실패: ${err}`));
+        reject(new Error(`${WASM_DIR}/ff_prot.js importScripts 실패: ${err}`));
         return;
       }
       const factory = (globalThis as unknown as { FfProtModule?: FfProtFactory }).FfProtModule;
@@ -140,7 +146,7 @@ function loadFactory(): Promise<FfProtFactory> {
       return;
     }
     const script = document.createElement("script");
-    script.src = "/wasm/ff_prot.js";
+    script.src = `${WASM_DIR}/ff_prot.js`;
     script.onload = () => {
       const factory = (globalThis as unknown as { FfProtModule?: FfProtFactory }).FfProtModule;
       if (!factory) {
@@ -149,7 +155,7 @@ function loadFactory(): Promise<FfProtFactory> {
       }
       resolve(factory);
     };
-    script.onerror = () => reject(new Error("/wasm/ff_prot.js 로드 실패"));
+    script.onerror = () => reject(new Error(`${WASM_DIR}/ff_prot.js 로드 실패`));
     document.head.appendChild(script);
   });
 
@@ -162,7 +168,7 @@ export async function openClientWasmSession(
   opts: AnalysisFrameOptions = {},
 ): Promise<AnalysisSession> {
   const factory = await loadFactory();
-  const mod: FfProtInstance = await factory({ locateFile: (path: string) => `/wasm/${path}` });
+  const mod: FfProtInstance = await factory({ locateFile: (path: string) => `${WASM_DIR}/${path}` });
 
   const bufPtr  = mod._malloc(frameBytes(config));
   const tempPtr = mod._malloc(CHANNELS * 4);
