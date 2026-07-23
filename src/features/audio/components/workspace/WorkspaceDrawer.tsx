@@ -16,7 +16,7 @@ function WorkspaceDrawer() {
     <SideDrawer
       open={open}
       onClose={() => setOpen(false)}
-      ariaLabel="작업 영역"
+      ariaLabel="Workspace"
       title="Workspace"
       count={fileCount}
     >

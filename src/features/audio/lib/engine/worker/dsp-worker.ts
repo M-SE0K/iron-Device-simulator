@@ -68,7 +68,7 @@ function handleFrame(data: ArrayBuffer): FrameResultItem | null {
     if (!out) return null;
     return { json: JSON.stringify(out.frameJson), bin: out.binary ?? null };
   } catch (err) {
-    return { json: JSON.stringify(createErrorMessage(`ff_prot_start_exec 오류: ${err}`)), bin: null };
+    return { json: JSON.stringify(createErrorMessage(`ff_prot_start_exec error: ${err}`)), bin: null };
   }
 }
 

@@ -84,7 +84,7 @@ export default function SideDrawer({
             <button
               type="button"
               onClick={onClose}
-              aria-label="닫기"
+              aria-label="Close"
               className="flex items-center justify-center w-8 h-8 rounded-lg text-iron-400 hover:bg-iron-100 hover:text-iron-700 transition shrink-0"
             >
               <X className="w-4 h-4" />

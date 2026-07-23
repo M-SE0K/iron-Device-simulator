@@ -61,7 +61,7 @@ const MicrophonePlayer = forwardRef<MicrophonePlayerHandle, Props>(function Micr
     >
       <button
         onClick={isRecording ? stop : () => start()}
-        aria-label={isRecording ? "녹음 중지" : "녹음 시작"}
+        aria-label={isRecording ? "Stop Recording" : "Start Recording"}
         className={cn(
           "flex items-center justify-center w-12 h-12 rounded-full shrink-0 transition-colors text-white",
           isRecording ? "bg-red-500 hover:bg-red-600" : "bg-brand-blue hover:bg-brand-blue-dark",
@@ -78,18 +78,18 @@ const MicrophonePlayer = forwardRef<MicrophonePlayerHandle, Props>(function Micr
               isRecording ? "bg-red-500 animate-pulse" : "bg-iron-300",
             )}
           />
-          {isRecording ? "녹음 중" : "마이크 대기"}
+          {isRecording ? "Recording" : "Mic Standby"}
         </span>
 
         {micError ? (
           <span className="hidden sm:inline text-xs text-red-500 truncate">{micError}</span>
         ) : isRecording ? (
           <span className="hidden sm:inline text-xs text-iron-400 font-mono truncate tabular-nums">
-            송신 {frameCountRef.current}fr · 수신 {framesRcvdRef.current}fr
+            Sent {frameCountRef.current}fr · Received {framesRcvdRef.current}fr
           </span>
         ) : (
           <span className="hidden sm:inline text-xs text-iron-400 truncate tabular-nums">
-            {deviceName ?? "장치 미확인"}
+            {deviceName ?? "Unknown Device"}
             {sampleRate !== null && ` · ${sampleRate.toLocaleString()}Hz`}
             {actualBufferSize !== null && ` · buf ${actualBufferSize}`}
             {actualLatency !== null && ` · ${(actualLatency * 1000).toFixed(1)}ms`}
@@ -101,8 +101,8 @@ const MicrophonePlayer = forwardRef<MicrophonePlayerHandle, Props>(function Micr
         <button
           onClick={saveRecording}
           disabled={saving}
-          title={`캡처된 ${recordingChannels ?? 2}채널 전체를 WAV로 저장`}
-          aria-label="작업 영역에 저장"
+          title={`Save all ${recordingChannels ?? 2} captured channels as WAV`}
+          aria-label="Save to Workspace"
           className="shrink-0 p-1.5 rounded-full text-iron-400 hover:bg-iron-100 hover:text-brand-blue transition-colors disabled:opacity-50"
         >
           <Save size={14} />

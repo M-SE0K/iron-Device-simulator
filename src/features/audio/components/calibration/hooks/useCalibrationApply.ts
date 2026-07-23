@@ -78,8 +78,8 @@ export function useCalibrationApply(deps: UseCalibrationApplyDeps) {
       setDeviceStatus("error");
       setDeviceError(
         result.error === "capture-already-running"
-          ? "마이크가 이미 사용 중입니다 — 녹음을 멈춘 뒤 다시 적용해주세요."
-          : result.error ?? "설정 적용 실패"
+          ? "Microphone is already in use — stop recording and try applying again."
+          : result.error ?? "Failed to apply settings"
       );
     }
 

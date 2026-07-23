@@ -181,7 +181,7 @@ export function useCaptureSession(deps: UseCaptureSessionDeps) {
     };
 
     ws.onerror = () => {
-      setMicError("분석 엔진 연결 오류가 발생했습니다.");
+      setMicError("An error occurred connecting to the analysis engine.");
       cleanup();
       onStatusChange("error");
     };
@@ -245,7 +245,7 @@ export function useCaptureSession(deps: UseCaptureSessionDeps) {
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       if (msg.includes("Permission") || msg.includes("NotAllowed")) {
-        setMicError("마이크 권한이 거부되었습니다. 브라우저 설정에서 허용해주세요.");
+        setMicError("Microphone permission was denied. Please allow it in your browser settings.");
       } else {
         setMicError(msg);
       }

@@ -208,7 +208,7 @@ const WaveformPlayer = forwardRef<WaveformPlayerHandle, Props>(function Waveform
         )}
       >
         {!audioFile && (
-          <p className="waveform-placeholder text-xs text-iron-300 truncate">파일을 업로드하면 파형이 표시됩니다</p>
+          <p className="waveform-placeholder text-xs text-iron-300 truncate">Upload a file to see the waveform</p>
         )}
       </div>
     </PlayerBar>

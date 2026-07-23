@@ -6,7 +6,7 @@ import { useActiveDrawer, type DrawerKey } from "@/features/audio/components/das
 
 const NAV_ITEMS: { key: DrawerKey; label: string; icon: typeof FolderOpen }[] = [
   { key: "workspace",   label: "Workspace",  icon: FolderOpen },
-  { key: "records",     label: "측정 기록",   icon: History },
+  { key: "records",     label: "Records",   icon: History },
   { key: "calibration", label: "Calibration", icon: SlidersHorizontal },
 ];
 
@@ -63,7 +63,7 @@ function Sidebar({ mobileOpen = false, onMobileClose, collapsed = false }: Sideb
         }`}
       >
         <LayoutDashboard className="w-4 h-4 shrink-0" />
-        대시보드
+        Dashboard
       </button>
 
       {NAV_ITEMS.map(({ key, label, icon: Icon }) => {

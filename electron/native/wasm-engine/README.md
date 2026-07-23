@@ -10,13 +10,31 @@
 > 호출한다 — `.so`/koffi FFI 로딩 경로는 쓰이지 않는다. 정품 소스를 받으면 이
 > 디렉터리는 폐기합니다.
 
+## 내 알고리즘 넣기 (drop-in)
+
+이 폴더는 스텁을 **본인 C 알고리즘으로 갈아끼우는 것**을 전제로 설계돼 있다. 계약은 `ff_prot.h`의 4개 함수가 전부다.
+
+1. **드롭인** — 본인 `.c`/`.h` 파일들을 **`custom/` 폴더에 넣는다. 파일명 제약 없음.**
+   - `custom/`에 `.c`가 하나라도 있으면 `build-wasm.sh`가 **스텁(`ff_prot.c`) 대신 `custom/*.c`만** 컴파일한다 — 스텁을 지우거나 덮어쓸 필요가 없어 `git pull`의 스텁 갱신과 충돌하지 않는다(래퍼 예시 포함 상세: `custom/README.md`).
+   - 빌드 소스 우선순위: `FF_PROT_SRCS="a.c b.c"` 명시 > `custom/*.c` > 폴더 내 `*.c`(스텁). 파일명에 `selftest`가 들어가면 항상 제외.
+   - (구식 경로) 스텁 `ff_prot.c`를 직접 덮어써도 되지만, 그 경우 같은 심볼(`ff_prot_*`)을 정의한 파일이 폴더에 공존하면 **중복 심볼로 링크가 깨진다**는 점에 유의.
+2. **시그니처 유지** — `ff_prot_init` / `ff_prot_set_param` / `ff_prot_start_exec`(9-인자) / `ff_prot_stop_exec` 4개를 `ff_prot.h` 선언 그대로 export해야 한다(아래 표 참고). 함수명이 다른 기존 알고리즘이라면 이 4개 이름으로 위임하는 얇은 래퍼 `.c` 하나를 같이 넣으면 된다. 함수를 **추가로** export하려면 `build-wasm.sh`의 `-sEXPORTED_FUNCTIONS` 목록에 `_함수명`을 등록한다(호출부는 `wasm-client.ts`).
+3. **빌드 + 실행** — 리포 루트에서:
+   ```bash
+   npm run bootstrap    # 클론 직후 원커맨드: 환경 확인 → npm install → wasm:build → dev 서버
+   # 또는 개별 실행: npm run wasm:build && npm run dev
+   ```
+   `emcc`가 없어도 **Docker만 있으면 된다** — `build-wasm.sh`가 emscripten/emsdk 이미지로 자동 폴백한다. → http://localhost:3000 에서 마이크/파일 입력으로 바로 확인.
+4. **지켜야 할 버퍼 규약** (아래 "함수 시그니처" 절의 상세 참고) — `buf`는 **planar** int16 PCM(In/Out, 감쇠 결과를 in-place로 되씀), `samples_per_ch`는 세션마다 바뀌는 런타임 값(기본 480), `sample_rate_hz` 인자는 **없음**, 출력 단위는 `spk_temp` °C / `spk_exc` µm(int32).
+5. **값 확인** — `npm run wasm:build:debug`(`FF_PROT_DEBUG_VI=1`)로 빌드하면 프레임마다 V/I 입력이 콘솔에 덤프된다(대량 출력 — 지연 측정과 병행 금지). 순수 C 수준 검증은 `selftest.c`를 본인 구현에 맞게 고쳐 `make selftest`(Linux x86-64)로 돌릴 수 있다.
+
 ## 함수 시그니처 (adapters/wasm-client.ts 와 1:1)
 
 | 함수 | 시그니처 |
 |---|---|
 | `ff_prot_init` | `int (void)` |
 | `ff_prot_set_param` | `int (void)` — 현재 사실상 NOP |
-| `ff_prot_start_exec` | `int (void* buf, uint32 samples_per_ch, uint32 bytes_per_sample, uint32 channels, int32 amb_temp, void* spk_temp, void* spk_exc, const void* v_sensing, const void* i_sensing)` — 9-인자. **`buf`는 In/Out** — 보호 감쇠 결과를 같은 버퍼에 되쓴다. `v_sensing`/`i_sensing`은 2026-07-21 새로 확인된 벤더 소스 기준 인자로, 실제 캡쳐된 V/I sensing 데이터를 받는다 — 둘 다 `int16[samples_per_ch]` **단일(모노) 스트림**(channels별 배열 아님). 네이티브 캡처 장치가 4ch 이상이면 ch2(V)/ch3(I)를 실제로 채워 넘기고, 그 미만이면(getUserMedia 폴백 포함) NULL(자세한 내용은 `ff_prot.h` 상단 주석) |
+| `ff_prot_start_exec` | `int (void* buf, uint32 samples_per_ch, uint32 bytes_per_sample, uint32 channels, int32 amb_temp, void* spk_temp, void* spk_exc, const void* v_sensing, const void* i_sensing)` — 9-인자. **`buf`는 In/Out** — 보호 감쇠 결과를 같은 버퍼에 되쓴다. `v_sensing`/`i_sensing`은 2026-07-21 새로 확인된 벤더 소스 기준 인자로, 실제 캡쳐된 V/I sensing 데이터를 받는다 — 둘 다 `int16[samples_per_ch]` **단일(모노) 스트림**(channels별 배열 아님). 클라이언트는 `buf`를 디인터리브한 ch0(V)/ch1(I)을 그대로 넘긴다 — MCHStreamer가 캡처 채널 수와 무관하게 실측 V/I 센스를 항상 ch0/ch1에 싣기 때문(2026-07-23 정정 — 과거의 ch2/ch3 추출은 오인이었음). 따라서 이 클라이언트 경로에서는 항상 non-NULL이고, NULL(RMS 근사 폴백)은 사실상 발생하지 않는다(자세한 내용은 `ff_prot.h` 상단 주석) |
 | `ff_prot_stop_exec` | `int (void)` |
 
 - **입력 버퍼**: `engine/utils.ts` 의 `deinterleave()` 결과인 **planar** int16 PCM (`[ch0 전체][ch1 전체]`, `bytes_per_sample=2`), 2ch, `amb_temp=25`. `samples_per_ch`는 고정값이 아니라 Calibration UI(bufferSize)에서 세션마다 넘어오는 런타임 값이다(기본 480 samples/ch = 10 ms/frame @ 48 kHz).
@@ -34,10 +52,11 @@
 
 물리 근사는 다음과 같다:
 
-1. 블록 RMS → 전기 소산 전력 `P ∝ rms²` (`v_sensing`/`i_sensing`이 둘 다 주어지면 pass C의
-   전력만 실측 `P = mean(v·i)`로 대체 — 네이티브 캡처 장치가 4ch 이상이면 ch2(V)/ch3(I)를
-   실측치로 넘긴다, `wasm-client.ts`/`reframeNativeChunk.ts` 참고. getUserMedia 폴백이나
-   2ch 미만 장치는 여전히 NULL이라 rms² 근사만 쓰인다)
+1. 블록 RMS → 전기 소산 전력 `P ∝ rms²` (`v_sensing`/`i_sensing`이 둘 다 주어지면
+   pass A(게인 한도 산출)·pass C(상태 보고)의 전력을 실측 `P = mean(v·i)`로 대체 —
+   클라이언트가 `buf`의 ch0(V)/ch1(I)을 그대로 센싱 인자로 넘기므로(`frame-core.ts`의
+   `selectSensing`, 2026-07-23 정정) 이 경로에서는 항상 실측치가 쓰인다. 변위(excursion)
+   추정은 여전히 PCM 기반)
 2. 1차 열 RC 적분 `T ← T + (dt/τ)(amb + Rth·P − T)` → 온도가 천천히 상승 (상태 누적)
 3. LF 강조 1-pole 저역통과의 블록 피크 → 변위(µm). 저주파일수록 크고 고주파일수록 작음.
 
@@ -65,8 +84,9 @@ make selftest        # 순수 C 셀프테스트(온도 상승 + ch0(V)/ch1(I) �
 ```
 
 `make`(→ `libirontune.so`)는 참고용으로 남아 있지만 앱은 이 `.so`를 로드하지 않는다 —
-실제로 시뮬레이터에 물리는 방법은 리포 루트에서 `npm run wasm:build` (요구: `emcc`) 다음
-`npm run dev`.
+실제로 시뮬레이터에 물리는 방법은 리포 루트에서 `npm run bootstrap`(또는 `npm run
+wasm:build && npm run dev`). `emcc`가 없으면 `build-wasm.sh`가 Docker(emscripten/emsdk)로
+자동 폴백한다.
 
 ## ⚠️ 단위 주의 (engine/utils.ts 후처리와의 관계)
 

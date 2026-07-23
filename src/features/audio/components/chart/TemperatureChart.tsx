@@ -158,8 +158,8 @@ export default function TemperatureChart({ frames, currentTime, isActive, stream
             <button
               type="button"
               onClick={onExpand}
-              aria-label="온도 차트 자세히 보기"
-              title="자세히 보기"
+              aria-label="Temperature chart detail view"
+              title="View details"
               className="ml-0.5 p-1 rounded text-iron-300 hover:text-brand-blue hover:bg-brand-blue/5 transition-colors"
             >
               <Maximize2 size={13} />
@@ -178,7 +178,7 @@ export default function TemperatureChart({ frames, currentTime, isActive, stream
               { value: "Both", label: "Both" },
             ]}
             className="w-[116px]"
-            aria-label="온도 채널"
+            aria-label="Temperature channel"
           />
 
           {currentTemp !== null && channelMode === "Both" ? (
@@ -206,7 +206,7 @@ export default function TemperatureChart({ frames, currentTime, isActive, stream
           />
         ) : (
           <div className="chart-empty-state h-full flex items-center justify-center text-xs text-iron-300">
-            재생하면 실시간으로 데이터가 표시됩니다
+            Data will appear here in real time during playback
           </div>
         )}
       </div>

@@ -220,7 +220,7 @@ export default function ChartDetailOverlay({
           channels: h.channels, sampleRate: h.sampleRate, durationSec: h.durationSec,
         }));
       } catch {
-        if (!cancelled) setChannelError("채널 헤더를 읽지 못했습니다.");
+        if (!cancelled) setChannelError("Failed to read channel header.");
       } finally {
         if (!cancelled) setHeaderLoading(false);
       }
@@ -292,7 +292,7 @@ export default function ChartDetailOverlay({
       id: METRIC_ID,
       section: "metric",
       name: title,
-      role: isTemp ? "온도" : "익스커션",
+      role: isTemp ? "Temperature" : "Excursion",
       color: accent,
       icon: Icon,
     };
@@ -301,8 +301,8 @@ export default function ChartDetailOverlay({
       ? [{
           id: PROTECT_ID,
           section: "metric",
-          name: "보호 감쇠",
-          role: "전/후 비교",
+          name: "Protection Attenuation",
+          role: "Before/After Compare",
           color: "#F59E0B",
           icon: ShieldAlert,
         }]
@@ -364,7 +364,7 @@ export default function ChartDetailOverlay({
             />
           ) : (
             <div className="flex items-center justify-center h-full text-xs text-iron-400">
-              캡처 세션이 없어 비교할 데이터가 없습니다.
+              No capture session — nothing to compare.
             </div>
           ),
           defaultHeight: 240,
@@ -439,7 +439,7 @@ export default function ChartDetailOverlay({
           />
         ) : (
           <div className="flex items-center justify-center h-full text-xs text-iron-400">
-            {channelError ?? "채널 파형 불러오는 중…"}
+            {channelError ?? "Loading channel waveform…"}
           </div>
         ),
         defaultHeight: 200,
@@ -455,7 +455,7 @@ export default function ChartDetailOverlay({
   ]);
 
   return (
-    <FullscreenOverlay show={show} ariaLabel={`${title} 자세히 보기`}>
+    <FullscreenOverlay show={show} ariaLabel={`${title} detail view`}>
       {/* 상단 바 */}
       <header className="shrink-0 h-14 px-3 sm:px-5 flex items-center gap-3 border-b border-iron-100 bg-white">
         <div className="flex items-center gap-2 min-w-0">
@@ -468,15 +468,15 @@ export default function ChartDetailOverlay({
           type="button"
           onClick={() => setDrawerOpen((prev) => !prev)}
           aria-pressed={drawerOpen}
-          title="표시 항목 (Ctrl/Cmd+B)"
-          aria-label="표시 항목"
+          title="Visible items (Ctrl/Cmd+B)"
+          aria-label="Visible items"
           className={cn(
             "ml-auto flex items-center gap-1.5 h-9 px-2.5 rounded-lg text-sm transition",
             drawerOpen ? "bg-brand-blue/10 text-brand-blue" : "text-iron-500 hover:bg-iron-100 hover:text-iron-900",
           )}
         >
           <Rows3 className="w-4 h-4" />
-          <span className="hidden sm:inline">표시 항목</span>
+          <span className="hidden sm:inline">Visible items</span>
           {selected.size > 0 && (
             <span className="px-1.5 py-0.5 rounded-full bg-brand-blue/15 text-[10px] font-semibold tabular-nums">
               {selected.size}
@@ -486,7 +486,7 @@ export default function ChartDetailOverlay({
         <button
           type="button"
           onClick={close}
-          aria-label="닫기"
+          aria-label="Close"
           className="flex items-center justify-center w-9 h-9 rounded-lg text-iron-400 hover:bg-iron-100 hover:text-iron-700 transition"
         >
           <X className="w-4 h-4" />
@@ -500,7 +500,7 @@ export default function ChartDetailOverlay({
         <ChannelStackView
           items={stackItems}
           onReorder={reorder}
-          emptyLabel="표시 항목 드로어에서 차트나 채널을 선택하면 여기에 표시됩니다."
+          emptyLabel="Select a chart or channel from the items drawer to display it here."
         />
       </div>
 

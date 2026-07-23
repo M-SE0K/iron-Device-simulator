@@ -13,7 +13,7 @@
 
 - Node.js 20+
 - npm 9+
-- [Emscripten](https://emscripten.org/docs/getting_started/downloads.html)(`emcc`) — WASM 엔진 빌드용(`npm run wasm:build`)
+- [Emscripten](https://emscripten.org/docs/getting_started/downloads.html)(`emcc`) — WASM 엔진 빌드용(`npm run wasm:build`). **Docker가 있으면 설치 불필요**: `emcc`가 없으면 `build-wasm.sh`가 공식 `emscripten/emsdk` 이미지로 자동 폴백합니다.
 - Electron 패키징에만 필요: `electron` / `electron-builder`는 이미 devDependencies에 포함돼 있어 별도 설치가 필요 없습니다. macOS/Linux에서 Windows NSIS 설치 프로그램을 크로스 컴파일하려면 Wine이 필요한데, 그래서 이 프로젝트의 Windows 타깃은 서명·Wine 없이도 만들 수 있는 포터블 `.zip`으로 대신합니다(자세한 내용은 [데스크톱 앱 패키징(Electron)](#데스크톱-앱-패키징electron) 참고).
 
 ---
@@ -25,6 +25,40 @@ git clone https://github.com/JBNU-CILAB/Iron-Device-Simulator.git
 cd iron-Device-simulator
 npm install
 ```
+
+---
+
+## 로컬 실행
+
+클론 직후 원커맨드(환경 확인 → `npm install` → WASM 빌드 → dev 서버):
+
+```bash
+npm run bootstrap     # → http://localhost:3000
+```
+
+단계별로 실행하려면:
+
+```bash
+npm run wasm:build   # 최초 1회 — electron/native/wasm-engine/*.c → public/wasm/ff_prot.{js,wasm} (emcc, 없으면 Docker 폴백)
+npm run dev           # next dev — http://localhost:3000
+```
+
+---
+
+## 내 알고리즘으로 실행하기
+
+내장 분석 엔진(`electron/native/wasm-engine/ff_prot.c`)은 **검증용 참조 스텁**이며, 이 폴더는 본인의 C 구현으로 갈아끼워 앱을 돌리는 것을 전제로 설계돼 있습니다:
+
+```bash
+git clone https://github.com/JBNU-CILAB/Iron-Device-Simulator.git
+cd iron-Device-simulator
+# 본인 .c/.h 파일들을 electron/native/wasm-engine/custom/ 에 넣기 — 파일명 자유
+#   (custom/ 에 소스가 있으면 빌드가 스텁 대신 그쪽만 자동 컴파일 —
+#    스텁을 지우거나 덮어쓸 필요가 없어 업스트림 갱신과 충돌하지 않음)
+npm run bootstrap     # → http://localhost:3000, 차트가 본인 알고리즘으로 구동됨
+```
+
+지켜야 할 계약은 `electron/native/wasm-engine/ff_prot.h`에 선언된 `ff_prot_*` 4개 함수(`init` / `set_param` / `start_exec` — 9-인자 / `stop_exec`)가 전부입니다. 함수명이 다르면 이 이름들로 위임하는 얇은 래퍼 `.c` 하나를 같이 넣으면 됩니다(예시: `electron/native/wasm-engine/custom/README.md`). 버퍼 규약·export 함수 목록·디버그 빌드 등 상세는 `electron/native/wasm-engine/README.md`의 "내 알고리즘 넣기" 절을 참고하세요.
 
 ---
 
@@ -87,7 +121,8 @@ npm run build        # Next.js 프로덕션 빌드
 npm start            # 프로덕션 서버 (next start)
 npm run lint         # ESLint
 
-npm run wasm:build    # electron/native/wasm-engine/ff_prot.c를 브라우저 타깃 WASM으로 컴파일, emcc 필요
+npm run bootstrap     # 클론 직후 원커맨드: 환경 확인 → npm install → wasm:build → dev 서버
+npm run wasm:build    # electron/native/wasm-engine/*.c를 브라우저 타깃 WASM으로 컴파일 (emcc, 없으면 Docker 폴백)
 npm run build:desktop # 정적 웹 빌드 → out/ (위 빌드 항목 참고)
 npm run build:electron # 정적 빌드 + Electron 패키징 → out/ + dist-electron/ (위 빌드 항목 참고)
 npm run electron:preview # electron . — 현재 out/ 기준으로 electron/main.js 실행, 패키징 없음
@@ -114,7 +149,7 @@ npm run loopback:measure -- --ref impulse.wav --capture vi-capture.wav
 
 ```bash
 cd electron/native/wasm-engine
-./build-wasm.sh       # → ../../../public/wasm/ff_prot.{js,wasm} (Emscripten, 브라우저 타깃, emcc 필요)
+./build-wasm.sh       # → ../../../public/wasm/ff_prot.{js,wasm} (Emscripten, 브라우저 타깃 — emcc 없으면 Docker 폴백)
 make selftest         # 참조 모델의 순수 C 자체 테스트(온도 상승 + L/R excursion 차이) — 앱 빌드와는 무관
 ```
 

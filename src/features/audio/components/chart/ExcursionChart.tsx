@@ -149,8 +149,8 @@ export default function ExcursionChart({ frames, currentTime, isActive, streamin
             <button
               type="button"
               onClick={onExpand}
-              aria-label="익스커션 차트 자세히 보기"
-              title="자세히 보기"
+              aria-label="Excursion chart detail view"
+              title="View details"
               className="ml-0.5 p-1 rounded text-iron-300 hover:text-emerald-600 hover:bg-emerald-50 transition-colors"
             >
               <Maximize2 size={13} />
@@ -169,7 +169,7 @@ export default function ExcursionChart({ frames, currentTime, isActive, streamin
               { value: "Both", label: "Both" },
             ]}
             className="w-[116px]"
-            aria-label="익스커션 채널"
+            aria-label="Excursion channel"
           />
 
           {currentExc !== null && channelMode === "Both" ? (
@@ -192,7 +192,7 @@ export default function ExcursionChart({ frames, currentTime, isActive, streamin
           <ReactECharts key={channelMode} option={option} style={{ height: "100%", width: "100%" }} notMerge={false} onEvents={echartsEvents.current} />
         ) : (
           <div className="chart-empty-state h-full flex items-center justify-center text-xs text-iron-300">
-            재생하면 실시간으로 데이터가 표시됩니다
+            Data will appear here in real time during playback
           </div>
         )}
       </div>

@@ -36,7 +36,7 @@ function RecordRow({ item }: { item: WorkspaceItemMeta }) {
     else setDraft(item.name);
   };
 
-  const modeLabel = item.analysisMode === "batch" ? "분석" : "실시간";
+  const modeLabel = item.analysisMode === "batch" ? "Analysis" : "Live";
   const peakText =
     item.peakTemp !== null && item.peakTemp !== undefined ? `Peak ${item.peakTemp.toFixed(1)}°C` : "Peak —";
 
@@ -50,7 +50,7 @@ function RecordRow({ item }: { item: WorkspaceItemMeta }) {
       : []),
     ...(item.hasProtectedAudio
       ? [
-          { key: "protected", label: "보호 WAV", onClick: () => downloadProtectedAudio(item) },
+          { key: "protected", label: "Protected WAV", onClick: () => downloadProtectedAudio(item) },
         ]
       : []),
   ];
@@ -78,7 +78,7 @@ function RecordRow({ item }: { item: WorkspaceItemMeta }) {
           <button
             type="button"
             onDoubleClick={() => setEditing(true)}
-            title="더블클릭하여 이름 변경"
+            title="Double-click to rename"
             className="flex-1 min-w-0 truncate text-left text-sm font-semibold text-iron-900"
           >
             {item.name}
@@ -87,7 +87,7 @@ function RecordRow({ item }: { item: WorkspaceItemMeta }) {
         <button
           type="button"
           onClick={() => setEditing(true)}
-          aria-label="이름 변경"
+          aria-label="Rename"
           className="shrink-0 rounded p-1 text-iron-300 opacity-0 transition hover:bg-iron-100 hover:text-iron-700 group-hover/rec:opacity-100"
         >
           <Pencil className="w-3 h-3" />
@@ -95,7 +95,7 @@ function RecordRow({ item }: { item: WorkspaceItemMeta }) {
         <button
           type="button"
           onClick={() => remove(item.id)}
-          aria-label="삭제"
+          aria-label="Delete"
           className="shrink-0 rounded p-1 text-iron-300 opacity-0 transition hover:bg-red-50 hover:text-red-600 group-hover/rec:opacity-100"
         >
           <Trash2 className="w-3 h-3" />
@@ -169,24 +169,24 @@ function RecordsDrawer() {
     <SideDrawer
       open={open}
       onClose={() => setOpen(false)}
-      ariaLabel="측정 기록"
-      title="측정 기록"
+      ariaLabel="Records"
+      title="Records"
       count={items.length}
     >
       {groups.length === 0 ? (
             <div className="flex flex-col items-center justify-center h-full gap-2 text-center px-6">
               <History className="w-6 h-6 text-iron-200" />
               <p className="text-xs text-iron-400 leading-relaxed">
-                저장된 측정 기록이 없습니다.
+                No saved records yet.
                 <br />
-                대시보드의 저장 버튼을 눌러보세요.
+                Use the Save button on the dashboard to add one.
               </p>
             </div>
           ) : (
             <div className="flex flex-col gap-1">
               <div className="flex items-center justify-between px-1 pb-1">
-                <span className="text-sm font-medium text-iron-400">파일별 기록</span>
-                <CountBadge count={groups.length} suffix="개 파일" />
+                <span className="text-sm font-medium text-iron-400">Records by File</span>
+                <CountBadge count={groups.length} suffix="files" />
               </div>
 
               {groups.map((group) => {
