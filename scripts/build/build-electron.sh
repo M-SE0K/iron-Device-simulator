@@ -13,7 +13,7 @@
 #   --windows-only  Windows 타깃만 빌드하고 종료. npm run build:electron:windows 가 호출.
 #   --linux-only    Linux 타깃만 빌드하고 종료. npm run build:electron:linux 가 호출.
 set -euo pipefail
-cd "$(dirname "$0")/.."
+cd "$(dirname "$0")/../.."
 
 MAC_ONLY=false
 WINDOWS_ONLY=false
@@ -34,7 +34,7 @@ case "${1:-}" in
     ;;
 esac
 
-./scripts/build-static-local.sh
+./scripts/build/build-static-local.sh
 
 # Electron 메인 프로세스(main.js/preload.js + ipc/*.js)를 electron-dist/ 로 번들링한다
 # (webpack.electron.config.js). electron-builder.yml의 files가 electron-dist/**/*만

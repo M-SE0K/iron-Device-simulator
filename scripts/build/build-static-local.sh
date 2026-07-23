@@ -11,8 +11,13 @@
 # 않는다(Next.js가 segment config에 리터럴 문자열만 허용). 빌드 동안만 "force-static"
 # 리터럴로 임시 치환했다가 끝나면 원복한다.
 # MOBILE_BUILD=1 (next.config.ts → output:"export") 로 next build → out/
+#
+# WASM_MODE=debug 면 ff_prot.c의 FF_PROT_DEBUG_VI 실험(debug) 빌드(V/I 값 printf 덤프 포함)를
+# public/wasm-debug/ 에 만들고 NEXT_PUBLIC_WASM_DIR로 그쪽을 가리키게 한다 — 클린 빌드
+# (public/wasm/, 기본값이자 프로덕션·측정 공용)와는 물리적으로 분리된 산출물이라 서로 덮어쓰지
+# 않는다. 측정(E2E 지연) 시에는 항상 기본값(WASM_MODE 미설정)을 쓰고 실행 시 ?e2e=1 로 켠다.
 set -euo pipefail
-cd "$(dirname "$0")/.."
+cd "$(dirname "$0")/../.."
 
 PAGE=src/app/page.tsx
 cp "$PAGE" "$PAGE.bak"
@@ -21,10 +26,18 @@ trap 'mv "$PAGE.bak" "$PAGE"' EXIT
 sed -i.tmp 's/^export const dynamic = .*/export const dynamic = "force-static";/' "$PAGE"
 rm -f "$PAGE.tmp"
 
-echo "▶ 브라우저 타깃 WASM 빌드..."
-npm run wasm:build
+WASM_MODE="${WASM_MODE:-normal}"
+if [[ "$WASM_MODE" == "debug" ]]; then
+  echo "▶ 브라우저 타깃 WASM 빌드... (실험/debug — V/I 값 printf 덤프 포함, public/wasm-debug/)"
+  npm run wasm:build:debug
+  export NEXT_PUBLIC_WASM_DIR="/wasm-debug"
+else
+  echo "▶ 브라우저 타깃 WASM 빌드... (클린, public/wasm/)"
+  npm run wasm:build
+  export NEXT_PUBLIC_WASM_DIR="/wasm"
+fi
 
 echo "▶ Next.js 정적 export 빌드 (out/)..."
 MOBILE_BUILD=1 npx next build
 
-echo "✓ 정적 번들 완료: out/ (브라우저 WASM 엔진으로 동작)"
+echo "✓ 정적 번들 완료: out/ (브라우저 WASM 엔진, WASM_MODE=$WASM_MODE)"

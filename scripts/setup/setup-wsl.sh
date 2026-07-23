@@ -7,7 +7,7 @@
 # 이 리포의 빌드 스크립트(wasm:build, build:desktop 등)는 전부 bash라 WSL2/Linux에서는
 # 별도 변환 없이 그대로 동작한다 — 이 스크립트는 그 전제조건(Node/emcc/빌드 도구)만 갖춘다.
 set -euo pipefail
-cd "$(dirname "$0")/.."
+cd "$(dirname "$0")/../.."
 ROOT="$(pwd)"
 
 log()  { echo -e "\n▶ $*"; }

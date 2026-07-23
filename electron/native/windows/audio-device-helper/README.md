@@ -32,7 +32,7 @@ pause/resume/stop 라인 명령까지 miniDSP ASIO Driver로 확인했다.
 
 ## 빌드
 
-**보통은 직접 부를 일이 없다** — `npm run build:electron:windows`(→ `scripts/build-electron.sh`)가
+**보통은 직접 부를 일이 없다** — `npm run build:electron:windows`(→ `scripts/build/build-electron.sh`)가
 패키징 직전에 자동으로 호출한다. 헬퍼만 따로 빌드하려면:
 
 ```bash

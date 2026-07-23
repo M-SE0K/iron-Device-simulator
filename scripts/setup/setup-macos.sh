@@ -8,7 +8,7 @@
 # 전제조건(Xcode CLT/Node/emcc)만 갖추고, 선택적으로 macOS 전용 CoreAudio 캡처 헬퍼까지
 # 미리 빌드해둔다.
 set -euo pipefail
-cd "$(dirname "$0")/.."
+cd "$(dirname "$0")/../.."
 ROOT="$(pwd)"
 
 log()  { echo -e "\n▶ $*"; }

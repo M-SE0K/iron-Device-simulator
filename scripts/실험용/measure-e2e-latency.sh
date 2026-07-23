@@ -10,7 +10,7 @@
 #   npm run build:electron:mac && npm run electron:preview
 # 로 앱을 띄우고 DevTools 콘솔에서 window.__ironE2E.enable()을 재생/녹음 전에 실행할 것.
 set -euo pipefail
-cd "$(dirname "$0")/.."
+cd "$(dirname "$0")/../.."
 
 PORT="${PORT:-3000}"
 URL="http://localhost:${PORT}/?e2e=1"

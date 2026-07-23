@@ -1,8 +1,5 @@
 #!/usr/bin/env node
-// scripts/summarize-e2e-latency.js — window.__ironE2E.download()로 받은 e2e-latency_*.json을
-// 요약·해석한다. docs/e2e-latency-experiment.md의 "해석 가이드"를 코드로 옮긴 것 — 표만 찍는 게
-// 아니라 이 데이터셋에서 뭐가 병목 후보인지, 값이 0이거나 비정상인 이유가 뭔지까지 같이 알려준다.
-//
+
 // 사용법:
 //   node scripts/summarize-e2e-latency.js <A.json>            # 단일 파일 요약
 //   node scripts/summarize-e2e-latency.js <A.json> <B.json>   # 두 세션 비교
@@ -75,9 +72,9 @@ function detectAnomalies(summary) {
 
 function printMeta(report) {
   const { meta } = report;
-  console.log(`세션 시작: ${meta.startedAt}`);
-  console.log(`모드: ${meta.mode}   엔진: ${meta.engine}   장치: ${meta.deviceName ?? "-"}`);
-  console.log(`샘플레이트: ${meta.sampleRate}Hz   버퍼: ${meta.samplesPerCh}samples/ch   채널: ${meta.channels}`);
+  console.log(`\t - 세션 시작: ${meta.startedAt}`);
+  console.log(`\t - 모드: ${meta.mode}   엔진: ${meta.engine}   장치: ${meta.deviceName ?? "-"}`);
+  console.log(`\t - 샘플레이트: ${meta.sampleRate}Hz   버퍼: ${meta.samplesPerCh}samples/ch   채널: ${meta.channels}\n`);
 }
 
 function printAnomalies(anomalies) {
@@ -90,45 +87,12 @@ function printZeroNotes(summary) {
   const zeroNotes = NODE_ORDER
     .filter((id) => summary[id] && summary[id].count === 0 && CONDITIONAL_NODES[id])
     .map((id) => `  - ${id}: ${CONDITIONAL_NODES[id]}`);
-  if (zeroNotes.length === 0) return;
-  console.log("\nℹ️  count=0인 노드 (버그 아님, 아래 조건이면 정상)");
-  console.log(zeroNotes.join("\n"));
 }
 
 function isAnomalousStat(s) {
   return !!s && s.avg !== null && (s.avg < 0 || Math.abs(s.avg) > 5000);
 }
 
-function printBottleneckRanking(nodes, summary) {
-  const excluded = NODE_ORDER.filter((id) => isAnomalousStat(summary[id]));
-  const ranked = NODE_ORDER
-    .map((id) => ({ id, ...summary[id] }))
-    .filter((n) => n.count > 0 && n.p95 !== null && !isAnomalousStat(n))
-    .sort((a, b) => b.p95 - a.p95);
-  if (ranked.length === 0) return;
-  console.log(
-    `\n🔥 병목 후보 (p95 기준 내림차순${excluded.length > 0 ? `, 이상치 ${excluded.join("/")} 제외` : ""})`
-  );
-  ranked.slice(0, 5).forEach((n, i) => {
-    const label = (nodes && nodes[n.id] && nodes[n.id].label) || n.id;
-    console.log(`  ${i + 1}. ${n.id} ${label} — p95 ${n.p95}ms (avg ${n.avg}ms, max ${n.max}ms)`);
-  });
-}
-
-function printQueueingNote(summary) {
-  const n9 = summary.N9;
-  if (!n9 || n9.count === 0) return;
-  const half = RENDER_INTERVAL_MS / 2;
-  console.log(
-    `\nN9(출력 큐 대기) avg=${n9.avg}ms — RENDER_INTERVAL(${RENDER_INTERVAL_MS}ms)의 절반(${half}ms)` +
-    (Math.abs(n9.avg - half) < half * 0.4
-      ? " 근처라 정상 범위(균등분포 대기)."
-      : " 과 꽤 다름 — setInterval 자체가 밀리고 있을 수 있음(메인 스레드 혼잡 의심).")
-  );
-  if (n9.p95 !== null && n9.p95 > RENDER_INTERVAL_MS) {
-    console.log(`  p95(${n9.p95}ms)가 RENDER_INTERVAL을 넘음 — 드레인 주기가 밀리는 중.`);
-  }
-}
 
 function printWorkerOffloadNote(summary) {
   const { N3: n3, N7: n7, N5: n5, N6: n6 } = summary;
@@ -139,18 +103,48 @@ function printWorkerOffloadNote(summary) {
   }
   const overhead = (n3.avg ?? 0) + (n7.avg ?? 0);
   const compute = (n5.avg ?? 0) + (n6.avg ?? 0);
-  console.log(
-    `\n워커 왕복 오버헤드(N3+N7 avg) ${overhead.toFixed(3)}ms vs 실제 연산(N5+N6 avg) ${compute.toFixed(3)}ms` +
-    (overhead > compute
-      ? " — 오프로딩 비용이 연산 비용보다 큼. NEXT_PUBLIC_USE_WORKER_ENGINE=0(메인 스레드 엔진)과 비교 실험 권장."
-      : " — 오프로딩 비용이 연산 비용보다 작아 워커 사용이 이득으로 보임.")
-  );
+  console.log(`\n워커 왕복 오버헤드(N3+N7 avg) ${overhead.toFixed(3)}ms vs 실제 연산(N5+N6 avg) ${compute.toFixed(3)}ms`);
+}
+
+// N1~N12를 파이프라인 순서대로 이어 붙인 "총 E2E 지연" 근사치. count=0(그 경로 미사용)이거나
+// 이상치인 노드는 자동으로 빼고, 뭘 뺐는지 이유와 함께 남긴다.
+function computeTotalE2E(summary) {
+  const included = [];
+  const excludedZero = [];
+  const excludedAnomalous = [];
+  let sumAvg = 0;
+  let sumP95 = 0;
+  let sumP50 = 0;
+
+  for (const id of NODE_ORDER) {
+    const s = summary[id];
+    if (!s || s.count === 0) { excludedZero.push(id); continue; }
+    if (isAnomalousStat(s)) { excludedAnomalous.push(id); continue; }
+    included.push(id);
+    sumAvg += s.avg ?? 0;
+    sumP95 += s.p95 ?? 0;
+    sumP50 += s.p50 ?? 0;
+  }
+
+  return { included, excludedZero, excludedAnomalous, sumAvg, sumP50, sumP95 };
+}
+
+function printTotalE2E(label, nodes, summary) {
+  const t = computeTotalE2E(summary);
+  if (t.included.length === 0) return t;
+
+  console.log(`\n총 E2E 지연 추정치${label ? ` (${label})` : ""} — N1~N12 합산(캡처→렌더)`);
+  console.log(`  포함(${t.included.length}/12): ${t.included.join(", ")}`);
+  if (t.excludedZero.length > 0) console.log(`  제외: ${t.excludedZero.join(", ")}`);
+  if (t.excludedAnomalous.length > 0) console.log(`  제외(이상치): ${t.excludedAnomalous.join(", ")}`);
+  console.log(`  avg 합계 ≈ ${t.sumAvg.toFixed(2)}ms   p50 합계 ≈ ${t.sumP50.toFixed(2)}ms   p95 합계 ≈ ${t.sumP95.toFixed(2)}ms`);
+  return t;
 }
 
 function printSmallBufferWarning(meta) {
   if (!meta.samplesPerCh || meta.samplesPerCh >= 200) return;
   console.log(
-    `\n⚠️  samplesPerCh=${meta.samplesPerCh}(작음, 기본값 480) — 초당 청크 수가 매우 많아 ` +
+    `\nsamplesPerCh=${meta.samplesPerCh}(작음, 기본값 480) — 초당 청크 수가 매우 많아 ` +
     `N1/N3/N4처럼 청크 빈도에 비례하는 노드의 값이 실제 대역폭 문제라기보다 IPC/스케줄링 콜 빈도 ` +
     `자체에 의해 부풀려졌을 수 있다. 기본 버퍼 크기(480)로도 재측정해서 비교 권장.`
   );
@@ -176,8 +170,7 @@ function printSingleReport(report) {
 
   printAnomalies(detectAnomalies(report.summary));
   printZeroNotes(report.summary);
-  printBottleneckRanking(report.nodes, report.summary);
-  printQueueingNote(report.summary);
+  printTotalE2E(null, report.nodes, report.summary);
   printWorkerOffloadNote(report.summary);
   printSmallBufferWarning(report.meta);
   console.log();
@@ -193,28 +186,21 @@ function fmt(v) {
 }
 
 function printComparison(a, b) {
-  console.log("=".repeat(72));
+  console.log("=".repeat(100));
   console.log(` E2E 지연 실험 비교 — A: ${a.fileName}  vs  B: ${b.fileName}`);
-  console.log("=".repeat(72));
   console.log("[A]"); printMeta(a);
   console.log("[B]"); printMeta(b);
 
   const metaDiffs = META_COMPARE_FIELDS.filter((k) => String(a.meta[k]) !== String(b.meta[k]));
   if (metaDiffs.length > 0) {
-    console.log("\n⚠️  두 세션의 조건이 다릅니다 — 아래 필드는 동일 조건 비교가 아닙니다:");
     for (const k of metaDiffs) console.log(`  - ${k}: A=${a.meta[k]}  B=${b.meta[k]}`);
-    if (metaDiffs.includes("samplesPerCh")) {
-      console.log(
-        "    → samplesPerCh(버퍼 크기)가 다르면 청크 발생 빈도 자체가 달라지므로 N1/N3/N4(청크 빈도에 " +
-        "비례)는 두 세션 간 직접 비교가 왜곡됩니다. 같은 버퍼 크기로 다시 재는 걸 권장합니다."
-      );
-    }
   }
 
   // ---- 노드별 이상치 (각 파일 개별) ----
   const anomaliesA = detectAnomalies(a.summary).map((m) => `[A] ${m}`);
-  const anomaliesB = detectAnomalies(b.summary).map((m) => `[B] ${m}`);
+  const anomaliesB = detectAnomalies(b.summary).map((m) => `[B] ${m}\n`);
   printAnomalies([...anomaliesA, ...anomaliesB]);
+  console.log("=".repeat(100));
 
   // ---- 비교 표 ----
   const rows = {};
@@ -242,34 +228,45 @@ function printComparison(a, b) {
     };
   }
   console.table(rows);
-  console.log("(Δ%는 A→B 변화율 — 양수면 B가 더 느려짐, 음수면 B가 더 빨라짐. ⚠️ 표시 노드는 이상치라 Δ% 계산을 건너뜀)");
+
+  // ---- 총 E2E 지연 비교 ----
+  const totalA = computeTotalE2E(a.summary);
+  const totalB = computeTotalE2E(b.summary);
+  if (totalA.included.length > 0 && totalB.included.length > 0) {
+    console.log(`\n총 E2E 지연 추정치 비교 (N1~N12 합산)`);
+    console.log(`  A(${totalA.included.join(",")}) avg ≈ ${totalA.sumAvg.toFixed(2)}ms, p95 ≈ ${totalA.sumP95.toFixed(2)}ms`);
+    console.log(`  B(${totalB.included.join(",")}) avg ≈ ${totalB.sumAvg.toFixed(2)}ms, p95 ≈ ${totalB.sumP95.toFixed(2)}ms`);
+    const dAvg = pctDelta(totalA.sumAvg, totalB.sumAvg);
+    const dP95 = pctDelta(totalA.sumP95, totalB.sumP95);
+    console.log(
+      `  Δavg ${dAvg === null ? "-" : `${dAvg > 0 ? "+" : ""}${dAvg.toFixed(1)}%`}   ` +
+      `Δp95 ${dP95 === null ? "-" : `${dP95 > 0 ? "+" : ""}${dP95.toFixed(1)}%`}`
+    );
+    console.log("  (합산 방식·주의사항은 아래 A/B 개별 섹션의 총 E2E 지연 추정치 참고)");
+  }
 
   // ---- 큐잉 경로 사용 여부가 다른가(N9/N10 count 유무로 추정) ----
   const aQueued = (a.summary.N9 && a.summary.N9.count > 0) || (a.summary.N10 && a.summary.N10.count > 0);
   const bQueued = (b.summary.N9 && b.summary.N9.count > 0) || (b.summary.N10 && b.summary.N10.count > 0);
   if (aQueued !== bQueued) {
     console.log(
-      `\nℹ️  큐잉 렌더 경로(N9/N10) 사용 여부가 다릅니다 — A: ${aQueued ? "사용" : "미사용"}, ` +
+      `\nℹ큐잉 렌더 경로(N9/N10) 사용 여부가 다릅니다 — A: ${aQueued ? "사용" : "미사용"}, ` +
       `B: ${bQueued ? "사용" : "미사용"} (useQueue 설정 차이로 보임). N9/N10뿐 아니라 N11/N12(React ` +
       `커밋/렌더)도 이 차이 때문에 달라질 수 있으니, 그 둘의 변화를 useQueue 효과로 해석해도 됩니다.`
     );
   }
 
   // ---- 노드별 상세 해석은 두 세션 각각에 대해 ----
-  console.log("\n--- A 상세 ---");
+  console.log("\n------------------------------ A 상세 ------------------------------");
   printZeroNotes(a.summary);
-  printBottleneckRanking(a.nodes, a.summary);
-  printQueueingNote(a.summary);
+  printTotalE2E("A", a.nodes, a.summary);
   printWorkerOffloadNote(a.summary);
-  printSmallBufferWarning(a.meta);
 
-  console.log("\n--- B 상세 ---");
+  console.log("\n------------------------------ B 상세 ------------------------------");
   printZeroNotes(b.summary);
-  printBottleneckRanking(b.nodes, b.summary);
-  printQueueingNote(b.summary);
+  printTotalE2E("B", b.nodes, b.summary);
   printWorkerOffloadNote(b.summary);
-  printSmallBufferWarning(b.meta);
-
+  
   console.log();
 }
 

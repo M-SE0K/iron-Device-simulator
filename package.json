@@ -10,15 +10,15 @@
     "lint": "next lint",
     "typecheck": "tsc --noEmit",
     "wasm:build": "cd electron/native/wasm-engine && ./build-wasm.sh",
-    "build:desktop": "./scripts/build-static-local.sh && echo '✓ 데스크톱 독립 웹앱 빌드 완료: out/ (로컬 확인: npx serve out)'",
-    "build:electron": "./scripts/build-electron.sh",
-    "build:electron:mac": "./scripts/build-electron.sh --mac-only",
-    "build:electron:windows": "./scripts/build-electron.sh --windows-only",
-    "build:electron:linux": "./scripts/build-electron.sh --linux-only",
+    "build:desktop": "./scripts/build/build-static-local.sh && echo '✓ 데스크톱 독립 웹앱 빌드 완료: out/ (로컬 확인: npx serve out)'",
+    "build:electron": "./scripts/build/build-electron.sh",
+    "build:electron:mac": "./scripts/build/build-electron.sh --mac-only",
+    "build:electron:windows": "./scripts/build/build-electron.sh --windows-only",
+    "build:electron:linux": "./scripts/build/build-electron.sh --linux-only",
     "build:electron:main": "webpack --config webpack.electron.config.js",
     "electron:preview": "npm run build:electron:main && electron .",
-    "measure:e2e": "./scripts/measure-e2e-latency.sh",
-    "summarize:e2e": "node scripts/summarize-e2e-latency.js"
+    "measure:e2e": "./scripts/실험용/measure-e2e-latency.sh",
+    "summarize:e2e": "node scripts/실험용/summarize-e2e-latency.js"
   },
   "dependencies": {
     "clsx": "^2.1.1",
