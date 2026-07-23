@@ -95,6 +95,18 @@ npm run electron:preview # electron . — 현재 out/ 기준으로 electron/main
 
 수동 측정: 앱에서 세션을 재생한 뒤 브라우저 콘솔에서 `window.__ironPerf.summary()` / `.download()`를 실행하세요.
 
+### 지연 측정 (실험용, `scripts/실험용/`)
+
+정식 개발/빌드 루틴에 포함되지 않는 수동 프로파일링 도구입니다 — N1~N12 파이프라인 하네스의
+전체 가이드는 [docs/e2e-latency-experiment.md](docs/e2e-latency-experiment.md) 참고.
+
+```bash
+npm run e2e:measure                  # dev 서버를 띄우고 ?e2e=1로 N1~N12 지연 하네스를 활성화해 접속
+npm run e2e:summarize -- report.json # window.__ironE2E.download()로 받은 JSON을 요약
+npm run loopback:measure -- --ref impulse.wav --capture vi-capture.wav
+                                      # 재생한 임펄스 + 캡처된 V/I WAV로 하드웨어 왕복(루프백) 지연을 오프라인 계산
+```
+
 ### WASM 빌드 (`electron/native/wasm-engine/`)
 
 > 이 폴더는 `electron/` 밑에 있지만 Electron 전용이 아닙니다 — 산출물

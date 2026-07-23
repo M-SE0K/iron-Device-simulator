@@ -103,6 +103,19 @@ npm run build:electron # Static build + Electron packaging → out/ + dist-elect
 npm run electron:preview # electron . — launch electron/main.js against the current out/, no packaging
 ```
 
+Manual profiling: play a session in the app, then run `window.__ironPerf.summary()` / `.download()` in the browser console.
+
+### Latency Measurement (experimental, `scripts/실험용/`)
+
+Manual profiling tools outside the normal dev/build loop — see [docs/e2e-latency-experiment.md](docs/e2e-latency-experiment.md) for the full N1~N12 pipeline harness guide.
+
+```bash
+npm run e2e:measure                  # opens a dev server tab with ?e2e=1, enabling the N1~N12 latency harness
+npm run e2e:summarize -- report.json # summarizes a window.__ironE2E.download() JSON report
+npm run loopback:measure -- --ref impulse.wav --capture vi-capture.wav
+                                      # offline round-trip (H/W loopback) latency from a played impulse + its captured V/I WAV
+```
+
 ### WASM Build (`electron/native/wasm-engine/`)
 
 > This folder lives under `electron/` but isn't Electron-specific — its output

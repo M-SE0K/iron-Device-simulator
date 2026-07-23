@@ -20,8 +20,9 @@
     "build:electron:linux": "./scripts/build/build-electron.sh --linux-only",
     "build:electron:main": "webpack --config webpack.electron.config.js",
     "electron:preview": "npm run build:electron:main && electron .",
-    "measure:e2e": "./scripts/실험용/measure-e2e-latency.sh",
-    "summarize:e2e": "node scripts/실험용/summarize-e2e-latency.js"
+    "e2e:measure": "./scripts/실험용/measure-e2e-latency.sh",
+    "e2e:summarize": "node scripts/실험용/summarize-e2e-latency.js",
+    "loopback:measure": "node scripts/실험용/measure-loopback-offline.js"
   },
   "dependencies": {
     "clsx": "^2.1.1",

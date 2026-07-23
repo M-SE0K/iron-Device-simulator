@@ -3,7 +3,7 @@
 // 사용법:
 //   node scripts/summarize-e2e-latency.js <A.json>            # 단일 파일 요약
 //   node scripts/summarize-e2e-latency.js <A.json> <B.json>   # 두 세션 비교
-//   npm run summarize:e2e -- <A.json> [<B.json>]
+//   npm run e2e:summarize -- <A.json> [<B.json>]
 "use strict";
 
 const fs = require("fs");
