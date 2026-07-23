@@ -44,8 +44,8 @@ class ClientWasmMemoryLayout implements MemoryLayout {
     }
 
     this.debugFrame++;
-    if (this.debugFrame % 100 === 0) {
-      console.debug(
+    if (this.debugFrame % 10 === 0) {
+      console.log(
         `[sensing-debug] wasm-client frame=${this.debugFrame} sensing=${!!sensing} ` +
         `vArg=${vArg} iArg=${iArg} ` +
         `in.v[0]=${sensing?.v[0]} in.i[0]=${sensing?.i[0]} ` +
@@ -104,6 +104,12 @@ class ClientWasmMemoryLayout implements MemoryLayout {
 type FfProtInstance = any;
 type FfProtFactory = (moduleArg?: Record<string, unknown>) => Promise<FfProtInstance>;
 
+// 기본은 클린 WASM(public/wasm/, 프로덕션·측정 공용). 실험(debug) 빌드(npm run wasm:build:debug →
+// public/wasm-debug/, V/I 값 printf 덤프 포함)를 쓰려면 빌드/dev 서버 기동 시
+// NEXT_PUBLIC_WASM_DIR=/wasm-debug 를 설정한다 — scripts/build/build-static-local.sh의
+// WASM_MODE=debug 가 이 값을 자동으로 맞춰준다.
+const WASM_DIR = process.env.NEXT_PUBLIC_WASM_DIR || "/wasm";
+
 let factoryPromise: Promise<FfProtFactory> | null = null;
 
 function loadFactory(): Promise<FfProtFactory> {
@@ -121,14 +127,14 @@ function loadFactory(): Promise<FfProtFactory> {
     }).importScripts;
     if (typeof importScriptsFn === "function") {
       try {
-        importScriptsFn("/wasm/ff_prot.js");
+        importScriptsFn(`${WASM_DIR}/ff_prot.js`);
       } catch (err) {
-        reject(new Error(`/wasm/ff_prot.js importScripts 실패: ${err}`));
+        reject(new Error(`Failed to importScripts ${WASM_DIR}/ff_prot.js: ${err}`));
         return;
       }
       const factory = (globalThis as unknown as { FfProtModule?: FfProtFactory }).FfProtModule;
       if (!factory) {
-        reject(new Error("FfProtModule을 찾을 수 없습니다 (worker importScripts 후 전역 없음)."));
+        reject(new Error("Could not find FfProtModule (no global present after worker importScripts)."));
         return;
       }
       resolve(factory);
@@ -136,20 +142,20 @@ function loadFactory(): Promise<FfProtFactory> {
     }
 
     if (typeof document === "undefined") {
-      reject(new Error("wasm-client-engine은 브라우저 메인 스레드 또는 Web Worker 전용입니다."));
+      reject(new Error("wasm-client-engine is only supported on the browser main thread or a Web Worker."));
       return;
     }
     const script = document.createElement("script");
-    script.src = "/wasm/ff_prot.js";
+    script.src = `${WASM_DIR}/ff_prot.js`;
     script.onload = () => {
       const factory = (globalThis as unknown as { FfProtModule?: FfProtFactory }).FfProtModule;
       if (!factory) {
-        reject(new Error("FfProtModule을 찾을 수 없습니다 (wasm 스크립트 로드 실패)."));
+        reject(new Error("Could not find FfProtModule (wasm script failed to load)."));
         return;
       }
       resolve(factory);
     };
-    script.onerror = () => reject(new Error("/wasm/ff_prot.js 로드 실패"));
+    script.onerror = () => reject(new Error(`Failed to load ${WASM_DIR}/ff_prot.js`));
     document.head.appendChild(script);
   });
 
@@ -162,7 +168,7 @@ export async function openClientWasmSession(
   opts: AnalysisFrameOptions = {},
 ): Promise<AnalysisSession> {
   const factory = await loadFactory();
-  const mod: FfProtInstance = await factory({ locateFile: (path: string) => `/wasm/${path}` });
+  const mod: FfProtInstance = await factory({ locateFile: (path: string) => `${WASM_DIR}/${path}` });
 
   const bufPtr  = mod._malloc(frameBytes(config));
   const tempPtr = mod._malloc(CHANNELS * 4);
@@ -171,12 +177,12 @@ export async function openClientWasmSession(
   const iSensingPtr = mod._malloc(config.samplesPerCh * BYTES_PER_SAMPLE);
 
   const initRet = mod._ff_prot_init();
-  if (initRet !== 0) 
-    throw new Error(`ff_prot_init 실패 (ret=${initRet})`);
+  if (initRet !== 0)
+    throw new Error(`ff_prot_init failed (ret=${initRet})`);
 
   const paramRet = mod._ff_prot_set_param();
-  if (paramRet !== 0) 
-    throw new Error(`ff_prot_set_param 실패 (ret=${paramRet})`);
+  if (paramRet !== 0)
+    throw new Error(`ff_prot_set_param failed (ret=${paramRet})`);
 
   const layout = new ClientWasmMemoryLayout(mod, bufPtr, tempPtr, excPtr, config, vSensingPtr, iSensingPtr);
   const analyze = (pcm: Uint8Array, params: EngineParams, sensing?: RealSensingPair): FrameResult => {

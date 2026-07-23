@@ -73,8 +73,8 @@ export default function ChannelSelectDrawer({ open, onClose, entries, selected, 
     <SideDrawer
       open={open}
       onClose={onClose}
-      ariaLabel="표시 항목 선택"
-      title="표시 항목"
+      ariaLabel="Select display items"
+      title="Display Items"
       count={selected.size}
       layer="overlay"
       safeAreaTop
@@ -82,7 +82,7 @@ export default function ChannelSelectDrawer({ open, onClose, entries, selected, 
           {metricEntries.length > 0 && (
             <div className="flex flex-col gap-1 mb-3 pb-3 border-b border-iron-100">
               <div className="px-1 pb-1">
-                <span className="text-sm font-medium text-iron-400">차트</span>
+                <span className="text-sm font-medium text-iron-400">Charts</span>
               </div>
               {metricEntries.map((entry) => (
                 <EntryRow key={entry.id} entry={entry} isSelected={selected.has(entry.id)} onToggle={onToggle} />
@@ -92,21 +92,21 @@ export default function ChannelSelectDrawer({ open, onClose, entries, selected, 
 
           <div className="flex flex-col gap-1">
             <div className="flex items-center justify-between px-1 pb-1">
-              <span className="text-sm font-medium text-iron-400">채널 목록</span>
+              <span className="text-sm font-medium text-iron-400">Channels</span>
               {channelEntries.length > 0 && (
                 <CountBadge count={channelEntries.length} suffix="ch" />
               )}
             </div>
 
-            {loading && <p className="text-xs text-iron-400 text-center py-8 animate-pulse">채널 정보 불러오는 중…</p>}
+            {loading && <p className="text-xs text-iron-400 text-center py-8 animate-pulse">Loading channel info…</p>}
             {!loading && error && <p className="text-xs text-red-500 text-center py-8">{error}</p>}
             {!loading && !error && channelEntries.length === 0 && (
               <div className="flex flex-col items-center justify-center gap-2 text-center px-6 py-8">
                 <AudioLines className="w-6 h-6 text-iron-200" />
                 <p className="text-xs text-iron-400 leading-relaxed">
-                  아직 캡처된 채널 데이터가 없습니다.
+                  No captured channel data yet.
                   <br />
-                  재생/녹음을 시작하면 여기에 채널이 나열됩니다.
+                  Channels will appear here once playback or recording starts.
                 </p>
               </div>
             )}

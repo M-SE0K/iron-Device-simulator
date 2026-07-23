@@ -45,7 +45,7 @@ function ResizeHandle({
       onPointerUp={onPointerUp}
       role="separator"
       aria-orientation="horizontal"
-      aria-label="패널 크기 조절"
+      aria-label="Resize panel"
       className="flex items-center justify-center h-3 shrink-0 cursor-row-resize touch-none group/handle border-t border-iron-50 bg-iron-50/60 hover:bg-iron-100 transition"
     >
       <GripHorizontal className="w-3.5 h-3.5 text-iron-300 group-hover/handle:text-iron-500 transition" />
@@ -91,7 +91,7 @@ export default function ChannelStackView({ items, emptyLabel, onReorder }: Props
   if (items.length === 0) {
     return (
       <div className="flex items-center justify-center h-full text-xs text-iron-400 text-center px-6">
-        {emptyLabel ?? "표시 항목 드로어에서 항목을 선택하면 여기에 표시됩니다."}
+        {emptyLabel ?? "Select items in the display drawer to show them here."}
       </div>
     );
   }
@@ -135,8 +135,8 @@ export default function ChannelStackView({ items, emptyLabel, onReorder }: Props
                   setOverId(null);
                 }}
                 role="button"
-                aria-label="패널 순서 변경"
-                title="드래그해서 순서 변경"
+                aria-label="Reorder panel"
+                title="Drag to reorder"
                 className="cursor-grab active:cursor-grabbing text-iron-300 hover:text-iron-500 shrink-0 touch-none"
               >
                 <GripVertical className="w-3.5 h-3.5" />

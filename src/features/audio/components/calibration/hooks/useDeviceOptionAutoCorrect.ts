@@ -83,7 +83,7 @@ export function useDeviceOptionAutoCorrect(deps: DeviceOptionAutoCorrectDeps) {
     }
     if (notes.length) {
       set(patch);
-      setAdjustedNote(`이 장치가 지원하지 않아 자동 조정됨: ${notes.join(", ")}`);
+      setAdjustedNote(`Auto-adjusted — not supported by this device: ${notes.join(", ")}`);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [deviceInfo, deviceInfoLoading]);

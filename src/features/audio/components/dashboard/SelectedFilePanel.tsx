@@ -16,8 +16,8 @@ export default function SelectedFilePanel() {
         <FolderOpen size={20} className="text-iron-400" />
       </div>
       <div className="text-left">
-        <p className="text-sm font-medium text-iron-700">작업 영역에서 오디오 파일을 선택하세요</p>
-        <p className="text-xs text-iron-400 mt-1">사이드바의 Workspace에서 폴더를 업로드한 뒤 파일을 고르세요</p>
+        <p className="text-sm font-medium text-iron-700">Select an audio file from Workspace</p>
+        <p className="text-xs text-iron-400 mt-1">Upload a folder in the sidebar Workspace, then choose a file</p>
       </div>
     </button>
   );

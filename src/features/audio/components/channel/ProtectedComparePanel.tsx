@@ -131,7 +131,7 @@ function ProtectedComparePanelImpl({
     (async () => {
       const Ctor = window.AudioContext ?? (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
       if (!Ctor) {
-        if (!cancelled) { setDecodeError("이 브라우저에서 오디오 디코드를 지원하지 않습니다."); setDecoding(false); }
+        if (!cancelled) { setDecodeError("This browser doesn't support audio decoding."); setDecoding(false); }
         return;
       }
       const ctx = new Ctor();
@@ -147,7 +147,7 @@ function ProtectedComparePanelImpl({
         }
         setOriginal({ env, durationSec: buf.duration });
       } catch {
-        if (!cancelled) setDecodeError("음원을 디코드하지 못했습니다.");
+        if (!cancelled) setDecodeError("Failed to decode audio.");
       } finally {
         void ctx.close();
         if (!cancelled) setDecoding(false);
@@ -304,7 +304,7 @@ function ProtectedComparePanelImpl({
       animation: false,
       tooltip: buildValueTooltip({ unit: "", decimals: 3, timeDecimals: 3 }),
       legend: {
-        data: ["감쇠 전", "감쇠 후"],
+        data: ["Input", "Protected"],
         textStyle: { color: "#94a3b8", fontSize: 10 },
         top: 0,
       },
@@ -328,7 +328,7 @@ function ProtectedComparePanelImpl({
       },
       series: [
         {
-          name: "감쇠 전",
+          name: "Input",
           type: "line" as const,
           symbol: showSymbols ? "circle" : "none",
           showSymbol: showSymbols,
@@ -337,7 +337,7 @@ function ProtectedComparePanelImpl({
           data: originalSeries,
         },
         {
-          name: "감쇠 후",
+          name: "Protected",
           type: "line" as const,
           symbol: showSymbols ? "circle" : "none",
           showSymbol: showSymbols,
@@ -350,14 +350,14 @@ function ProtectedComparePanelImpl({
   }, [original, originalSeries, version, showSymbols]);
 
   const placeholder = decodeError
-    ?? (decoding ? "원본 파형을 준비하는 중입니다…" : null)
-    ?? (!sourceFile ? "음원을 선택하면 원본 파형이 표시됩니다." : null);
+    ?? (decoding ? "Preparing original waveform…" : null)
+    ?? (!sourceFile ? "Select an audio source to see the original waveform." : null);
 
   return (
     <div id="protected-compare-panel" className={cn("flex flex-col h-full", !bare && "card")}>
       <div className={bare ? "flex items-center justify-between gap-2 px-1 pb-2 flex-wrap" : "card-header"}>
         <div className="chart-title-group flex items-center gap-2">
-          <span className="card-title">보호 알고리즘 적용</span>
+          <span className="card-title">Protection Algorithm</span>
         </div>
       </div>
 
@@ -366,7 +366,7 @@ function ProtectedComparePanelImpl({
           <ReactECharts option={option} style={{ height: "100%", width: "100%" }} notMerge={false} onEvents={echartsEvents.current} />
         ) : (
           <div className="chart-empty-state h-full flex items-center justify-center text-xs text-iron-300">
-            {placeholder ?? "분석이 시작되면 감쇠 후 파형이 여기에 겹쳐 표시됩니다."}
+            {placeholder ?? "Once analysis starts, the protected waveform will overlay here."}
           </div>
         )}
       </div>

@@ -30,7 +30,7 @@ function FolderTree({
       </div>
 
       {files.length === 0 ? (
-        <p className="pl-7 pt-2 text-xs text-iron-400">폴더에 오디오 파일이 없습니다.</p>
+        <p className="pl-7 pt-2 text-xs text-iron-400">No audio files in this folder.</p>
       ) : (
         <div className="ml-[19px] mt-1 flex flex-col border-l border-iron-200">
           {files.map((f) => {
@@ -101,16 +101,16 @@ export default function WorkspaceFolderSection() {
 
   const header = (connected: boolean, count: number, onDisconnect: () => void) => (
     <div className="flex items-center justify-between px-1 pb-2">
-      <span className="text-sm font-medium text-iron-400">폴더</span>
+      <span className="text-sm font-medium text-iron-400">Folder</span>
       {connected && (
         <div className="flex items-center gap-2">
-          <CountBadge count={count} suffix="개 파일" />
+          <CountBadge count={count} suffix="files" />
           <button
             type="button"
             onClick={onDisconnect}
             className="text-xs text-iron-300 hover:text-red-500 transition"
           >
-            해제
+            Release
           </button>
         </div>
       )}
@@ -131,7 +131,7 @@ export default function WorkspaceFolderSection() {
             className="flex w-full items-center justify-center gap-1.5 rounded-xl border border-dashed border-iron-200 px-3 py-3 text-xs text-iron-500 transition hover:border-brand-blue hover:text-brand-blue disabled:opacity-50"
           >
             <FolderOpen className="w-3.5 h-3.5" />
-            {localFolderConnecting ? "연결 중..." : "폴더 연결"}
+            {localFolderConnecting ? "Connecting..." : "Connect Folder"}
           </button>
         ) : (
           <FolderTree
@@ -172,7 +172,7 @@ export default function WorkspaceFolderSection() {
           className="flex w-full cursor-pointer items-center justify-center gap-1.5 rounded-xl border border-dashed border-iron-200 px-3 py-3 text-xs text-iron-500 transition hover:border-brand-blue hover:text-brand-blue"
         >
           <FolderOpen className="w-3.5 h-3.5" />
-          폴더 업로드
+          Upload Folder
         </label>
       ) : (
         <FolderTree

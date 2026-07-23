@@ -97,7 +97,7 @@ cc -O2 -o dist/query-device query-device.c -framework CoreAudio -framework CoreF
 ```
 `swiftc`로 arm64/x64를 각각 컴파일 후 `lipo`로 합쳐 universal binary
 (`dist/audio-device-helper`)를 만든다 — electron-builder mac 타깃(`[x64, arm64]`)과
-아키텍처 분기 없이 매칭된다. `scripts/build-electron.sh`가 mac 패키징 전에 자동 호출한다.
+아키텍처 분기 없이 매칭된다. `scripts/build/build-electron.sh`가 mac 패키징 전에 자동 호출한다.
 
 ## ⚠️ `set`의 한계와 `capture` 모드
 

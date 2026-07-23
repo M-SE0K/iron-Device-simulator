@@ -127,13 +127,13 @@ class LocalWasmSocket implements SocketLike {
       this.emit(out.frameJson as Record<string, unknown>);
       if (out.binary) this.emitBinary(out.binary);
     } catch (err) {
-      this.emit(createErrorMessage(`ff_prot_start_exec 오류: ${err}`));
+      this.emit(createErrorMessage(`ff_prot_start_exec error: ${err}`));
     }
   }
 }
 
 export function createAnalysisSocket(): SocketLike {
-  if (process.env.NEXT_PUBLIC_USE_WORKER_ENGINE === "0") {
+  if (process.env.USE_WORKER_ENGINE === "0") {
     return new LocalWasmSocket();
   }
   try {

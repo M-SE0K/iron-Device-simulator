@@ -24,6 +24,7 @@ import { clearFrameCache } from "@/features/audio/lib/cache/frame";
 import { formatTime, splitFileName } from "@/shared/lib/utils";
 import { putAudio, clearAudio } from "@/features/audio/lib/cache/audio-blob";
 import { coalesceFrames } from "@/features/audio/lib/render/coalesce";
+import { e2e } from "@/features/audio/lib/perf-e2e/collector";
 import { detectEvents, DEFAULT_TEMP_WARN, DEFAULT_TEMP_DANGER, type TempThresholds } from "@/features/audio/lib/render/detect-events";
 import type { QueuedFrame } from "@/features/audio/lib/render/types";
 import { useFrameCachePersistence } from "@/features/audio/components/dashboard/hooks/useFrameCachePersistence";
@@ -225,6 +226,7 @@ export default function DashboardPage({ useQueue }: DashboardPageProps) {
     if (useQueue) {
       outputQueueRef.current.push({ frame, recvAt: performance.now() });
     } else {
+      e2e.markCommit();
       setStreamingFrames((prev) => [...prev, frame]);
     }
   }, [useQueue]);
@@ -242,9 +244,15 @@ export default function DashboardPage({ useQueue }: DashboardPageProps) {
 
       if (bucket.length === 0) return;
 
-      const eventFrames = detectEvents(bucket, prevTempRef.current, thresholdsRef.current);
+      if (e2e.isActive()) {
+        const now = performance.now();
+        for (const q of bucket) e2e.sample("N9", now - q.recvAt);
+      }
 
-      const renderFrame = coalesceFrames(bucket);
+      const { eventFrames, renderFrame } = e2e.time("N10", () => ({
+        eventFrames: detectEvents(bucket, prevTempRef.current, thresholdsRef.current),
+        renderFrame: coalesceFrames(bucket),
+      }));
       const latest = bucket[bucket.length - 1];
 
       prevTempRef.current = latest.frame.temperature;
@@ -257,6 +265,7 @@ export default function DashboardPage({ useQueue }: DashboardPageProps) {
       }
       renderFrames.push(renderFrame);
 
+      e2e.markCommit();
       setStreamingFrames((prev) => [...prev, ...renderFrames]);
     };
 
@@ -270,7 +279,7 @@ export default function DashboardPage({ useQueue }: DashboardPageProps) {
 
   const handleRealtimeStatus = useCallback((s: AppStatus) => {
     setRealtimeStatus(s);
-    if (s === "error") setErrorMsg("WebSocket 연결에 실패했습니다. 서버가 실행 중인지 확인해주세요.");
+    if (s === "error") setErrorMsg("WebSocket connection failed. Please check whether the server is running.");
   }, []);
 
   const handleRealtimeTime = useCallback((t: number) => {
@@ -299,7 +308,7 @@ export default function DashboardPage({ useQueue }: DashboardPageProps) {
           <button
             type="button"
             onClick={() => setMobileNavOpen(true)}
-            aria-label="메뉴 열기"
+            aria-label="Open menu"
             className="flex items-center justify-center w-9 h-9 rounded-lg text-iron-600 hover:bg-iron-100"
           >
             <Menu className="w-5 h-5" />
@@ -313,42 +322,42 @@ export default function DashboardPage({ useQueue }: DashboardPageProps) {
               <button
                 type="button"
                 onClick={() => setSidebarCollapsed((prev) => !prev)}
-                aria-label={sidebarCollapsed ? "사이드바 펼치기 (⌘/Ctrl + B)" : "사이드바 숨기기 (⌘/Ctrl + B)"}
-                title={sidebarCollapsed ? "사이드바 펼치기 (⌘/Ctrl + B)" : "사이드바 숨기기 (⌘/Ctrl + B)"}
+                aria-label={sidebarCollapsed ? "Expand sidebar (⌘/Ctrl + B)" : "Collapse sidebar (⌘/Ctrl + B)"}
+                title={sidebarCollapsed ? "Expand sidebar (⌘/Ctrl + B)" : "Collapse sidebar (⌘/Ctrl + B)"}
                 className="hidden lg:flex items-center justify-center w-8 h-8 rounded-lg text-iron-500 hover:bg-iron-100 hover:text-iron-700 transition-colors shrink-0"
               >
                 {sidebarCollapsed ? <PanelLeftOpen className="w-4 h-4" /> : <PanelLeftClose className="w-4 h-4" />}
               </button>
               <div className="mr-auto min-w-0">
                 <h2 className="m-0 text-xl font-bold text-iron-900">
-                  {inputMode === "file" ? "실시간 추적" : "마이크 입력"}
+                  {inputMode === "file" ? "Real-time Tracking" : "Microphone Input"}
                 </h2>
                 <p className="m-0 mt-1 text-[13px] text-iron-500 truncate">
                   {inputMode === "file"
                     ? audioFile
                       ? `${audioFile.name} · ${formatTime(audioDuration ?? 0)}`
-                      : "작업 영역에서 오디오 파일을 선택하세요"
+                      : "Select an audio file from Workspace"
                     : realtimeStatus === "playing"
-                      ? "마이크 캡처 중"
-                      : "마이크 대기"}
+                      ? "Capturing microphone"
+                      : "Mic Standby"}
                 </p>
               </div>
               <SegmentedControl
                 value={inputMode}
                 onChange={handleInputModeChange}
                 options={[
-                  { value: "file", label: "파일" },
-                  { value: "mic", label: "마이크" },
+                  { value: "file", label: "File" },
+                  { value: "mic", label: "Microphone" },
                 ]}
                 className="w-[208px]"
-                aria-label="입력 소스"
+                aria-label="Input Source"
               />
             </div>
 
             {inputMode === "file" && !audioFile && <SelectedFilePanel />}
 
             {errorMsg && (
-              <p id="error-message" className="error-message text-xs text-red-500 px-1 shrink-0">오류: {errorMsg}</p>
+              <p id="error-message" className="error-message text-xs text-red-500 px-1 shrink-0">Error: {errorMsg}</p>
             )}
 
             <div id="dashboard-grid" className="flex flex-col gap-4 lg:flex-1 lg:min-h-[528px]">

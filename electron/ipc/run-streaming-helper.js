@@ -7,6 +7,11 @@ function runStreamingHelper({
   args,
   dataChannel,
   endedChannel,
+  // E2E 지연 실험(N1, src/features/audio/lib/perf-e2e/) 전용 — 넘겨지면 stdout 청크가 도착할
+  // 때마다 실제 데이터와 별개로 { sentAt: Date.now() } 만 담은 가벼운 메시지를 같은 창에 추가로
+  // 보낸다. 렌더러가 이 채널을 구독 중일 때만(opts.e2e) 호출측이 채널명을 넘기므로, 실험을 켜지
+  // 않은 일반 사용에는 추가 IPC가 전혀 발생하지 않는다.
+  markChannel,
   setChild,
   isCurrentChild,
   stopActiveChild,
@@ -32,6 +37,7 @@ function runStreamingHelper({
     child.stdout.on("data", (chunk) => {
       if (headerDone) {
         if (!win.isDestroyed()) win.webContents.send(dataChannel, chunk);
+        if (markChannel && !win.isDestroyed()) win.webContents.send(markChannel, { sentAt: Date.now() });
         return;
       }
       headerBuf = Buffer.concat([headerBuf, chunk]);
@@ -48,7 +54,10 @@ function runStreamingHelper({
         stopActiveChild();
       } else {
         const rest = headerBuf.subarray(nl + 1);
-        if (rest.length > 0 && !win.isDestroyed()) win.webContents.send(dataChannel, rest);
+        if (rest.length > 0 && !win.isDestroyed()) {
+          win.webContents.send(dataChannel, rest);
+          if (markChannel) win.webContents.send(markChannel, { sentAt: Date.now() });
+        }
       }
       settle(header);
     });

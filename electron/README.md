@@ -28,7 +28,7 @@
 **이 도메인이 import하는 것** (안쪽 방향):
 
 - `main.js` → `./server`(`PORT`, `startServer`), `./ipc/audio-capture`(`stopCapture`), `./ipc/audio-playcapture`(`stopPlayCapture`), `./ipc/local-folder`(`stopWatchingFolder`), `./ipc/audio-device`(채널 등록 부수효과만, export 미사용), `./preload.js`(경로 문자열로만 참조, `BrowserWindow`의 `preload` 옵션).
-- `server.js` → `out/`(빌드 산출물 디렉터리, `scripts/build-static-local.sh`가 생성). 코드로 import하지 않고 파일시스템 경로로만 접근한다.
+- `server.js` → `out/`(빌드 산출물 디렉터리, `scripts/build/build-static-local.sh`가 생성). 코드로 import하지 않고 파일시스템 경로로만 접근한다.
 - 외부 패키지 — `electron`(`app`/`BrowserWindow`/`contextBridge`/`ipcRenderer`), Node 내장 `path`/`http`/`fs`.
 
 **이 도메인을 import하는 것** (바깥 방향):

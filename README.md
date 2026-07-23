@@ -14,7 +14,7 @@ Visualizes **speaker temperature** and **excursion displacement** in real-time v
 
 - Node.js 20+
 - npm 9+
-- [Emscripten](https://emscripten.org/docs/getting_started/downloads.html) (`emcc`) — to build the WASM engine (`npm run wasm:build`)
+- [Emscripten](https://emscripten.org/docs/getting_started/downloads.html) (`emcc`) — to build the WASM engine (`npm run wasm:build`). **Not required if you have Docker**: `build-wasm.sh` automatically falls back to the official `emscripten/emsdk` image when `emcc` is missing.
 - Electron packaging only: `electron` / `electron-builder` are already devDependencies — no separate install needed. Cross-compiling a Windows NSIS installer from macOS/Linux would require Wine, which is why the Windows target here is a signing/Wine-free portable `.zip` instead (see [Desktop App Packaging (Electron)](#desktop-app-packaging-electron)).
 
 ---
@@ -31,10 +31,36 @@ npm install
 
 ## Running Locally
 
+One command right after cloning (checks the environment → `npm install` → WASM build → dev server):
+
 ```bash
-npm run wasm:build   # once — compiles electron/native/wasm-engine/ff_prot.c → public/wasm/ff_prot.{js,wasm}, requires emcc
+npm run bootstrap     # → http://localhost:3000
+```
+
+Or step by step:
+
+```bash
+npm run wasm:build   # once — compiles electron/native/wasm-engine/*.c → public/wasm/ff_prot.{js,wasm} (emcc, or Docker fallback)
 npm run dev           # next dev — http://localhost:3000
 ```
+
+---
+
+## Bring Your Own Algorithm
+
+The bundled analysis engine (`electron/native/wasm-engine/ff_prot.c`) is a **reference stub** — the folder is designed so you can drop in your own C implementation and run the app against it:
+
+```bash
+git clone https://github.com/JBNU-CILAB/Iron-Device-Simulator.git
+cd iron-Device-simulator
+# drop your .c/.h files into electron/native/wasm-engine/custom/ — ANY file names
+#   (when custom/ has sources, the build automatically compiles those INSTEAD of
+#    the stub — no need to delete or overwrite anything, so upstream stub updates
+#    never conflict with your code)
+npm run bootstrap     # → http://localhost:3000, charts now driven by YOUR algorithm
+```
+
+The only contract is the four `ff_prot_*` functions declared in `electron/native/wasm-engine/ff_prot.h` (`init` / `set_param` / `start_exec` — 9 args / `stop_exec`); if your function names differ, add a thin wrapper `.c` that delegates to them (example in `electron/native/wasm-engine/custom/README.md`). See `electron/native/wasm-engine/README.md` § "내 알고리즘 넣기" for the full drop-in guide (buffer conventions, exported-function list, debug builds).
 
 ---
 
@@ -97,10 +123,24 @@ npm run build        # Next.js production build
 npm start            # Production server (next start)
 npm run lint         # ESLint
 
-npm run wasm:build    # Compile electron/native/wasm-engine/ff_prot.c to browser-target WASM, requires emcc
+npm run bootstrap     # one-shot right after cloning: env check → npm install → wasm:build → dev server
+npm run wasm:build    # Compile electron/native/wasm-engine/*.c to browser-target WASM (emcc, or Docker fallback)
 npm run build:desktop # Static web build → out/ (see Building above)
 npm run build:electron # Static build + Electron packaging → out/ + dist-electron/ (see Building above)
 npm run electron:preview # electron . — launch electron/main.js against the current out/, no packaging
+```
+
+Manual profiling: play a session in the app, then run `window.__ironPerf.summary()` / `.download()` in the browser console.
+
+### Latency Measurement (experimental, `scripts/실험용/`)
+
+Manual profiling tools outside the normal dev/build loop — see [docs/e2e-latency-experiment.md](docs/e2e-latency-experiment.md) for the full N1~N12 pipeline harness guide.
+
+```bash
+npm run e2e:measure                  # opens a dev server tab with ?e2e=1, enabling the N1~N12 latency harness
+npm run e2e:summarize -- report.json # summarizes a window.__ironE2E.download() JSON report
+npm run loopback:measure -- --ref impulse.wav --capture vi-capture.wav
+                                      # offline round-trip (H/W loopback) latency from a played impulse + its captured V/I WAV
 ```
 
 ### WASM Build (`electron/native/wasm-engine/`)
@@ -110,7 +150,7 @@ npm run electron:preview # electron . — launch electron/main.js against the cu
 
 ```bash
 cd electron/native/wasm-engine
-./build-wasm.sh       # → ../../../public/wasm/ff_prot.{js,wasm} (Emscripten, browser target, requires emcc)
+./build-wasm.sh       # → ../../../public/wasm/ff_prot.{js,wasm} (Emscripten, browser target — falls back to Docker if emcc is missing)
 make selftest         # pure-C self-test of the reference model (temperature rise + L/R excursion diff), unrelated to the app build
 ```
 

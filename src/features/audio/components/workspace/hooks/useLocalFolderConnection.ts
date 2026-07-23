@@ -41,7 +41,7 @@ export function useLocalFolderConnection(onFileLoad: (file: File, name: string) 
       const file = await readLocalAudioFile(entry);
       onFileLoad(file, entry.name);
     } catch (err) {
-      setLocalFolderError(err instanceof Error ? err.message : "파일을 불러올 수 없습니다.");
+      setLocalFolderError(err instanceof Error ? err.message : "Failed to load file.");
     }
   }, [onFileLoad]);
 

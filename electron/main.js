@@ -1,6 +1,6 @@
 // electron/main.js — Electron 메인 프로세스 (합성 루트)
 //
-// out/(scripts/build-static-local.sh 공용 코어 산출물, 브라우저 WASM 엔진 · 서버리스)을
+// out/(scripts/build/build-static-local.sh 공용 코어 산출물, 브라우저 WASM 엔진 · 서버리스)을
 // BrowserWindow에 그대로 띄운다. 로컬 정적 서버는 ./server가 맡고, 오디오 장치/캡처/
 // 로컬 폴더 IPC는 ./ipc/*.js가 각자 require 시점에 자신의 채널을 등록한다(부수효과) —
 // 이 파일은 앱 라이프사이클(창 생성/종료)만 담당한다.

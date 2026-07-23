@@ -29,36 +29,36 @@ export default function ChannelViewerOverlay({ item, onClose }: Props) {
       try {
         const payload = await getWorkspacePayload(item.id);
         if (!payload?.audioBlob) {
-          if (!cancelled) setError("이 세션에는 저장된 오디오가 없습니다.");
+          if (!cancelled) setError("No audio saved for this session.");
           return;
         }
         const result = await decodeAudioChannels(payload.audioBlob);
         if (!cancelled) setDecoded(result);
       } catch {
-        if (!cancelled) setError("오디오를 디코딩하지 못했습니다.");
+        if (!cancelled) setError("Failed to decode audio.");
       }
     })();
     return () => { cancelled = true; };
   }, [item.id]);
 
   return (
-    <FullscreenOverlay show={show} ariaLabel={`${item.name} 채널별 파형`}>
+    <FullscreenOverlay show={show} ariaLabel={`${item.name} channel waveforms`}>
       <header className="shrink-0 h-14 px-3 sm:px-5 flex items-center gap-3 border-b border-iron-100 bg-white">
         <button
           type="button"
           onClick={close}
-          aria-label="돌아가기"
+          aria-label="Back"
           className="flex items-center gap-1.5 h-9 px-2.5 rounded-lg text-sm text-iron-600 hover:bg-iron-100 hover:text-iron-900 transition"
         >
           <ArrowLeft className="w-4 h-4" />
-          <span className="hidden sm:inline">뒤로</span>
+          <span className="hidden sm:inline">Back</span>
         </button>
         <div className="flex items-center gap-2 min-w-0">
           <AudioLines size={16} className="shrink-0 text-brand-blue" />
           <div className="flex flex-col min-w-0">
             <span className="text-sm font-semibold text-iron-900 truncate">{item.name}</span>
             <span className="text-[11px] text-iron-400 truncate">
-              채널별 파형
+              Channel Waveforms
               {decoded &&
                 ` · ${decoded.channels.length}ch · ${decoded.sampleRate.toLocaleString()}Hz · ${formatTime(decoded.durationSec)}`}
             </span>
@@ -67,7 +67,7 @@ export default function ChannelViewerOverlay({ item, onClose }: Props) {
         <button
           type="button"
           onClick={close}
-          aria-label="닫기"
+          aria-label="Close"
           className="ml-auto flex items-center justify-center w-9 h-9 rounded-lg text-iron-400 hover:bg-iron-100 hover:text-iron-700 transition"
         >
           <X className="w-4 h-4" />
@@ -77,7 +77,7 @@ export default function ChannelViewerOverlay({ item, onClose }: Props) {
       <div className="flex-1 min-h-0 overflow-y-auto p-3 sm:p-5">
         {error && <p className="text-sm text-red-500 text-center py-10">{error}</p>}
         {!error && !decoded && (
-          <p className="text-sm text-iron-400 text-center py-10 animate-pulse">오디오 디코딩 중…</p>
+          <p className="text-sm text-iron-400 text-center py-10 animate-pulse">Decoding audio…</p>
         )}
         {decoded && (
           <div className="flex flex-col gap-3 max-w-5xl mx-auto">

@@ -103,7 +103,7 @@ const DuplexFilePlayer = forwardRef<WaveformPlayerHandle, Props>(function Duplex
         onDurationReady?.(decoded.duration);
       } catch {
         if (cancelled) return;
-        setDecodeError("오디오 파일을 디코드할 수 없습니다.");
+        setDecodeError("Unable to decode audio file.");
         onStatusChange("error");
       }
     })();
@@ -169,7 +169,7 @@ const DuplexFilePlayer = forwardRef<WaveformPlayerHandle, Props>(function Duplex
         decodedRef.current = decoded;
         setDuration(decoded.duration);
       } catch {
-        setDecodeError("오디오 파일을 디코드할 수 없습니다.");
+        setDecodeError("Unable to decode audio file.");
         onStatusChange("error");
         return;
       }
@@ -230,7 +230,7 @@ const DuplexFilePlayer = forwardRef<WaveformPlayerHandle, Props>(function Duplex
           </div>
         ) : (
           <p className="waveform-placeholder text-xs text-iron-300 truncate mx-auto">
-            파일을 업로드하면 재생할 수 있습니다
+            Upload a file to start playback
           </p>
         )}
       </div>

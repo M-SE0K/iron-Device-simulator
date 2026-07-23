@@ -51,7 +51,7 @@ export default function PlayerBar({
         id="play-pause-btn"
         onClick={onPlayPause}
         disabled={!isReady}
-        aria-label={isPlaying ? "일시정지" : "재생"}
+        aria-label={isPlaying ? "Pause" : "Play"}
         className={cn(
           "flex items-center justify-center w-12 h-12 rounded-full shrink-0 transition-colors",
           isReady
@@ -94,15 +94,15 @@ export default function PlayerBar({
             errorText ? "bg-red-500" : isPlaying ? "bg-emerald-500 animate-pulse" : "bg-iron-300"
           )}
         />
-        <span className="truncate">{errorText ?? (isPlaying ? "스트리밍 중" : "일시정지됨")}</span>
+        <span className="truncate">{errorText ?? (isPlaying ? "Streaming" : "Paused")}</span>
       </span>
 
       <button
         id="stop-btn"
         onClick={onStop}
         disabled={!isReady}
-        title="정지"
-        aria-label="정지"
+        title="Stop"
+        aria-label="Stop"
         className={cn(
           "shrink-0 p-1.5 rounded-full transition-colors",
           isReady ? "text-iron-400 hover:bg-iron-100 hover:text-iron-700" : "text-iron-200 cursor-not-allowed"
@@ -115,8 +115,8 @@ export default function PlayerBar({
         <button
           onClick={onSave}
           disabled={!canSave}
-          title="작업 영역에 저장"
-          aria-label="작업 영역에 저장"
+          title="Save to Workspace"
+          aria-label="Save to Workspace"
           className={cn(
             "shrink-0 p-1.5 rounded-full transition-colors",
             canSave ? "text-iron-400 hover:bg-iron-100 hover:text-brand-blue" : "text-iron-200 cursor-not-allowed"
@@ -129,8 +129,8 @@ export default function PlayerBar({
       {onReset && (
         <button
           onClick={onReset}
-          title="파일 초기화"
-          aria-label="파일 초기화"
+          title="Reset File"
+          aria-label="Reset File"
           className="shrink-0 p-1.5 rounded-full text-iron-400 hover:bg-iron-100 hover:text-iron-700 transition-colors"
         >
           <X size={14} />

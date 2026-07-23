@@ -105,7 +105,7 @@ ipcMain.handle("audio-playcapture:start", (event, opts) => {
   if (playCaptureChild) {
     return { success: false, error: "play-capture-already-running" };
   }
-  const { sampleRate, bufferSize, channels, deviceUID, refWriteId, outputChannel } = opts || {};
+  const { sampleRate, bufferSize, channels, deviceUID, refWriteId, outputChannel, e2e } = opts || {};
   const refPath = refWriteId ? finalizedRefs.get(refWriteId) : undefined;
   if (!refWriteId || !refPath) {
     return { success: false, error: "missing-ref-write-id" };
@@ -124,6 +124,8 @@ ipcMain.handle("audio-playcapture:start", (event, opts) => {
     args: withDevice(baseArgs, deviceUID),
     dataChannel: "audio-playcapture:data",
     endedChannel: "audio-playcapture:ended",
+    // E2E 지연 실험(N1) 전용 — 렌더러가 명시적으로 요청했을 때만 채널명을 넘긴다.
+    markChannel: e2e ? "audio-playcapture:e2e-mark" : undefined,
     setChild: (child) => { playCaptureChild = child; },
     isCurrentChild: (child) => playCaptureChild === child,
     stopActiveChild: stopPlayCapture,

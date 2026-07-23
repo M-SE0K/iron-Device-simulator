@@ -17,7 +17,7 @@ function stopCapture() {
   return { success: true };
 }
 
-ipcMain.handle("audio-capture:start", (event, { sampleRate, bufferSize, channels, deviceUID }) => {
+ipcMain.handle("audio-capture:start", (event, { sampleRate, bufferSize, channels, deviceUID, e2e }) => {
   if (!SUPPORTED_PLATFORMS.includes(process.platform)) {
     return { success: false, error: "unsupported-platform" };
   }
@@ -30,6 +30,8 @@ ipcMain.handle("audio-capture:start", (event, { sampleRate, bufferSize, channels
     args: withDevice(["capture", String(sampleRate), String(bufferSize), String(channels || 2)], deviceUID),
     dataChannel: "audio-capture:data",
     endedChannel: "audio-capture:ended",
+    // E2E 지연 실험(N1) 전용 — 렌더러가 명시적으로 요청했을 때만 채널명을 넘긴다.
+    markChannel: e2e ? "audio-capture:e2e-mark" : undefined,
     setChild: (child) => { captureChild = child; },
     isCurrentChild: (child) => captureChild === child,
     stopActiveChild: stopCapture,

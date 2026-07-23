@@ -31,7 +31,7 @@ export default function DeviceSelectField({
     { value: "", label: placeholderLabel },
     ...devices,
     ...(value && !devices.some((d) => d.value === value)
-      ? [{ value, label: savedLabel, hint: "연결 안 됨" }]
+      ? [{ value, label: savedLabel, hint: "Not Connected" }]
       : []),
   ];
 

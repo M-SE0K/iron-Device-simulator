@@ -8,7 +8,7 @@ export function useBrowserFolderUpload(onFileLoad: (file: File, name: string) =>
 
   const selectBrowserFolder = useCallback((files: FileList | File[]) => {
     const all = Array.from(files);
-    const folder = all[0]?.webkitRelativePath?.split("/")[0] || "폴더";
+    const folder = all[0]?.webkitRelativePath?.split("/")[0] || "Folder";
     const audio = all.filter(
       (f) => f.type.startsWith("audio/") || /\.(wav|mp3|flac|aac|m4a|ogg)$/i.test(f.name),
     );

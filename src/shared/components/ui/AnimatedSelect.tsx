@@ -37,7 +37,7 @@ export default function AnimatedSelect({
   value,
   options,
   onChange,
-  placeholder = "선택",
+  placeholder = "Select",
   unit,
   disabled,
   className = "",
