@@ -1,12 +1,14 @@
 "use client";
 
 import type { ReactNode } from "react";
-import { Play, Pause, Square, Save, X } from "lucide-react";
+import { Play, Pause, Square, Save, X, Loader2 } from "lucide-react";
 import { cn, formatTime } from "@/shared/lib/utils";
 
 interface Props {
   isReady: boolean;
   isPlaying: boolean;
+  /** true인 동안 재생 버튼이 스피너로 바뀌고 비활성화된다 — 네이티브 캡처 장치 연결 등 재생 시작 전 대기 구간용. */
+  isConnecting?: boolean;
   currentTime: number;
   duration: number;
   fileName: string | null;
@@ -26,6 +28,7 @@ interface Props {
 export default function PlayerBar({
   isReady,
   isPlaying,
+  isConnecting = false,
   currentTime,
   duration,
   fileName,
@@ -50,16 +53,24 @@ export default function PlayerBar({
       <button
         id="play-pause-btn"
         onClick={onPlayPause}
-        disabled={!isReady}
-        aria-label={isPlaying ? "Pause" : "Play"}
+        disabled={!isReady || isConnecting}
+        aria-label={isConnecting ? "Connecting" : isPlaying ? "Pause" : "Play"}
         className={cn(
           "flex items-center justify-center w-12 h-12 rounded-full shrink-0 transition-colors",
           isReady
-            ? "bg-brand-blue text-white hover:bg-brand-blue-dark"
+            ? isConnecting
+              ? "bg-brand-blue/60 text-white cursor-wait"
+              : "bg-brand-blue text-white hover:bg-brand-blue-dark"
             : "bg-iron-100 text-iron-300 cursor-not-allowed"
         )}
       >
-        {isPlaying ? <Pause size={16} /> : <Play size={16} className="ml-0.5" />}
+        {isConnecting ? (
+          <Loader2 size={16} className="animate-spin" />
+        ) : isPlaying ? (
+          <Pause size={16} />
+        ) : (
+          <Play size={16} className="ml-0.5" />
+        )}
       </button>
 
       {children}
@@ -91,10 +102,18 @@ export default function PlayerBar({
         <span
           className={cn(
             "inline-block w-[7px] h-[7px] rounded-full",
-            errorText ? "bg-red-500" : isPlaying ? "bg-emerald-500 animate-pulse" : "bg-iron-300"
+            errorText
+              ? "bg-red-500"
+              : isConnecting
+                ? "bg-amber-400 animate-pulse"
+                : isPlaying
+                  ? "bg-emerald-500 animate-pulse"
+                  : "bg-iron-300"
           )}
         />
-        <span className="truncate">{errorText ?? (isPlaying ? "Streaming" : "Paused")}</span>
+        <span className="truncate">
+          {errorText ?? (isConnecting ? "Connecting to device…" : isPlaying ? "Streaming" : "Paused")}
+        </span>
       </span>
 
       <button

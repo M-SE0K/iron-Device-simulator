@@ -46,10 +46,19 @@ export default function ExcursionChart({ frames, currentTime, isActive, streamin
 
   const prevFrameLenRef  = useRef(0);
   const renderStartAtRef = useRef(0);
+  const pendingCommitSampleRef = useRef(false);
+  if (perfTrack && streaming && frames.length !== prevFrameLenRef.current) {
+    prevFrameLenRef.current = frames.length;
+    // N12 시작점은 렌더 단계(커밋 전)에서 찍어야 한다 — useLayoutEffect에서 찍으면 자식
+    // ReactECharts의 componentDidUpdate(자식이 부모보다 먼저 커밋됨)가 이미 setOption을
+    // 호출한 뒤라 늦어서, 이번 렌더가 아니라 다음 drain 사이클의 rendered 이벤트를 붙잡아
+    // N12가 항상 RENDER_INTERVAL에 가깝게 나오는 버그가 있었다.
+    renderStartAtRef.current = performance.now();
+    pendingCommitSampleRef.current = true;
+  }
   useLayoutEffect(() => {
-    if (perfTrack && streaming && frames.length !== prevFrameLenRef.current) {
-      prevFrameLenRef.current = frames.length;
-      renderStartAtRef.current = performance.now();
+    if (pendingCommitSampleRef.current) {
+      pendingCommitSampleRef.current = false;
       // N11 — DashboardClient가 setStreamingFrames 직전에 남긴 커밋 시각 대비, 이 레이아웃
       // 이펙트(React 커밋 이후)까지 걸린 시간.
       e2e.sampleSinceCommit("N11", "excursion");
