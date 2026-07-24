@@ -79,6 +79,7 @@ These commands are written excluding web behavior — they're Electron dev comma
 
 ```bash
 npm run wasm:build          # compile electron/native/wasm-engine/*.c to browser-target WASM (emcc, falls back to Docker if missing)
+npm run wasm:preview        # Commands that automatically execute electronic after the change for the changed algorithm only
 npm run build:desktop       # static build → out/ (see the build section above)
 npm run build:electron      # {:linux, :mac, :windows} static build + Electron packaging → out/ + dist-electron/ (see the build section above)
 npm run electron:preview    # electron . — runs electron/main.js against the current out/, no packaging. Quick way to check the app environment (mainly for use during development).
