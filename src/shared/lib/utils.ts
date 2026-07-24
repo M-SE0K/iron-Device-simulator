@@ -12,7 +12,7 @@ export function formatTime(seconds: number): string {
   return `${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
 }
 
-/** 현재 재생 시간으로 가장 가까운 프레임 인덱스 탐색 (Binary Search) */
+/** 현재 재생 시간 이하인 마지막 프레임 인덱스 탐색 (Binary Search) */
 export function findFrameIndex(times: number[], currentTime: number): number {
   let lo = 0;
   let hi = times.length - 1;

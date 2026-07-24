@@ -43,17 +43,6 @@ class ClientWasmMemoryLayout implements MemoryLayout {
       iArg = this.iSensingPtr;
     }
 
-    this.debugFrame++;
-    if (this.debugFrame % 10 === 0) {
-      console.log(
-        `[sensing-debug] wasm-client frame=${this.debugFrame} sensing=${!!sensing} ` +
-        `vArg=${vArg} iArg=${iArg} ` +
-        `in.v[0]=${sensing?.v[0]} in.i[0]=${sensing?.i[0]} ` +
-        `heapEcho.v[0]=${vArg ? this.mod.HEAP16[vArg >> 1] : "n/a"} ` +
-        `heapEcho.i[0]=${iArg ? this.mod.HEAP16[iArg >> 1] : "n/a"}`,
-      );
-    }
-
     const ret = this.mod._ff_prot_start_exec(
       bufPtr,
       this.config.samplesPerCh,

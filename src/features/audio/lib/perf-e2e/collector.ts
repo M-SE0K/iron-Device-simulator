@@ -1,5 +1,5 @@
-// perf-e2e/collector.ts — N1~N12 E2E 지연 실험 수집기. 기본 비활성(zero-cost): 각 기록 메서드는
-// `active`가 아니면 즉시 반환하므로, 실험을 켜지 않은 일반 사용에는 성능 영향이 없다.
+// perf-e2e/collector.ts — N1~N12 E2E 지연 실험 수집기. 기본 비활성(최소 오버헤드): 각 기록 메서드는
+// `active`가 아니면 즉시 반환하므로, 실험을 켜지 않은 일반 사용에는 성능 영향이 사실상 없다.
 // 활성화: 브라우저 콘솔에서 window.__ironE2E.enable() 또는 URL에 ?e2e=1 (sessionStorage에 저장돼
 // 새로고침 후에도 유지됨). docs/e2e-latency-experiment.md 참고.
 import { round3 } from "@/shared/lib/utils";
@@ -94,7 +94,7 @@ class E2ELatencyCollector {
     this.samples[node].push(tag ? { ms: round3(ms), tag } : { ms: round3(ms) });
   }
 
-  // 동기 함수를 감싸 실행 시간을 node에 기록한다. 비활성 시 fn()만 그대로 실행(오버헤드 없음).
+  // 동기 함수를 감싸 실행 시간을 node에 기록한다. 비활성 시 계측 없이 fn()만 그대로 실행.
   time<T>(node: E2ENodeId, fn: () => T, tag?: string): T {
     if (!this.active) return fn();
     const t0 = performance.now();

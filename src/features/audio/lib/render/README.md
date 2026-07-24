@@ -8,7 +8,7 @@
 
 이 프로젝트는 "입력 PCM 프레임은 절대 버리지 않는다"는 제약(온도 모델이 상태 누적형) 아래에서 모든 최적화를 클라이언트 출력 큐와 렌더 경로에서만 한다. 그 렌더 경로의 계산 파트가 바로 이 도메인이다.
 
-- `DashboardClient.tsx`의 출력 큐 스케줄러(`RENDER_INTERVAL` 16 ms)가 큐에 쌓인 프레임 bucket을 `detectEvents()` → `coalesceFrames()` 순으로 통과시켜 차트 버퍼(`streamingFrames`)에 넣는다.
+- `DashboardClient.tsx`의 출력 큐 스케줄러(`RENDER_INTERVAL` 100 ms)가 큐에 쌓인 프레임 bucket을 `detectEvents()` → `coalesceFrames()` 순으로 통과시켜 차트 버퍼(`streamingFrames`)에 넣는다.
 - `TemperatureChart.tsx`/`ExcursionChart.tsx`는 그 버퍼를 받아 `chart-window.ts`로 표시 윈도우와 Y축 범위를 계산하고 `chart-option.ts`로 공통 ECharts 옵션 조각을 조립한다.
 - `DEFAULT_TEMP_WARN`(65 °C)/`DEFAULT_TEMP_DANGER`(75 °C)는 이벤트 감지(`detectEvents`), `TemperatureChart`의 markLine, `CalibrationContext`의 기본값이 모두 공유하는 단일 진실원이다.
 - X축은 파일/마이크 공통으로 0초를 왼쪽 끝에 고정하고 오른쪽으로만 늘어난다(`computeStreamWindow`가 표시 윈도우를 최근 N개로 자르지 않고 전체 누적 프레임을 그대로 반환) — 전체 이력을 버리지 않고 유지하는 `DashboardClient`의 버퍼 정책과 짝을 이룬다.
@@ -43,7 +43,7 @@
 
 ```
 엔진 frame 수신 → outputQueue(QueuedFrame[]) 적재
-  → 16ms 스케줄러가 bucket 추출
+  → RENDER_INTERVAL(100ms) 스케줄러가 bucket 추출
   → detectEvents(bucket, prevTemp, thresholds)   # isEvent/eventType 마킹 (제자리 교체)
   → coalesceFrames(bucket)                       # 요약 프레임 1개 + envelope
   → setStreamingFrames → Temperature/ExcursionChart

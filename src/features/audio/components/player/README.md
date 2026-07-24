@@ -16,7 +16,7 @@
 - 마이크 모드: `MicrophonePlayer`가 재생 없이 같은 캡처 세션을 열고 캡처 청크를 같은 `onFrameReceived` 콜백으로 흘려보낸다.
 - V/I 센싱: 네이티브 캡처 경로는 채널 의미를 ch0 = V(전압 센스), ch1 = I(전류 센스)로 확정해 이 두 채널만 엔진에 보내고 Calibration에서 확장한 나머지 채널(ch2..chN-1)은 세션 버퍼에 보존했다가 "저장" 시 전 채널 WAV로 내보낸다.
 
-외부에서 이 도메인을 import하는 파일은 `components/dashboard/DashboardClient.tsx`(두 플레이어 + `WaveformPlayerHandle`/`MicRecordingExport`)와 `components/dashboard/hooks/useRenderTelemetry.ts`(`WaveformPlayerHandle` 타입만) 두 곳이다.
+외부에서 이 도메인을 import하는 파일은 `components/dashboard/DashboardClient.tsx`(두 플레이어 + `WaveformPlayerHandle`/`MicRecordingExport`) 한 곳이다.
 
 ## 3. 파일별 역할
 
@@ -39,11 +39,11 @@
 - `lib/engine/utils.ts` — `encodeToInt16()` (Float32 플래너 → Int16 인터리브, 웹 캡처 경로용).
 - `lib/codec/wav-encoder.ts` — `pcmFramesToWavBlob()` (저장/내보내기용 WAV 인코딩).
 - `components/calibration/CalibrationContext.tsx` — `useCalibration()`으로 `sampleRate`/`bufferSize`/`channels`/`captureDeviceUID`/`inputDeviceId`/`inputDeviceLabel`/`outputDeviceId`를 읽는다 (읽기 전용).
-- `features/audio/types.ts` — `AnalysisFrame`/`AppStatus`/`InputParameterValues`, `lib/debug/types.ts` — `StreamDebugInfo`/`DebugLogEntry`.
+- `features/audio/types.ts` — `AnalysisFrame`/`AppStatus`/`InputParameterValues`.
 - `shared/lib/utils.ts`(`cn`/`formatTime`), `wavesurfer.js`(동적 import), `lucide-react`, `public/mic-processor.js`(워클릿 모듈 URL 로드).
 - Electron 브리지 `window.audioCapture`(`shared/types/electron-bridge.d.ts`) — 네이티브 캡처 시작/정지 + `onData`/`onEnded` 이벤트.
 
-이 도메인을 import하는 외부(방향: 대상 → player): `dashboard/DashboardClient.tsx`(컴포넌트 + 핸들), `dashboard/hooks/useRenderTelemetry.ts`(타입만).
+이 도메인을 import하는 외부(방향: 대상 → player): `dashboard/DashboardClient.tsx`(컴포넌트 + 핸들).
 
 내부 처리 흐름 — 파일 경로:
 

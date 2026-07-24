@@ -45,6 +45,10 @@ if [[ "${FF_PROT_DEBUG_VI:-}" == "1" ]]; then
   EMCC_DEFINES+=("-DFF_PROT_DEBUG_VI=1")
   echo "→ 실험(debug) 빌드: FF_PROT_DEBUG_VI=1 (V/I 값 printf 덤프 포함, 출력: $WASM_OUT_DIR)"
 fi
+if [[ "${FF_PROT_DUMMY_ATTENUATION:-}" == "1" ]]; then
+  EMCC_DEFINES+=("-DFF_PROT_DUMMY_ATTENUATION=1")
+  echo "→ 더미 감쇠 빌드: FF_PROT_DUMMY_ATTENUATION=1 (pass B 감쇠 항상 미개입, 출력: $WASM_OUT_DIR)"
+fi
 
 # ── 컴파일 대상 소스 결정 ────────────────────────────────────────────────────
 # 우선순위: ① FF_PROT_SRCS 명시 → ② custom/*.c (사용자 드롭인) → ③ 폴더 내 *.c (스텁).

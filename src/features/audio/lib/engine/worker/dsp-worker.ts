@@ -80,7 +80,8 @@ ctx.onmessage = (e: MessageEvent) => {
   }
   if (data && typeof data === "object" && Array.isArray((data as { frames?: unknown }).frames)) {
     // sentAt은 E2E 지연 실험(N3/N7, src/features/audio/lib/perf-e2e/)이 켜졌을 때만 실려온다 —
-    // 없으면 그대로 무시(오버헤드 없음). 워커는 자체 e2e 컬렉터 인스턴스를 갖지 않는다(별도 JS
+    // 없으면 응답에 타임스탬프 필드를 붙이지 않을 뿐, workerRecvAt 기록 자체는 항상 실행된다.
+    // 워커는 자체 e2e 컬렉터 인스턴스를 갖지 않는다(별도 JS
     // 렐름이라 메인 스레드의 window.__ironE2E와 상태가 공유되지 않으므로) — 타임스탬프만 echo하고
     // 실제 기록은 이 메시지를 받는 worker-socket.ts(메인 스레드)가 한다.
     // 반드시 Date.now()(벽시계) — Worker의 performance.now()는 "이 Worker가 생성된 시점" 기준이라

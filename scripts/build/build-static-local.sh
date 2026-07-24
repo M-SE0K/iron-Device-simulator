@@ -16,6 +16,16 @@
 # public/wasm-debug/ 에 만들고 NEXT_PUBLIC_WASM_DIR로 그쪽을 가리키게 한다 — 클린 빌드
 # (public/wasm/, 기본값이자 프로덕션·측정 공용)와는 물리적으로 분리된 산출물이라 서로 덮어쓰지
 # 않는다. 측정(E2E 지연) 시에는 항상 기본값(WASM_MODE 미설정)을 쓰고 실행 시 ?e2e=1 로 켠다.
+# WASM_MODE=dummy 면 FF_PROT_DUMMY_ATTENUATION 빌드(pass B 감쇠가 절대 개입하지 않음 — buf가
+# 패스스루)를 public/wasm-dummy/ 에 만든다. "Protection Algorithm" 패널의 Protected 트레이스가
+# Input과 완전히 겹치는지 확인하거나, 감쇠가 전혀 없을 때의 temp/exc 추정치를 보고 싶을 때 쓴다.
+#
+# SKIP_WASM_BUILD=1 이면 emcc 컴파일 자체를 건너뛰고, 해당 WASM_MODE 디렉터리(기본 public/wasm/,
+# debug면 public/wasm-debug/, dummy면 public/wasm-dummy/)에 이미 놓아둔 ff_prot.{js,wasm}를
+# 그대로 쓴다 — 리포의 .c 소스가 아니라 직접 빌드/수정한 커스텀 WASM 산출물을 패키징에 쓸 때
+# (예: custom/ 드롭인 대신 이미 컴파일된 바이너리를 갖고 있는 경우) 미리 그 파일들을 대상
+# 디렉터리에 복사해두고 이 플래그로 실행한다. build-electron.sh의 SKIP_WIN_HELPER_BUILD와
+# 같은 패턴.
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 
@@ -27,15 +37,23 @@ sed -i.tmp 's/^export const dynamic = .*/export const dynamic = "force-static";/
 rm -f "$PAGE.tmp"
 
 WASM_MODE="${WASM_MODE:-normal}"
-if [[ "$WASM_MODE" == "debug" ]]; then
-  echo "▶ 브라우저 타깃 WASM 빌드... (실험/debug — V/I 값 printf 덤프 포함, public/wasm-debug/)"
-  npm run wasm:build:debug
-  export NEXT_PUBLIC_WASM_DIR="/wasm-debug"
+case "$WASM_MODE" in
+  debug) WASM_OUT_DIR="public/wasm-debug"; WASM_BUILD_CMD="wasm:build:debug" ;;
+  dummy) WASM_OUT_DIR="public/wasm-dummy"; WASM_BUILD_CMD="wasm:build:dummy" ;;
+  *)     WASM_OUT_DIR="public/wasm";       WASM_BUILD_CMD="wasm:build" ;;
+esac
+
+if [[ "${SKIP_WASM_BUILD:-}" == "1" ]]; then
+  echo "▶ WASM 컴파일 건너뜀 (SKIP_WASM_BUILD=1) — $WASM_OUT_DIR/의 기존 ff_prot.{js,wasm}를 그대로 씁니다"
+  if [[ ! -f "$WASM_OUT_DIR/ff_prot.js" || ! -f "$WASM_OUT_DIR/ff_prot.wasm" ]]; then
+    echo "✗ $WASM_OUT_DIR/ff_prot.js 또는 ff_prot.wasm 이 없습니다 — 커스텀 산출물을 먼저 그 경로에 놓아두세요." >&2
+    exit 1
+  fi
 else
-  echo "▶ 브라우저 타깃 WASM 빌드... (클린, public/wasm/)"
-  npm run wasm:build
-  export NEXT_PUBLIC_WASM_DIR="/wasm"
+  echo "▶ 브라우저 타깃 WASM 빌드... ($WASM_MODE, $WASM_OUT_DIR/)"
+  npm run "$WASM_BUILD_CMD"
 fi
+export NEXT_PUBLIC_WASM_DIR="/${WASM_OUT_DIR#public/}"
 
 echo "▶ Next.js 정적 export 빌드 (out/)..."
 MOBILE_BUILD=1 npx next build

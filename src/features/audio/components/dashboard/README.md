@@ -18,7 +18,7 @@
 
 | 파일 | 역할 |
 |------|------|
-| `DashboardClient.tsx` | 최상위 클라이언트 컴포넌트(기본 export `DashboardPage`). 실시간 상태(`realtimeStatus`)와 단일 프레임 버퍼(`streamingFrames`), 모든 측정용 refs를 소유한다. `handleFrameReceived`로 프레임을 받아 `useQueue`에 따라 `outputQueueRef`에 push하거나 즉시 state append한다. 16ms(`RENDER_INTERVAL`) `setInterval` 스케줄러가 큐를 drain해 `detectEvents()`+`coalesceFrames()`를 거친 프레임만 렌더하고, 스케줄러 해제 시 남은 큐를 한 번 더 drain해 비운다. 버퍼는 최근 `RENDER_WINDOW`(기본 3000, URL `?win=`으로 재정의) 프레임만 유지한다. Workspace 저장은 파일 모드 `handleSaveToWorkspace`와 마이크 모드 `handleSaveMicRecording` 두 갈래다. 저장 직전 `computeMeasurementSummary()`로 버퍼에서 Peak 온도/진폭과 WARN/DANGER 상태를 한 번 계산해 함께 싣는다. `ChartDetailOverlay`에는 활성 플레이어 핸들(파일=`realtimeWaveRef`/마이크=`micWaveRef`)에서 뽑은 `getChannelsBlob`(전 채널 WAV 스냅샷)·`subscribeChannelStream`(캡처 청크 실시간 구독)을 넘겨 채널 뷰를 잇는다. 데스크톱(lg 이상)에서는 Ctrl/Cmd+B(또는 헤더 버튼)로 Sidebar를 접는 `sidebarCollapsed`도 소유한다. 우측 드로어 3종(`WorkspaceDrawer`/`RecordsDrawer`/`CalibrationDrawer`)과 플로팅 플레이어 독도 여기서 렌더한다. |
+| `DashboardClient.tsx` | 최상위 클라이언트 컴포넌트(기본 export `DashboardPage`). 실시간 상태(`realtimeStatus`)와 단일 프레임 버퍼(`streamingFrames`), 모든 측정용 refs를 소유한다. `handleFrameReceived`로 프레임을 받아 `useQueue`에 따라 `outputQueueRef`에 push하거나 즉시 state append한다. `RENDER_INTERVAL`(100ms) `setInterval` 스케줄러가 큐를 drain해 `detectEvents()`+`coalesceFrames()`를 거친 프레임만 렌더하고, 스케줄러 해제 시 남은 큐를 한 번 더 drain해 비운다. 버퍼(`streamingFrames`)는 윈도우·slice 상한 없이 세션 동안 계속 누적된다. Workspace 저장은 파일 모드 `handleSaveToWorkspace`와 마이크 모드 `handleSaveMicRecording` 두 갈래다. 저장 직전 `computeMeasurementSummary()`로 버퍼에서 Peak 온도/진폭과 WARN/DANGER 상태를 한 번 계산해 함께 싣는다. `ChartDetailOverlay`에는 활성 플레이어 핸들(파일=`realtimeWaveRef`/마이크=`micWaveRef`)에서 뽑은 `getChannelsBlob`(전 채널 WAV 스냅샷)·`subscribeChannelStream`(캡처 청크 실시간 구독)을 넘겨 채널 뷰를 잇는다. 데스크톱(lg 이상)에서는 Ctrl/Cmd+B(또는 헤더 버튼)로 Sidebar를 접는 `sidebarCollapsed`도 소유한다. 우측 드로어 3종(`WorkspaceDrawer`/`RecordsDrawer`/`CalibrationDrawer`)과 플로팅 플레이어 독도 여기서 렌더한다. |
 | `ActiveDrawerContext.tsx` | 우측 드로어 배타 전환 컨텍스트(앱 전역 단일 소스). `active: DrawerKey \| null`과 `openDrawer`/`closeDrawer`를 노출한다. `DrawerKey`는 `"workspace" \| "records" \| "calibration"`. Provider 밖에서 `useActiveDrawer()`를 호출하면 예외를 던진다. |
 | `SelectedFilePanel.tsx` | "파일 없음" 안내 전용 컴포넌트. 클릭하면 좌측 Workspace 드로어를 여는 진입점 버튼 하나만 렌더한다(prop 없음). 파일 선택 자체는 Workspace 드로어의 "폴더" 섹션이 맡고, 선택 뒤의 미리보기/저장 버튼은 플로팅 플레이어 독(`WaveformPlayer`)으로 옮겼다. |
 | `hooks/useFrameCachePersistence.ts` | sessionStorage 프레임 캐시(`lib/cache/frame.ts`) 저장/복원 + IndexedDB 오디오 blob(`lib/cache/audio-blob.ts`) 복원. 마운트 시 캐시를 복원하고 재생 정지(`paused`/`ready`)와 `pagehide`/`visibilitychange`(hidden) 시점에 `persistCache()`를 호출한다. F5 새로고침·탭 전환 후에도 파형/차트가 유지되는 이유가 이 훅이다. 저장/복원 대상은 실시간 버퍼(`streamingFrames`) 하나다. |
@@ -41,7 +41,7 @@
 - `components/calibration/` — `CalibrationDrawer`를 직접 렌더하고, `useCalibration()`으로 `ampOutputPower`/`speakerModel`/`ambientTemp`(엔진 파라미터)와 `tempWarn`/`tempDanger`(임계값, 파싱 실패 시 65/75°C fallback)를 읽는다.
 - `lib/render/` — `coalesceFrames`(버킷 병합), `detectEvents`+`DEFAULT_TEMP_WARN`(65)/`DEFAULT_TEMP_DANGER`(75)(임계값 이벤트 감지), `QueuedFrame` 타입.
 - `lib/cache/` — `frame.ts`(sessionStorage), `audio-blob.ts`(IndexedDB `putAudio`/`clearAudio`/`getCachedAudio`), `workspace.ts`(`SessionStatus` 타입).
-- `types.ts` / `lib/debug/types.ts` — `AnalysisFrame`, `AppStatus`, `InputParameterValues`, `StreamDebugInfo`, `DebugLogEntry`, `MeasurementExport`.
+- `types.ts` — `AnalysisFrame`, `AppStatus`, `InputParameterValues`.
 - `shared/` — `Sidebar`, `SegmentedControl`, `formatTime()`.
 
 실시간 렌더 경로(useQueue=true 기준):
@@ -50,8 +50,8 @@
 WaveformPlayer/MicrophonePlayer
   → onFrameReceived(frame)
   → outputQueueRef.push({frame, recvAt})
-  → [16ms 스케줄러] detectEvents(bucket) + coalesceFrames(bucket)
-  → setStreamingFrames (최근 RENDER_WINDOW=3000 프레임 유지, ~62Hz 코얼레싱 기준 약 48초)
+  → [RENDER_INTERVAL=100ms 스케줄러] detectEvents(bucket) + coalesceFrames(bucket)
+  → setStreamingFrames (윈도우 없이 세션 동안 누적)
   → streamingFrames → TemperatureChart / ExcursionChart / ChartDetailOverlay
 ```
 
@@ -63,14 +63,12 @@ Workspace 저장 시 파일 모드는 원본 업로드 파일이 아니라 활�
 
 ## 5. 주요 인터페이스 / 진입점
 
-- `DashboardPage` (기본 export, `DashboardClient.tsx`) → `({ useQueue }: { useQueue: boolean }) => JSX` → 대시보드 전체를 렌더하는 유일한 페이지 컴포넌트. `useQueue`가 렌더 경로(큐+16ms 스케줄러 vs. FIFO)를 결정하며, 정적 export에서는 빌드 시점 값으로 고정된다.
+- `DashboardPage` (기본 export, `DashboardClient.tsx`) → `({ useQueue }: { useQueue: boolean }) => JSX` → 대시보드 전체를 렌더하는 유일한 페이지 컴포넌트. `useQueue`가 렌더 경로(큐+100ms 스케줄러 vs. FIFO)를 결정하며, 정적 export에서는 빌드 시점 값으로 고정된다.
 - `ActiveDrawerProvider` (`ActiveDrawerContext.tsx`) → `({ children }) => JSX` → 우측 드로어 배타 전환 상태를 트리에 제공. `layout.tsx`가 최상단에서 감싼다.
 - `useActiveDrawer` (`ActiveDrawerContext.tsx`) → `() => { active: DrawerKey \| null; openDrawer: (key: DrawerKey) => void; closeDrawer: () => void }` → 현재 열린 드로어를 읽고 열고 닫는다. Provider 밖에서 호출하면 예외를 던진다.
 - `DrawerKey` (`ActiveDrawerContext.tsx`) → `"workspace" \| "records" \| "calibration"` → 배타 전환 대상 드로어 키.
 - `SelectedFilePanel` (기본 export) → `() => JSX` → "파일 없음" 안내 패널. prop 없이 `useWorkspace()`로 드로어를 여는 진입점만 렌더한다.
-- `useFrameCachePersistence` (`hooks/`) → `(deps: FrameCachePersistenceDeps) => { persistCache: () => void }` → 캐시 저장/복원. refs와 setter를 전부 부모에게서 주입받는다. 캐시는 표시용 필드만 담으므로 분석 ground-truth로 쓰면 안 된다.
-- `useMeasurementCapture` (`hooks/`) → `(deps: MeasurementCaptureDeps) => { handleMeasureToggle: () => void }` → 측정 시작/종료 토글. 종료 시 `iron-device-measurement-<timestamp>.json` 다운로드.
-- `useRenderTelemetry` (`hooks/`) → `(deps: RenderTelemetryDeps) => { handleDebugUpdate, handleReactRender, handleEchartsRender, handleDebugLog }` → 플레이어/차트 콜백에 꽂는 텔레메트리 핸들러 4종. 시각 단위는 전부 `performance.now()` 기준 ms.
+- `useFrameCachePersistence` (`hooks/`) → `(deps: FrameCachePersistenceDeps) => { persistCache: () => void }` → 캐시 저장/복원. refs와 setter를 전부 부모에게서 주입받는다. 캐시는 표시용 필드만 담으므로 분석 ground-truth로 쓰면 안 된다. (`hooks/`에는 현재 이 훅 하나만 있다.)
 
 ## 6. 변경 이력(요약)
 - 2026-07-09: 최초 작성 (기준 커밋: 1fbbf44, 커밋되지 않은 워크트리 변경 반영)

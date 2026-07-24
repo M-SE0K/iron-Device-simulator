@@ -6,7 +6,7 @@ interface AudioDeviceActual {
   bufferSize: number | null;
 }
 
-// audio-device:list 항목 — 연결된 입력 장치 하나 (CoreAudio 열거). uid는 재연결에도 안정적.
+// audio-device:list 항목 — 연결된 입력 장치 하나 (CoreAudio/ASIO 열거). uid는 재연결에도 안정적.
 export interface AudioInputDevice {
   uid: string;
   name: string;
@@ -155,8 +155,8 @@ declare global {
       finalizeWrite: (opts: PlayCaptureWriteIdOpts) => Promise<PlayCaptureWriteAckResult>;
       // 업로드 도중 실패/취소 시 임시 파일 정리
       cancelWrite: (opts: PlayCaptureWriteIdOpts) => Promise<PlayCaptureWriteAckResult>;
-      // refWriteId(finalizeWrite로 완성해둔 ref 파일)를 출력 ch0으로 연속 재생하며 캡처를
-      // onData로 스트리밍 (단일 IOProc, 단일 클록)
+      // refWriteId(finalizeWrite로 완성해둔 ref 파일)를 출력 채널(기본 ch0, opts.outputChannel로
+      // 지정 가능)로 연속 재생하며 캡처를 onData로 스트리밍 (단일 IOProc, 단일 클록)
       start: (opts: PlayCaptureStartOpts) => Promise<PlayCaptureStartResult>;
       // 재생 위치 동결/재개 — 캡처 스트림은 계속 흐른다 (게이트는 렌더러 몫)
       control: (action: "pause" | "resume") => Promise<{ success: boolean; error?: string }>;

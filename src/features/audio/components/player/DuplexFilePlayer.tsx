@@ -67,6 +67,7 @@ const DuplexFilePlayer = forwardRef<WaveformPlayerHandle, Props>(function Duplex
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration]       = useState(0);
   const [isReady, setIsReady]         = useState(false);
+  const [isConnecting, setIsConnecting] = useState(false);
   const [decodeError, setDecodeError] = useState<string | null>(null);
   const decodedRef = useRef<DecodedPlayback | null>(null);
   const captureStartedRef = useRef(false);
@@ -84,6 +85,7 @@ const DuplexFilePlayer = forwardRef<WaveformPlayerHandle, Props>(function Duplex
     capturedFramesRef.current = 0;
     decodedRef.current = null;
     setIsReady(false);
+    setIsConnecting(false);
     setDecodeError(null);
     setCurrentTime(0);
     setDuration(0);
@@ -114,7 +116,15 @@ const DuplexFilePlayer = forwardRef<WaveformPlayerHandle, Props>(function Duplex
 
   useEffect(() => {
     if (status === "error") captureStartedRef.current = false;
+    if (status === "playing" || status === "error") setIsConnecting(false);
   }, [status]);
+
+  useEffect(() => {
+    if (captureSession.micError) {
+      captureStartedRef.current = false;
+      setIsConnecting(false);
+    }
+  }, [captureSession.micError]);
 
   useEffect(() => {
     const off = captureSession.subscribeCaptureStream((ev) => {
@@ -138,6 +148,7 @@ const DuplexFilePlayer = forwardRef<WaveformPlayerHandle, Props>(function Duplex
   const handlePlaybackEnded = useCallback(() => {
     captureSession.cleanup();
     captureStartedRef.current = false;
+    setIsConnecting(false);
     setCurrentTime(decodedRef.current?.duration ?? 0);
     onStatusChange("paused");
   }, [captureSession.cleanup, onStatusChange]);
@@ -163,12 +174,14 @@ const DuplexFilePlayer = forwardRef<WaveformPlayerHandle, Props>(function Duplex
     let decoded = decodedRef.current;
     if (!decoded) return;
     const reqRate = Number(calibration.sampleRate) || SAMPLE_RATE;
+    setIsConnecting(true);
     if (decoded.rate !== reqRate && audioFile) {
       try {
         decoded = await decodeFileToMono(audioFile, reqRate);
         decodedRef.current = decoded;
         setDuration(decoded.duration);
       } catch {
+        setIsConnecting(false);
         setDecodeError("Unable to decode audio file.");
         onStatusChange("error");
         return;
@@ -189,6 +202,7 @@ const DuplexFilePlayer = forwardRef<WaveformPlayerHandle, Props>(function Duplex
     captureSession.cleanup();
     captureStartedRef.current = false;
     capturedFramesRef.current = 0;
+    setIsConnecting(false);
     setCurrentTime(0);
     onStatusChange("ready");
   }, [captureSession.cleanup, onStatusChange]);
@@ -209,6 +223,7 @@ const DuplexFilePlayer = forwardRef<WaveformPlayerHandle, Props>(function Duplex
     <PlayerBar
       isReady={isReady}
       isPlaying={isPlaying}
+      isConnecting={isConnecting}
       currentTime={currentTime}
       duration={duration}
       fileName={audioFile?.name ?? null}
