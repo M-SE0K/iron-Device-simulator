@@ -5,9 +5,34 @@ import type { AppStatus } from "@/features/audio/types";
 import { perf } from "@/features/audio/lib/perf/collector";
 import { e2e } from "@/features/audio/lib/perf-e2e/collector";
 import type { SocketLike } from "@/features/audio/lib/engine/protocol/local-socket";
-import { clampCaptureChannels } from "@/features/audio/lib/engine/core";
+import { clampCaptureChannels, CHANNELS } from "@/features/audio/lib/engine/core";
+import { encodeToInt16 } from "@/features/audio/lib/engine/utils";
 import type { CaptureStreamEvent } from "./useCaptureSession";
 import { createNativeFrameReframer } from "./reframeNativeChunk";
+
+// buf(분석 엔진의 In/Out PCM)에 넣을 "음원 신호" 프레임을 만든다 — v_sensing/i_sensing이
+// 이미 실측 V/I를 따로 전달하므로 buf는 더 이상 V/I를 중복으로 들고 있지 않는다. 재생 중인
+// 파일이 있으면(Electron 파일 모드) 그 오디오를 캡처 프레임 위치에 맞춰 슬라이스해 쓰고,
+// 없으면(mic 모드) 무음을 채운다.
+function buildAudioBufFrame(
+  playbackPcm: Float32Array | null,
+  frameIndex: number,
+  samplesPerCh: number,
+): Int16Array {
+  if (!playbackPcm) return new Int16Array(samplesPerCh * CHANNELS);
+  const start = frameIndex * samplesPerCh;
+  const mono = new Float32Array(samplesPerCh);
+  const avail = Math.max(0, Math.min(samplesPerCh, playbackPcm.length - start));
+  if (avail > 0) mono.set(playbackPcm.subarray(start, start + avail));
+  return encodeToInt16(mono, mono); // mono를 ch0=ch1로 복제해 인터리브 2ch로 만든다
+}
+
+function concatFrames(a: Int16Array, b: Int16Array): ArrayBuffer {
+  const out = new Uint8Array(a.byteLength + b.byteLength);
+  out.set(new Uint8Array(a.buffer, a.byteOffset, a.byteLength), 0);
+  out.set(new Uint8Array(b.buffer, b.byteOffset, b.byteLength), a.byteLength);
+  return out.buffer;
+}
 
 export interface NativeCaptureParams {
   sampleRate: number;
@@ -149,13 +174,15 @@ export function useNativeCapture(deps: NativeCaptureDeps) {
     });
 
     let encStartAt = 0;
+    let emittedFrames = 0;
     const reframe = createNativeFrameReframer(
       captureChannels,
       wireSamplesPerCh,
       (frame) => {
         if (!analysisActiveRef.current) return;
         perf.markFrameSent(encStartAt > 0 ? performance.now() - encStartAt : null);
-        ws.send((frame.buffer as ArrayBuffer).slice(0));
+        const audioBuf = buildAudioBufFrame(playback?.pcm ?? null, emittedFrames++, wireSamplesPerCh);
+        ws.send(concatFrames(audioBuf, frame));
         ++frameCountRef.current;
       },
       (rawFrame) => {
