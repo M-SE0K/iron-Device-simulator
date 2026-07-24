@@ -40,7 +40,13 @@ function serveFile(res, filePath) {
       return;
     }
     const ext = path.extname(filePath);
-    res.writeHead(200, { "Content-Type": MIME_TYPES[ext] || "application/octet-stream" });
+    res.writeHead(200, {
+      "Content-Type": MIME_TYPES[ext] || "application/octet-stream",
+      // 검증 헤더(ETag/Last-Modified) 없이 서빙하므로, Electron의 영구 디스크 캐시(userData,
+      // 앱 재실행 사이에도 유지됨)가 wasm-preview.sh로 갱신한 ff_prot.{js,wasm}를 이전 실행분
+      // 그대로 재사용하지 않도록 명시적으로 캐시를 금지한다.
+      "Cache-Control": "no-store",
+    });
     res.end(data);
   });
 }
