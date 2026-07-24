@@ -26,7 +26,7 @@ function Sidebar({ mobileOpen = false, onMobileClose, collapsed = false }: Sideb
 
   return (
     <>
-      {/* 모바일 전용 백드롭 — lg 이상에서는 렌더되지 않음(사이드바가 항상 고정 표시) */}
+      {/* 모바일 전용 백드롭 — lg 이상에서는 렌더되지 않음 */}
       <div
         onClick={onMobileClose}
         aria-hidden

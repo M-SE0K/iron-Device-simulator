@@ -29,10 +29,11 @@ interface SideDrawerProps {
 }
 
 /**
- * 우측 슬라이드 드로어 공용 셸 — 백드롭 + 우측 패널(280ms 슬라이드) + 기본 헤더/본문/푸터.
- * WorkspaceDrawer / RecordsDrawer / CalibrationDrawer / ChannelSelectDrawer가 복붙하던
- * 동일 마크업을 통합한다. ESC 닫기는 각 드로어가 useEscapeKey로 직접 관리한다(오버레이 위
- * 드로어처럼 ESC 소유권이 부모에 있는 경우가 있어 셸이 강제하지 않는다).
+ * 우측 슬라이드 드로어 공용 셸 — 백드롭(300ms 페이드) + 우측 패널(240ms 슬라이드) + 기본
+ * 헤더/본문/푸터. WorkspaceDrawer / RecordsDrawer / CalibrationDrawer / ChannelSelectDrawer가
+ * 복붙하던 동일 마크업을 통합한다. ESC 닫기는 셸이 강제하지 않는다 — 일반 드로어
+ * (Workspace/Records/Calibration)는 각자 useEscapeKey로 직접 관리하고, 오버레이 위 드로어
+ * (ChannelSelectDrawer)는 부모 오버레이가 useOverlayTransition으로 ESC를 소유한다.
  */
 export default function SideDrawer({
   open,
