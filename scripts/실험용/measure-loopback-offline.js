@@ -154,7 +154,11 @@ function summarize(values) {
 // ---------- CLI ----------
 function parseArgs(argv) {
   const a = {
-    ref: null, capture: null,
+    // --ref를 안 주면 LOOPBACK_REF_WAV 환경변수를 기본값으로 쓴다 — 매번 같은 임펄스 원본
+    // 파일을 쓸 때 절대경로를 반복 입력하지 않기 위함(경로가 사람마다 다르므로 스크립트에
+    // 하드코딩하지 않고 셸 프로필(~/.zshrc 등)에서 한 번만 export해두는 방식).
+    ref: process.env.LOOPBACK_REF_WAV || null,
+    capture: null,
     refChannel: 0,
     channels: [0], // capture 채널들(기본 ch0=V만) — "--channel 0,1"로 V/I 둘 다
     threshold: 0.5,
@@ -183,7 +187,10 @@ function parseArgs(argv) {
     fail(
       "사용법: npm run loopback:measure -- --ref <원본임펄스.wav> --capture <VI캡처.wav>\n" +
       "  [--ref-channel 0] [--channel 0,1] [--threshold 0.5] [--template-ms 3]\n" +
-      "  [--min-gap-ms 20] [--search-from -20] [--search-to 300] [--snr-hit 4]"
+      "  [--min-gap-ms 20] [--search-from -20] [--search-to 300] [--snr-hit 4]\n\n" +
+      "--ref는 LOOPBACK_REF_WAV 환경변수로 고정할 수 있다(매번 같은 원본 음원을 쓸 때):\n" +
+      '  export LOOPBACK_REF_WAV="/path/to/impulse.wav"   # ~/.zshrc 등에 한 번만 추가\n' +
+      "  npm run loopback:measure -- --capture <VI캡처.wav>   # --ref 생략 가능"
     );
   }
   return a;
@@ -192,7 +199,11 @@ function parseArgs(argv) {
 const CHANNEL_LABEL = { 0: "V(ch0)", 1: "I(ch1)" };
 
 function main() {
-  const args = parseArgs(process.argv.slice(2));
+  const argv = process.argv.slice(2);
+  const args = parseArgs(argv);
+  if (!argv.includes("--ref")) {
+    console.log(`(--ref 생략 — LOOPBACK_REF_WAV 환경변수 값을 사용: ${args.ref})`);
+  }
   const ref = parseWav(path.resolve(process.cwd(), args.ref));
   const cap = parseWav(path.resolve(process.cwd(), args.capture));
 
