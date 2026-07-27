@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState, useCallback, forwardRef, useImperativeHandle } from "react";
 import { AppStatus, AnalysisFrame, InputParameterValues } from "@/features/audio/types";
 import { useCalibration } from "@/features/audio/components/calibration/CalibrationContext";
+import { useErrorPopup } from "@/shared/components/error-popup/ErrorPopupContext";
 import { SAMPLE_RATE } from "@/features/audio/lib/engine/core";
 import { useCaptureSession } from "./capture/useCaptureSession";
 import type { WaveformPlayerHandle } from "./WaveformPlayer";
@@ -63,12 +64,12 @@ const DuplexFilePlayer = forwardRef<WaveformPlayerHandle, Props>(function Duplex
   elevated = false,
 }: Props, ref) {
   const { values: calibration } = useCalibration();
+  const { showError } = useErrorPopup();
 
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration]       = useState(0);
   const [isReady, setIsReady]         = useState(false);
   const [isConnecting, setIsConnecting] = useState(false);
-  const [decodeError, setDecodeError] = useState<string | null>(null);
   const decodedRef = useRef<DecodedPlayback | null>(null);
   const captureStartedRef = useRef(false);
   const capturedFramesRef = useRef(0);
@@ -86,7 +87,6 @@ const DuplexFilePlayer = forwardRef<WaveformPlayerHandle, Props>(function Duplex
     decodedRef.current = null;
     setIsReady(false);
     setIsConnecting(false);
-    setDecodeError(null);
     setCurrentTime(0);
     setDuration(0);
 
@@ -105,7 +105,7 @@ const DuplexFilePlayer = forwardRef<WaveformPlayerHandle, Props>(function Duplex
         onDurationReady?.(decoded.duration);
       } catch {
         if (cancelled) return;
-        setDecodeError("Unable to decode audio file.");
+        showError("Unable to decode audio file.");
         onStatusChange("error");
       }
     })();
@@ -182,7 +182,7 @@ const DuplexFilePlayer = forwardRef<WaveformPlayerHandle, Props>(function Duplex
         setDuration(decoded.duration);
       } catch {
         setIsConnecting(false);
-        setDecodeError("Unable to decode audio file.");
+        showError("Unable to decode audio file.");
         onStatusChange("error");
         return;
       }
@@ -195,7 +195,7 @@ const DuplexFilePlayer = forwardRef<WaveformPlayerHandle, Props>(function Duplex
     });
   }, [
     isReady, status, audioFile, calibration.sampleRate, pausePlayback,
-    captureSession.resumeRecording, captureSession.start, handlePlaybackEnded, onStatusChange,
+    captureSession.resumeRecording, captureSession.start, handlePlaybackEnded, onStatusChange, showError,
   ]);
 
   const handleStop = useCallback(() => {
@@ -216,7 +216,6 @@ const DuplexFilePlayer = forwardRef<WaveformPlayerHandle, Props>(function Duplex
   }), [captureSession.sendMessage, pausePlayback, captureSession.getRecordedBlob, captureSession.getProtectedBlob, captureSession.subscribeCaptureStream]);
 
   const isPlaying = status === "playing";
-  const errorText = decodeError ?? captureSession.micError;
   const progressPct = duration > 0 ? Math.min(100, (currentTime / duration) * 100) : 0;
 
   return (
@@ -229,7 +228,6 @@ const DuplexFilePlayer = forwardRef<WaveformPlayerHandle, Props>(function Duplex
       fileName={audioFile?.name ?? null}
       onPlayPause={handlePlayPause}
       onStop={handleStop}
-      errorText={errorText}
       onSave={onSave}
       canSave={canSave}
       onReset={audioFile ? onReset : undefined}

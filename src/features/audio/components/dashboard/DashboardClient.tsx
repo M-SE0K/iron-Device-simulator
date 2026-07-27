@@ -57,7 +57,6 @@ export default function DashboardPage({ useQueue }: DashboardPageProps) {
   const [audioFile, setAudioFile]             = useState<File | null>(null);
   const [currentTime, setCurrentTime]         = useState(0);
   const [audioDuration, setAudioDuration]     = useState<number | null>(null);
-  const [errorMsg, setErrorMsg]               = useState<string | null>(null);
   const [streamingFrames, setStreamingFrames] = useState<AnalysisFrame[]>([]);
 
   const { values: calibration } = useCalibration();
@@ -180,7 +179,6 @@ export default function DashboardPage({ useQueue }: DashboardPageProps) {
     setStreamingFrames([]);
     setCurrentTime(0);
     setRealtimeStatus("idle");
-    setErrorMsg(null);
   }, []);
 
   const handleFileSelected = useCallback((file: File) => {
@@ -279,7 +277,6 @@ export default function DashboardPage({ useQueue }: DashboardPageProps) {
 
   const handleRealtimeStatus = useCallback((s: AppStatus) => {
     setRealtimeStatus(s);
-    if (s === "error") setErrorMsg("WebSocket connection failed. Please check whether the server is running.");
   }, []);
 
   const handleRealtimeTime = useCallback((t: number) => {
@@ -355,10 +352,6 @@ export default function DashboardPage({ useQueue }: DashboardPageProps) {
             </div>
 
             {inputMode === "file" && !audioFile && <SelectedFilePanel />}
-
-            {errorMsg && (
-              <p id="error-message" className="error-message text-xs text-red-500 px-1 shrink-0">Error: {errorMsg}</p>
-            )}
 
             <div id="dashboard-grid" className="flex flex-col gap-4 lg:flex-1 lg:min-h-[528px]">
               <div id="protected-compare-section" className="h-[280px] shrink-0">

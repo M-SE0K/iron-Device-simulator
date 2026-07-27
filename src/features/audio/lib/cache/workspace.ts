@@ -60,16 +60,12 @@ function openDb(): Promise<IDBDatabase> {
 
 export async function listWorkspaceItems(): Promise<WorkspaceItemMeta[]> {
   if (!hasIndexedDb()) return [];
-  try {
-    const db = await openDb();
-    const items = await requestToPromise<WorkspaceItemMeta[]>(
-      db.transaction(META_STORE, "readonly").objectStore(META_STORE).getAll(),
-    );
-    db.close();
-    return items.sort((a, b) => b.createdAt - a.createdAt);
-  } catch {
-    return [];
-  }
+  const db = await openDb();
+  const items = await requestToPromise<WorkspaceItemMeta[]>(
+    db.transaction(META_STORE, "readonly").objectStore(META_STORE).getAll(),
+  );
+  db.close();
+  return items.sort((a, b) => b.createdAt - a.createdAt);
 }
 
 export async function saveWorkspaceItem(input: SaveWorkspaceInput): Promise<WorkspaceItemMeta | null> {
@@ -98,60 +94,46 @@ export async function saveWorkspaceItem(input: SaveWorkspaceInput): Promise<Work
     protectedAudioBlob,
     protectedAudioType: protectedAudioBlob ? (input.protectedAudioType ?? "audio/wav") : null,
   };
-  try {
-    const db = await openDb();
-    await runTx(db, [META_STORE, PAYLOAD_STORE], "readwrite", (tx) => {
-      tx.objectStore(META_STORE).put(meta);
-      tx.objectStore(PAYLOAD_STORE).put(payload, meta.id);
-    });
-    db.close();
-    return meta;
-  } catch {
-    return null;
-  }
+  const db = await openDb();
+  await runTx(db, [META_STORE, PAYLOAD_STORE], "readwrite", (tx) => {
+    tx.objectStore(META_STORE).put(meta);
+    tx.objectStore(PAYLOAD_STORE).put(payload, meta.id);
+  });
+  db.close();
+  return meta;
 }
 
 export async function renameWorkspaceItem(id: string, name: string): Promise<void> {
   if (!hasIndexedDb()) return;
-  try {
-    const db = await openDb();
-    await runTx(db, META_STORE, "readwrite", (tx) => {
-      const store = tx.objectStore(META_STORE);
-      const req   = store.get(id);
-      req.onsuccess = () => {
-        const meta = req.result as WorkspaceItemMeta | undefined;
-        if (meta) store.put({ ...meta, name, updatedAt: Date.now() });
-      };
-    });
-    db.close();
-  } catch {
-  }
+  const db = await openDb();
+  await runTx(db, META_STORE, "readwrite", (tx) => {
+    const store = tx.objectStore(META_STORE);
+    const req   = store.get(id);
+    req.onsuccess = () => {
+      const meta = req.result as WorkspaceItemMeta | undefined;
+      if (meta) store.put({ ...meta, name, updatedAt: Date.now() });
+    };
+  });
+  db.close();
 }
 
 export async function deleteWorkspaceItem(id: string): Promise<void> {
   if (!hasIndexedDb()) return;
-  try {
-    const db = await openDb();
-    await runTx(db, [META_STORE, PAYLOAD_STORE], "readwrite", (tx) => {
-      tx.objectStore(META_STORE).delete(id);
-      tx.objectStore(PAYLOAD_STORE).delete(id);
-    });
-    db.close();
-  } catch {
-  }
+  const db = await openDb();
+  await runTx(db, [META_STORE, PAYLOAD_STORE], "readwrite", (tx) => {
+    tx.objectStore(META_STORE).delete(id);
+    tx.objectStore(PAYLOAD_STORE).delete(id);
+  });
+  db.close();
 }
 
 export async function getWorkspacePayload(id: string): Promise<WorkspacePayload | null> {
   if (!hasIndexedDb()) return null;
-  try {
-    const db = await openDb();
-    const payload = await requestToPromise<WorkspacePayload | undefined>(
-      db.transaction(PAYLOAD_STORE, "readonly").objectStore(PAYLOAD_STORE).get(id),
-    );
-    db.close();
-    return payload ?? null;
-  } catch {
-    return null;
-  }
+  const db = await openDb();
+  const payload = await requestToPromise<WorkspacePayload | undefined>(
+    db.transaction(PAYLOAD_STORE, "readonly").objectStore(PAYLOAD_STORE).get(id),
+  );
+  db.close();
+  return payload ?? null;
 }
 

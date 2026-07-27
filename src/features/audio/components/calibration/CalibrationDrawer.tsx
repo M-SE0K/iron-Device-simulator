@@ -109,7 +109,7 @@ function CalibrationDrawer({ projectName, onApply }: Props) {
     sampleRateOptions, bufferSizeOptions, channelOptions, outputChannelOptions, deviceOptionsLoading, adjustedNote, clearAdjustedNote,
   } = useDeviceOptionAutoCorrect({ deviceInfo, deviceInfoLoading, hasAudioDeviceBridge, draft, set });
   const {
-    deviceStatus, deviceActual, deviceError, appliedRuntime, apply, resetStatus,
+    deviceStatus, appliedRuntime, apply, resetStatus,
   } = useCalibrationApply({ draft, setValues, setOpen, hasAudioDeviceBridge, deviceInfo, refreshDeviceInfo, onApply });
 
   useEffect(() => {
@@ -304,13 +304,8 @@ function CalibrationDrawer({ projectName, onApply }: Props) {
             {hasAudioDeviceBridge && (
               <div className="text-xs">
                 {deviceStatus === "applying" && <p className="text-iron-400">Applying to device…</p>}
-                {deviceStatus === "applied" && (
-                  <p className="text-emerald-600">
-                    Applied — requested {draft.sampleRate}Hz/{draft.bufferSize}({draft.channels}ch) → actual{" "}
-                    {deviceActual?.sampleRate ?? "?"}Hz/{deviceActual?.bufferSize ?? "?"}{deviceActual?.channels ? `(${deviceActual.channels}ch)` : ""}
-                  </p>
-                )}
-                {deviceStatus === "error" && <p className="text-red-500">Device apply failed: {deviceError}</p>}
+                {deviceStatus === "applied" && <p className="text-emerald-600">Applied.</p>}
+                {deviceStatus === "error" && <p className="text-red-500">Device apply failed.</p>}
               </div>
             )}
           </section>

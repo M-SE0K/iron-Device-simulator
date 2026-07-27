@@ -6,6 +6,7 @@ import { perf } from "@/features/audio/lib/perf/collector";
 import { e2e } from "@/features/audio/lib/perf-e2e/collector";
 import { createAnalysisSocket, type SocketLike } from "@/features/audio/lib/engine/protocol/local-socket";
 import { useCalibration } from "@/features/audio/components/calibration/CalibrationContext";
+import { useErrorPopup } from "@/shared/components/error-popup/ErrorPopupContext";
 import { pcmFramesToWavBlob } from "@/features/audio/lib/codec/wav-encoder";
 import { BYTES_PER_SAMPLE, CHANNELS, SAMPLE_RATE, SAMPLES_PER_CH } from "@/features/audio/lib/engine/core";
 import { decodeProcessedPcmMessage } from "@/features/audio/lib/engine/protocol/analysis";
@@ -41,8 +42,17 @@ export function useCaptureSession(deps: UseCaptureSessionDeps) {
     onSaveRecording, inputParams,
   } = deps;
   const { values: calibration } = useCalibration();
+  const { showError } = useErrorPopup();
 
-  const [micError, setMicError] = useState<string | null>(null);
+  const [micError, setMicErrorState] = useState<string | null>(null);
+  // 캡처/재생 세션 에러는 (파일/마이크 공용인) 이 훅 한 곳에서만 세팅되므로, 여기서 전역
+  // 팝업까지 같이 띄우면 useNativeCapture 등 하위 훅과 각 플레이어 컴포넌트가 개별적으로
+  // showError를 호출할 필요가 없다 — micError 상태는 PlayerBar 연결 해제 감지 같은 부수
+  // 로직에서 계속 참조하므로 그대로 유지한다.
+  const setMicError = useCallback((msg: string | null) => {
+    setMicErrorState(msg);
+    if (msg) showError(msg);
+  }, [showError]);
   const [sampleRate, setSampleRate] = useState<number | null>(null);
   const [actualLatency, setActualLatency] = useState<number | null>(null);
   const [deviceName, setDeviceName] = useState<string | null>(null);
@@ -194,7 +204,7 @@ export function useCaptureSession(deps: UseCaptureSessionDeps) {
     };
 
     return ws;
-  }, [inputParams, onStatusChange, onStreamStart, onFrameReceived, cleanup, emitStreamEvent]);
+  }, [inputParams, onStatusChange, onStreamStart, onFrameReceived, cleanup, emitStreamEvent, setMicError]);
 
   const { start: startNativeCapture } = useNativeCapture({
     nativeOffsRef, nativeActiveRef, playCaptureActiveRef, rawCaptureRef, recordingActiveRef, analysisActiveRef,
@@ -251,7 +261,7 @@ export function useCaptureSession(deps: UseCaptureSessionDeps) {
       }
       cleanup();
     }
-  }, [calibration, startNativeCapture, startWebCapture, cleanup]);
+  }, [calibration, startNativeCapture, startWebCapture, cleanup, setMicError]);
 
   const saveRecording = useCallback(async () => {
     const raw = rawCaptureRef.current;

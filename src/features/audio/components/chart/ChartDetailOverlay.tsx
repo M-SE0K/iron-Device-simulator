@@ -13,6 +13,7 @@ import { cn } from "@/shared/lib/utils";
 import { useOverlayTransition } from "@/shared/hooks/useOverlayTransition";
 import { useCtrlBToggle } from "@/shared/hooks/useCtrlBToggle";
 import FullscreenOverlay from "@/shared/components/overlay/FullscreenOverlay";
+import { useErrorPopup } from "@/shared/components/error-popup/ErrorPopupContext";
 import { BYTES_PER_SAMPLE, INT16_SCALE } from "@/features/audio/lib/engine/core";
 import { appendWindowed, decodeWavRange, peekWavHeader } from "@/features/audio/lib/codec/wav-incremental";
 import type { CaptureStreamEvent, CaptureStreamListener } from "@/features/audio/components/player/capture/useCaptureSession";
@@ -100,6 +101,7 @@ export default function ChartDetailOverlay({
 
   // 진입/이탈 애니메이션 + ESC 닫기 — FullscreenOverlay 공용 셸과 함께 사용한다.
   const { show, close } = useOverlayTransition(onClose);
+  const { showError } = useErrorPopup();
 
   // ── 표시 항목 드로어 — 메인 차트(metric) + 캡처 버퍼의 채널들을 같은 방식으로 체크/해제한다.
   // 기본값은 메인 차트만 선택된 상태(기존 동작과 동일하게 열자마자 차트가 보인다).
@@ -220,13 +222,16 @@ export default function ChartDetailOverlay({
           channels: h.channels, sampleRate: h.sampleRate, durationSec: h.durationSec,
         }));
       } catch {
-        if (!cancelled) setChannelError("Failed to read channel header.");
+        if (!cancelled) {
+          setChannelError("Failed to read channel header.");
+          showError("Failed to read channel header.");
+        }
       } finally {
         if (!cancelled) setHeaderLoading(false);
       }
     })();
     return () => { cancelled = true; };
-  }, [drawerOpen, getChannelsBlob]);
+  }, [drawerOpen, getChannelsBlob, showError]);
 
   // 채널을 새로 선택한 순간 — 청크 스트림에는 "지금부터"만 쌓이므로, 최근 LIVE_WINDOW_SEC초는
   // getChannelsBlob()에서 딱 한 번만 백필한다(세션 전체를 훑지 않고 그 구간만 디코딩).
@@ -439,7 +444,7 @@ export default function ChartDetailOverlay({
           />
         ) : (
           <div className="flex items-center justify-center h-full text-xs text-iron-400">
-            {channelError ?? "Loading channel waveform…"}
+            {channelError ? "Unable to load channel waveform." : "Loading channel waveform…"}
           </div>
         ),
         defaultHeight: 200,

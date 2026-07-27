@@ -7,6 +7,7 @@ import { e2e } from "@/features/audio/lib/perf-e2e/collector";
 import type { SocketLike } from "@/features/audio/lib/engine/protocol/local-socket";
 import { clampCaptureChannels, CHANNELS } from "@/features/audio/lib/engine/core";
 import { encodeToInt16 } from "@/features/audio/lib/engine/utils";
+import { humanizeIpcError } from "@/shared/lib/ipc-error";
 import type { CaptureStreamEvent } from "./useCaptureSession";
 import { createNativeFrameReframer } from "./reframeNativeChunk";
 
@@ -80,17 +81,17 @@ async function uploadPlaybackRef(
   const bytes = new Uint8Array(pcm.buffer, pcm.byteOffset, pcm.byteLength);
   const started = await bridge.startWrite({ totalBytes: bytes.byteLength });
   if (!started.success || !started.writeId) {
-    throw new Error(`Failed to start playback file transfer: ${started.error ?? "unknown"}`);
+    throw new Error(humanizeIpcError(started.error, "Failed to start the playback file transfer."));
   }
   const { writeId } = started;
   try {
     for (let offset = 0; offset < bytes.byteLength; offset += REF_UPLOAD_CHUNK_BYTES) {
       const chunk = bytes.subarray(offset, Math.min(offset + REF_UPLOAD_CHUNK_BYTES, bytes.byteLength));
       const res = await bridge.writeChunk({ writeId, chunk });
-      if (!res.success) throw new Error(`Failed to transfer playback file: ${res.error ?? "unknown"}`);
+      if (!res.success) throw new Error(humanizeIpcError(res.error, "Failed to transfer the playback file."));
     }
     const finalized = await bridge.finalizeWrite({ writeId });
-    if (!finalized.success) throw new Error(`Failed to finalize playback file transfer: ${finalized.error ?? "unknown"}`);
+    if (!finalized.success) throw new Error(humanizeIpcError(finalized.error, "Failed to finish the playback file transfer."));
   } catch (err) {
     bridge.cancelWrite({ writeId });
     throw err;
@@ -139,7 +140,7 @@ export function useNativeCapture(deps: NativeCaptureDeps) {
       res = await nativeCapture.start(baseOpts);
     }
     if (!res.success) {
-      throw new Error(`Failed to start native capture: ${res.error ?? "unknown"}`);
+      throw new Error(humanizeIpcError(res.error, "Failed to start native capture."));
     }
 
     const actualRate = res.actual?.sampleRate ?? params.sampleRate;

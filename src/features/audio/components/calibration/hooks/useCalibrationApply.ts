@@ -6,6 +6,8 @@ import {
 } from "@/features/audio/lib/cache/calibration";
 import type { CalibrationValues } from "@/features/audio/types";
 import { clampCaptureChannels } from "@/features/audio/lib/engine/core";
+import { useErrorPopup } from "@/shared/components/error-popup/ErrorPopupContext";
+import { humanizeIpcError } from "@/shared/lib/ipc-error";
 import type { DeviceInfo } from "./useNativeAudioDevice";
 
 export type DeviceApplyStatus = "idle" | "applying" | "applied" | "error";
@@ -22,6 +24,7 @@ export interface UseCalibrationApplyDeps {
 
 export function useCalibrationApply(deps: UseCalibrationApplyDeps) {
   const { draft, setValues, setOpen, hasAudioDeviceBridge, deviceInfo, refreshDeviceInfo, onApply } = deps;
+  const { showError, showSuccess } = useErrorPopup();
 
   const [deviceStatus, setDeviceStatus] = useState<DeviceApplyStatus>("idle");
   const [deviceActual, setDeviceActual] = useState<{ sampleRate: number | null; bufferSize: number | null; channels?: number } | null>(null);
@@ -74,17 +77,22 @@ export function useCalibrationApply(deps: UseCalibrationApplyDeps) {
       };
       saveDeviceActualCache(runtime);
       setAppliedRuntime(runtime);
-    } else {
-      setDeviceStatus("error");
-      setDeviceError(
-        result.error === "capture-already-running"
-          ? "Microphone is already in use — stop recording and try applying again."
-          : result.error ?? "Failed to apply settings"
+      showSuccess(
+        `Applied — requested ${draft.sampleRate}Hz/${draft.bufferSize}(${draft.channels}ch) → actual ` +
+        `${actualWithChannels?.sampleRate ?? "?"}Hz/${actualWithChannels?.bufferSize ?? "?"}` +
+        `${actualWithChannels?.channels ? `(${actualWithChannels.channels}ch)` : ""}`
       );
+    } else {
+      const message = result.error === "capture-already-running"
+        ? "Microphone is already in use — stop recording and try applying again."
+        : humanizeIpcError(result.error, "Failed to apply settings.");
+      setDeviceStatus("error");
+      setDeviceError(message);
+      showError(message);
     }
 
     await refreshDeviceInfo();
-  }, [draft, setValues, onApply, hasAudioDeviceBridge, deviceInfo, setOpen, refreshDeviceInfo]);
+  }, [draft, setValues, onApply, hasAudioDeviceBridge, deviceInfo, setOpen, refreshDeviceInfo, showError, showSuccess]);
 
   return { deviceStatus, deviceActual, deviceError, appliedRuntime, apply, resetStatus };
 }

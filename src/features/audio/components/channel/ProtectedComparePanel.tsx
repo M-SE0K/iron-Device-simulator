@@ -10,6 +10,7 @@ import {
 } from "@/features/audio/lib/render/chart-option";
 import { peekWavHeader, decodeWavRange } from "@/features/audio/lib/codec/wav-incremental";
 import type { CaptureStreamEvent, CaptureStreamListener } from "@/features/audio/components/player/capture/useCaptureSession";
+import { useErrorPopup } from "@/shared/components/error-popup/ErrorPopupContext";
 
 const BUCKETS = 1000;
 const FLUSH_INTERVAL_MS = 50;
@@ -89,6 +90,7 @@ function ProtectedComparePanelImpl({
   channel?: number;
   bare?: boolean;
 }) {
+  const { showError } = useErrorPopup();
   const [original, setOriginal] = useState<{ env: BucketEnvelope; durationSec: number } | null>(null);
   const [decodeError, setDecodeError] = useState<string | null>(null);
   const [decoding, setDecoding] = useState(false);
@@ -131,7 +133,11 @@ function ProtectedComparePanelImpl({
     (async () => {
       const Ctor = window.AudioContext ?? (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
       if (!Ctor) {
-        if (!cancelled) { setDecodeError("This browser doesn't support audio decoding."); setDecoding(false); }
+        if (!cancelled) {
+          setDecodeError("This browser doesn't support audio decoding.");
+          showError("This browser doesn't support audio decoding.");
+          setDecoding(false);
+        }
         return;
       }
       const ctx = new Ctor();
@@ -147,7 +153,10 @@ function ProtectedComparePanelImpl({
         }
         setOriginal({ env, durationSec: buf.duration });
       } catch {
-        if (!cancelled) setDecodeError("Failed to decode audio.");
+        if (!cancelled) {
+          setDecodeError("Failed to decode audio.");
+          showError("Failed to decode audio.");
+        }
       } finally {
         void ctx.close();
         if (!cancelled) setDecoding(false);
@@ -155,7 +164,7 @@ function ProtectedComparePanelImpl({
     })();
 
     return () => { cancelled = true; };
-  }, [sourceFile, channel]);
+  }, [sourceFile, channel, showError]);
 
   useEffect(() => {
     protectedEnvRef.current.clear();
@@ -350,7 +359,8 @@ function ProtectedComparePanelImpl({
   }, [original, originalSeries, version, showSymbols]);
 
   const placeholder = decodeError
-    ?? (decoding ? "Preparing original waveform…" : null)
+    ? "Unable to load original waveform."
+    : (decoding ? "Preparing original waveform…" : null)
     ?? (!sourceFile ? "Select an audio source to see the original waveform." : null);
 
   return (

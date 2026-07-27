@@ -35,7 +35,7 @@ const MicrophonePlayer = forwardRef<MicrophonePlayerHandle, Props>(function Micr
 }: Props, ref) {
   const {
     start, stop, cleanup, isRecording,
-    micError, sampleRate, deviceName, actualBufferSize, actualLatency,
+    sampleRate, deviceName, actualBufferSize, actualLatency,
     saveRecording, hasRecording, saving, recordingChannels,
     getRecordedBlob, getProtectedBlob, subscribeCaptureStream, frameCountRef, framesRcvdRef,
   } = useCaptureSession({
@@ -81,9 +81,7 @@ const MicrophonePlayer = forwardRef<MicrophonePlayerHandle, Props>(function Micr
           {isRecording ? "Recording" : "Mic Standby"}
         </span>
 
-        {micError ? (
-          <span className="hidden sm:inline text-xs text-red-500 truncate">{micError}</span>
-        ) : isRecording ? (
+        {isRecording ? (
           <span className="hidden sm:inline text-xs text-iron-400 font-mono truncate tabular-nums">
             Sent {frameCountRef.current}fr · Received {framesRcvdRef.current}fr
           </span>

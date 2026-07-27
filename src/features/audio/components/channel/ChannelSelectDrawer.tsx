@@ -99,7 +99,9 @@ export default function ChannelSelectDrawer({ open, onClose, entries, selected, 
             </div>
 
             {loading && <p className="text-xs text-iron-400 text-center py-8 animate-pulse">Loading channel info…</p>}
-            {!loading && error && <p className="text-xs text-red-500 text-center py-8">{error}</p>}
+            {!loading && error && (
+              <p className="text-xs text-red-500 text-center py-8">Unable to load channel data.</p>
+            )}
             {!loading && !error && channelEntries.length === 0 && (
               <div className="flex flex-col items-center justify-center gap-2 text-center px-6 py-8">
                 <AudioLines className="w-6 h-6 text-iron-200" />

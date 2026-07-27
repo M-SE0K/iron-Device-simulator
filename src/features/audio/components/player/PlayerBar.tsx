@@ -14,8 +14,6 @@ interface Props {
   fileName: string | null;
   onPlayPause: () => void;
   onStop: () => void;
-  /** 상태 영역에 표시할 에러 — 있으면 빨간 점/텍스트로 대체된다. */
-  errorText?: string | null;
   onSave?: () => void;
   canSave?: boolean;
   onReset?: () => void;
@@ -34,7 +32,6 @@ export default function PlayerBar({
   fileName,
   onPlayPause,
   onStop,
-  errorText = null,
   onSave,
   canSave = false,
   onReset,
@@ -92,27 +89,19 @@ export default function PlayerBar({
         {fileName ?? "—"}
       </span>
 
-      <span
-        className={cn(
-          "hidden sm:flex shrink-0 items-center gap-1.5 text-xs",
-          errorText ? "text-red-500 max-w-[160px]" : "text-iron-500"
-        )}
-        title={errorText ?? undefined}
-      >
+      <span className="hidden sm:flex shrink-0 items-center gap-1.5 text-xs text-iron-500">
         <span
           className={cn(
             "inline-block w-[7px] h-[7px] rounded-full",
-            errorText
-              ? "bg-red-500"
-              : isConnecting
-                ? "bg-amber-400 animate-pulse"
-                : isPlaying
-                  ? "bg-emerald-500 animate-pulse"
-                  : "bg-iron-300"
+            isConnecting
+              ? "bg-amber-400 animate-pulse"
+              : isPlaying
+                ? "bg-emerald-500 animate-pulse"
+                : "bg-iron-300"
           )}
         />
         <span className="truncate">
-          {errorText ?? (isConnecting ? "Connecting to device…" : isPlaying ? "Streaming" : "Paused")}
+          {isConnecting ? "Connecting to device…" : isPlaying ? "Streaming" : "Paused"}
         </span>
       </span>
 
