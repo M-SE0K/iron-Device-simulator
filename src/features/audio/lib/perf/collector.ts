@@ -1,25 +1,8 @@
 import type {
-  PerfExport, PerfFrameSample, PerfRenderSample, PerfSessionMeta, PerfStageStats,
+  PerfExport, PerfFrameSample, PerfRenderSample, PerfSessionMeta,
 } from "./types";
-import { round3 } from "@/shared/lib/utils";
-
-function stageStats(values: number[]): PerfStageStats {
-  if (values.length === 0) {
-    return { count: 0, avg: null, min: null, max: null, p50: null, p95: null, p99: null };
-  }
-  const sorted = [...values].sort((a, b) => a - b);
-  const pct = (p: number) => sorted[Math.max(0, Math.ceil(sorted.length * p / 100) - 1)];
-  const sum = sorted.reduce((a, b) => a + b, 0);
-  return {
-    count: sorted.length,
-    avg: round3(sum / sorted.length),
-    min: round3(sorted[0]),
-    max: round3(sorted[sorted.length - 1]),
-    p50: round3(pct(50)),
-    p95: round3(pct(95)),
-    p99: round3(pct(99)),
-  };
-}
+import { downloadBlob, round3 } from "@/shared/lib/utils";
+import { summarizeStats } from "./statistics";
 
 class PerfCollector {
   private active = false;
@@ -106,13 +89,13 @@ class PerfCollector {
     const renderOf = (chart: PerfRenderSample["chart"]) =>
       this.renders.filter((r) => r.chart === chart).map((r) => r.renderMs);
     return {
-      hwCapture: stageStats(pick((f) => f.hwCaptureMs)),
-      encoding: stageStats(pick((f) => f.encodingMs)),
-      wasm: stageStats(pick((f) => f.wasmMs)),
-      decoding: stageStats(pick((f) => f.decodingMs)),
+      hwCapture: summarizeStats(pick((f) => f.hwCaptureMs)),
+      encoding: summarizeStats(pick((f) => f.encodingMs)),
+      wasm: summarizeStats(pick((f) => f.wasmMs)),
+      decoding: summarizeStats(pick((f) => f.decodingMs)),
       render: {
-        temperature: stageStats(renderOf("temperature")),
-        excursion: stageStats(renderOf("excursion")),
+        temperature: summarizeStats(renderOf("temperature")),
+        excursion: summarizeStats(renderOf("excursion")),
       },
     };
   }
@@ -138,14 +121,7 @@ class PerfCollector {
     if (!data || typeof document === "undefined") return;
     const stamp = data.meta.startedAt.replace(/[:.]/g, "-");
     const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = filename ?? `perf_${data.meta.mode}_${stamp}.json`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
+    downloadBlob(blob, filename ?? `perf_${data.meta.mode}_${stamp}.json`);
   }
 
   reset(): void {

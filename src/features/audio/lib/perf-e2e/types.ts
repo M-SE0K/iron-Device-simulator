@@ -1,5 +1,7 @@
 // perf-e2e/types.ts — N1~N12 E2E 지연 실험 노드 정의. src/features/audio/lib/perf/ (기존 5단계
 // 하네스)와는 독립된 별도 수집기다 — docs/e2e-latency-experiment.md 참고.
+import type { StatBlock } from "../perf/statistics";
+
 export type E2ENodeId =
   | "N1" | "N2" | "N3" | "N4" | "N5" | "N6"
   | "N7" | "N8" | "N9" | "N10" | "N11" | "N12";
@@ -29,15 +31,7 @@ export interface E2ESample {
   tag?: string;
 }
 
-export interface E2EStatBlock {
-  count: number;
-  avg: number | null;
-  min: number | null;
-  max: number | null;
-  p50: number | null;
-  p95: number | null;
-  p99: number | null;
-}
+export type E2EStatBlock = StatBlock;
 
 export interface E2ESessionMeta {
   mode: "native" | "web";

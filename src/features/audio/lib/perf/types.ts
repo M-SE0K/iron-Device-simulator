@@ -13,15 +13,7 @@ export interface PerfRenderSample {
   renderMs: number;
 }
 
-export interface PerfStageStats {
-  count: number;
-  avg: number | null;
-  min: number | null;
-  max: number | null;
-  p50: number | null;
-  p95: number | null;
-  p99: number | null;
-}
+export type PerfStageStats = StatBlock;
 
 export interface PerfSessionMeta {
   mode: "native" | "web";
@@ -47,3 +39,4 @@ export interface PerfExport {
   frames: PerfFrameSample[];
   renders: PerfRenderSample[];
 }
+import type { StatBlock } from "./statistics";

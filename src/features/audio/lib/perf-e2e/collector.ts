@@ -2,11 +2,12 @@
 // `active`가 아니면 즉시 반환하므로, 실험을 켜지 않은 일반 사용에는 성능 영향이 사실상 없다.
 // 활성화: 브라우저 콘솔에서 window.__ironE2E.enable() 또는 URL에 ?e2e=1 (sessionStorage에 저장돼
 // 새로고침 후에도 유지됨). docs/e2e-latency-experiment.md 참고.
-import { round3 } from "@/shared/lib/utils";
+import { downloadBlob, round3 } from "@/shared/lib/utils";
 import {
   E2E_NODES,
-  type E2ENodeId, type E2ESample, type E2EStatBlock, type E2EExport, type E2ESessionMeta,
+  type E2ENodeId, type E2ESample, type E2EExport, type E2ESessionMeta,
 } from "./types";
+import { summarizeStats } from "../perf/statistics";
 
 const STORAGE_KEY = "iron-e2e-latency";
 
@@ -15,24 +16,6 @@ function emptySamples(): Record<E2ENodeId, E2ESample[]> {
   const out = {} as Record<E2ENodeId, E2ESample[]>;
   for (const id of ids) out[id] = [];
   return out;
-}
-
-function stats(values: number[]): E2EStatBlock {
-  if (values.length === 0) {
-    return { count: 0, avg: null, min: null, max: null, p50: null, p95: null, p99: null };
-  }
-  const sorted = [...values].sort((a, b) => a - b);
-  const pct = (p: number) => sorted[Math.max(0, Math.ceil(sorted.length * p / 100) - 1)];
-  const sum = sorted.reduce((a, b) => a + b, 0);
-  return {
-    count: sorted.length,
-    avg: round3(sum / sorted.length),
-    min: round3(sorted[0]),
-    max: round3(sorted[sorted.length - 1]),
-    p50: round3(pct(50)),
-    p95: round3(pct(95)),
-    p99: round3(pct(99)),
-  };
 }
 
 class E2ELatencyCollector {
@@ -117,7 +100,7 @@ class E2ELatencyCollector {
   summary(): E2EExport["summary"] {
     const out = {} as E2EExport["summary"];
     for (const id of Object.keys(E2E_NODES) as E2ENodeId[]) {
-      out[id] = { ...stats(this.samples[id].map((s) => s.ms)), label: E2E_NODES[id].label };
+      out[id] = { ...summarizeStats(this.samples[id].map((s) => s.ms)), label: E2E_NODES[id].label };
     }
     return out;
   }
@@ -142,14 +125,7 @@ class E2ELatencyCollector {
     if (!data || typeof document === "undefined") return;
     const stamp = data.meta.startedAt.replace(/[:.]/g, "-");
     const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = filename ?? `e2e-latency_${data.meta.mode}_${stamp}.json`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
+    downloadBlob(blob, filename ?? `e2e-latency_${data.meta.mode}_${stamp}.json`);
   }
 
   reset(): void {
