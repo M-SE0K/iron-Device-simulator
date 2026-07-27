@@ -172,8 +172,8 @@ export function useCaptureSession(deps: UseCaptureSessionDeps) {
         framesRcvdRef.current++;
         const frame: AnalysisFrame = {
           time:        msg.time        as number,
-          temperature: msg.temperature as [number, number],
-          excursion:   msg.excursion   as [number, number],
+          temperature: msg.temperature as number,
+          excursion:   msg.excursion   as number,
         };
         perf.recordFrame(frame.time, msg.processingMs as number, performance.now() - recvAt);
         e2e.sample("N8", performance.now() - recvAt);
@@ -235,11 +235,17 @@ export function useCaptureSession(deps: UseCaptureSessionDeps) {
           channels:         calibration.channels,
           captureDeviceUID: calibration.captureDeviceUID ?? "",
           playback: options?.playbackPcm
-            ? {
-                pcm: options.playbackPcm,
-                onEnded: options.onPlaybackEnded ?? (() => {}),
-                outputChannel: Number(calibration.outputChannel) || 0,
-              }
+            ? (() => {
+                const outputChannel = Number(calibration.outputChannel) || 0;
+                return {
+                  pcm: options.playbackPcm,
+                  onEnded: options.onPlaybackEnded ?? (() => {}),
+                  outputChannel,
+                  // R용 셀렉터 UI는 두지 않는다(Output Channel 필드 자체가 UX상 의도적으로 없음) —
+                  // 인접 채널(L+1)로 고정 배관. 장치에 그 채널이 없으면 네이티브 헬퍼가 조용히 모노로 폴백한다.
+                  outputChannelR: outputChannel + 1,
+                };
+              })()
             : undefined,
         });
         return;

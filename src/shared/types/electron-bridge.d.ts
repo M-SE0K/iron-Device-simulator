@@ -70,8 +70,10 @@ interface PlayCaptureStartOpts {
   bufferSize: number;
   channels?: number;
   deviceUID?: string; // 생략 시 OS 기본 입력 — 단, play-capture는 입출력 겸용 장치 필요
-  refWriteId: string; // finalizeWrite로 완성해둔 ref 파일(요청 SR·mono Float32)의 writeId
-  outputChannel?: number; // ref를 내보낼 출력 채널 인덱스 — 생략/0이면 ch0(기본). 장치 outputChannels 범위 밖이면 헬퍼가 에러.
+  refWriteId: string; // finalizeWrite로 완성해둔 ref 파일의 writeId
+  refChannels?: 1 | 2; // ref 파일의 채널 수 — 2면 인터리브 스테레오([L0,R0,L1,R1,...] Float32). 생략 시 1(모노).
+  outputChannel?: number; // ref(L)를 내보낼 출력 채널 인덱스 — 생략/0이면 ch0(기본). 장치 outputChannels 범위 밖이면 헬퍼가 에러.
+  outputChannelR?: number; // ref(R)를 내보낼 출력 채널 — refChannels 2와 함께 씀. 범위 밖/outputChannel과 중복이면 헬퍼가 에러 없이 모노로 폴백.
   e2e?: boolean; // true면 stdout 청크마다 onE2EMark로 타임스탬프도 보낸다 — E2E 지연 실험(N1) 전용
 }
 
@@ -101,7 +103,8 @@ interface PlayCaptureWriteAckResult {
 interface PlayCaptureStartResult extends AudioCaptureStartResult {
   mode?: "play-capture";
   refLen?: number; // 재생 총 프레임 수 (테일 제외)
-  playbackChannel?: number; // ref가 실제로 나간 출력 채널 — start opts의 outputChannel 요청값을 헬퍼가 그대로 echo
+  playbackChannel?: number; // ref(L)가 실제로 나간 출력 채널 — start opts의 outputChannel 요청값을 헬퍼가 그대로 echo
+  playbackChannelR?: number | null; // ref(R)가 실제로 나간 출력 채널 — 모노로 폴백됐으면 null
 }
 
 export interface LocalAudioFileEntry {
@@ -156,7 +159,8 @@ declare global {
       // 업로드 도중 실패/취소 시 임시 파일 정리
       cancelWrite: (opts: PlayCaptureWriteIdOpts) => Promise<PlayCaptureWriteAckResult>;
       // refWriteId(finalizeWrite로 완성해둔 ref 파일)를 출력 채널(기본 ch0, opts.outputChannel로
-      // 지정 가능)로 연속 재생하며 캡처를 onData로 스트리밍 (단일 IOProc, 단일 클록)
+      // 지정 가능)로 연속 재생하며 캡처를 onData로 스트리밍 (단일 IOProc, 단일 클록).
+      // refChannels:2 + outputChannelR을 같이 주면 스테레오 재생을 시도한다(장치가 안 되면 모노 폴백).
       start: (opts: PlayCaptureStartOpts) => Promise<PlayCaptureStartResult>;
       // 재생 위치 동결/재개 — 캡처 스트림은 계속 흐른다 (게이트는 렌더러 몫)
       control: (action: "pause" | "resume") => Promise<{ success: boolean; error?: string }>;
