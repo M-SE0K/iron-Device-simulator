@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Phase 1 단위 테스트. ring_buffer.h / sample_convert.h는 Windows·ASIO 의존이 없어
-# WSL/Linux에서 그대로 돈다 — 하드웨어도 SDK도 필요 없다.
+# 단위 테스트. src/ring_buffer.h / src/sample_convert.h는 Windows·ASIO 의존이 없어
+# WSL/Linux/macOS에서 그대로 돈다 — 하드웨어도 SDK도 필요 없다.
 #
 #   ./tests/run-tests.sh
 #
@@ -16,7 +16,7 @@ trap 'rm -rf "$OUT"' EXIT
 echo "[1/2] sanitizer 빌드 (UBSan + ASan)"
 g++ -std=c++17 -Wall -Wextra -O1 -g \
     -fsanitize=address,undefined -fno-omit-frame-pointer \
-    -pthread test_phase1.cpp -o "$OUT/test_san"
+    -pthread ring_and_convert_test.cpp -o "$OUT/test_san"
 "$OUT/test_san"
 
 echo
@@ -25,8 +25,8 @@ echo "[2/2] 최적화 빌드 (-O2, ThreadSanitizer)"
 # 생산자/소비자 경합도 함께 본다 (ASan과 동시 사용 불가라 별도 빌드).
 g++ -std=c++17 -Wall -Wextra -O2 -g \
     -fsanitize=thread -fno-omit-frame-pointer \
-    -pthread test_phase1.cpp -o "$OUT/test_tsan"
+    -pthread ring_and_convert_test.cpp -o "$OUT/test_tsan"
 "$OUT/test_tsan"
 
 echo
-echo "Phase 1 검증 완료"
+echo "단위 테스트 검증 완료"

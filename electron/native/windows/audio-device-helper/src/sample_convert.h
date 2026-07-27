@@ -1,7 +1,7 @@
 // sample_convert.h — ASIO 네이티브 샘플 포맷 ↔ 우리 포맷 변환.
 //
 // CoreAudio는 항상 Float32를 주지만 ASIO는 **드라이버 네이티브 포맷을 그대로** 준다.
-// 그래서 macOS 헬퍼엔 없던 변환 계층이 필요하다. (CAPTURE-PLAN.md §0)
+// 그래서 macOS 헬퍼엔 없던 변환 계층이 필요하다.
 //
 // 방향 두 가지:
 //   capture      : 장치 네이티브 → int16 인터리브 (stdout 계약)

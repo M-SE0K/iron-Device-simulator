@@ -346,7 +346,7 @@ long asioMessage(long selector, long value, void* /*message*/, double* /*opt*/) 
       return 2;
     case kAsioResetRequest: {
       // USB 분리 등. ⚠️ RT 컨텍스트에서 올 수 있어 여기서 ASIOExit을 부르면 데드락이다.
-      // 플래그만 세우고 main 스레드가 정리 후 exit 3으로 나간다. (CAPTURE-PLAN.md §4)
+      // 플래그만 세우고 main 스레드가 정리 후 exit 3으로 나간다.
       CaptureStream* s = g_stream.load(std::memory_order_acquire);
       if (s) s->resetRequested.store(true, std::memory_order_release);
       return 1;
@@ -607,7 +607,7 @@ bool startCapture(const CaptureConfig& cfg, CaptureInfo& out, std::string& error
   const long totalChannels = s->srcChannels + s->outputCount;
   ASIOError rc = ASIOCreateBuffers(s->infos.data(), totalChannels, size, &s->callbacks);
   if (rc != ASE_OK && size != preferred) {
-    // 격자 위 값인데도 거절하고 preferred만 받는 드라이버가 있다 (CAPTURE-PLAN.md §0).
+    // 격자 위 값인데도 거절하고 preferred만 받는 드라이버가 있다.
     size = preferred;
     rc = ASIOCreateBuffers(s->infos.data(), totalChannels, size, &s->callbacks);
   }

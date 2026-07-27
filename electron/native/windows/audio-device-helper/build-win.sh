@@ -10,7 +10,7 @@
 # 통째로 빠진 exe가 zip에 들어갔고, 앱에서는 not-implemented 에러로만 보였다).
 # 크로스 컴파일이면 패키징과 같은 호스트에서 같은 명령으로 끝나므로 그 틈이 사라진다.
 #
-# build.ps1 / CMakeLists.txt는 Windows에서 MSVC로 빌드해야 할 때를 위해 남겨둔 보조 경로다.
+# msvc/build.ps1 · msvc/CMakeLists.txt는 Windows에서 MSVC로 빌드해야 할 때를 위해 남겨둔 보조 경로다.
 #
 #   ./build-win.sh                      # ASIOSDK_DIR 또는 third_party/ASIOSDK 사용
 #   ASIOSDK_DIR=/path/to/SDK ./build-win.sh
@@ -39,7 +39,7 @@ mkdir -p dist
 OBJ=$(mktemp -d)
 trap 'rm -rf "$OBJ"' EXIT
 
-INCLUDES=(-I. -I"$SDK/common" -I"$SDK/host" -I"$SDK/host/pc")
+INCLUDES=(-Isrc -I"$SDK/common" -I"$SDK/host" -I"$SDK/host/pc")
 
 # SDK는 라이브러리가 아니라 소스를 직접 컴파일해 넣는 구조다. driver/ 밑(asiodrvr, dllentry 등)은
 # ASIO 드라이버를 *만들* 때 쓰는 것이라 호스트인 우리는 절대 포함하면 안 된다 —
@@ -51,9 +51,9 @@ for src in "$SDK/common/asio.cpp" "$SDK/host/asiodrivers.cpp" "$SDK/host/pc/asio
   "$CXX" -std=c++17 -O2 -w -c "$src" -o "$OBJ/$(basename "$src" .cpp).o" "${INCLUDES[@]}"
 done
 
-# 우리 코드는 경고를 다 켜고 본다.
-for src in main.cpp asio_backend.cpp; do
-  "$CXX" -std=c++17 -O2 -Wall -Wextra -c "$src" -o "$OBJ/$(basename "$src" .cpp).o" "${INCLUDES[@]}"
+# 우리 코드는 경고를 다 켜고 본다. 소스는 src/ 아래에 있다.
+for f in src/main.cpp src/asio_backend.cpp; do
+  "$CXX" -std=c++17 -O2 -Wall -Wextra -c "$f" -o "$OBJ/$(basename "$f" .cpp).o" "${INCLUDES[@]}"
 done
 
 # -static: VC++/mingw 런타임 DLL 의존을 없앤다. electron-builder가 exe 하나만 리소스로

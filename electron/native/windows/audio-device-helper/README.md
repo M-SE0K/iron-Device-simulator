@@ -23,8 +23,8 @@ RtAudio를 쓰지 않고 Steinberg ASIO SDK 2.3을 직접 호출한다.
 버퍼 스냅(480→512), stdin EOF 종료, USB 분리 → exit 3, 재생 완료 자기 종료(exit 0),
 pause/resume/stop 라인 명령까지 miniDSP ASIO Driver로 확인했다.
 
-👉 **설계 배경은 [`CAPTURE-PLAN.md`](./CAPTURE-PLAN.md)** — 실측 포맷(`Int32LSB`), 스레드 구조,
-종료 경로, 단계별 검증 방법이 정리돼 있다.
+👉 **설계 배경은 아래 "구현 시 주의" 절과 `src/`의 파일별 헤더 주석**에 있다 — 실측 포맷
+(`Int32LSB`), 스레드 구조, 종료 경로가 각 소스 상단 주석으로 정리돼 있다.
 
 > ⚠️ `bufferSize`는 드라이버 격자로 **스냅된다**(예: 480 요청 → 512). 헤더의 `actual.bufferSize`가
 > 실제 값이고, 렌더러는 이미 그 값을 읽어 쓴다(`useNativeCapture.ts`). macOS가 요청값을 그대로
@@ -53,8 +53,9 @@ ASIOSDK_DIR=/path/to/SDK ./build-win.sh
 
 `-static`으로 링크하므로 VC++ 재배포 패키지나 mingw 런타임 DLL에 의존하지 않는다.
 
-> `build.ps1` / `CMakeLists.txt`는 **보조 경로**다. Windows에서 MSVC로 빌드해야 할 때를 위해
-> 남겨뒀지만 패키징 파이프라인은 쓰지 않는다. 요구사항: Visual Studio 2019+ (C++ 데스크톱
+> `msvc/build.ps1` / `msvc/CMakeLists.txt`는 **보조 경로**다. Windows에서 MSVC로 빌드해야 할
+> 때를 위해 남겨뒀지만 패키징 파이프라인은 쓰지 않는다. 소스(`../src/`)·SDK(`../third_party/`)·
+> 산출물(`../dist/`)은 모두 헬퍼 루트를 공유한다. 요구사항: Visual Studio 2019+ (C++ 데스크톱
 > 워크로드), CMake 3.15+.
 
 > `dist/`는 `.gitignore`로 제외된다 — 산출물(`audio-device-helper.exe`)이 GPLv3/독점 듀얼
@@ -175,20 +176,23 @@ macOS는 CoreAudio UID를, Windows는 **드라이버 CLSID**(`"{...}"`)를 `uid`
 ## 파일 구조
 
 ```
-main.cpp          CLI 계약 — argv 파싱, JSON 출력, 종료 코드, writer/stdin 스레드
-audio_backend.h   장치 접근 추상 경계
-asio_backend.cpp  ASIO 구현 (DriverSession RAII, 레지스트리 열거, 능력 조회, 상주 스트림)
-json_out.h        의존성 없는 최소 JSON 직렬화기
-ring_buffer.h     락프리 SPSC 링버퍼 — RT 스레드 → writer 스레드
-sample_convert.h  ASIOSampleType ↔ int16/float 변환 (asio.h 비의존 → WSL에서 단위 테스트 가능)
-tests/            ring_buffer / sample_convert 단위 테스트 (./tests/run-tests.sh)
-build-win.sh      ★ 정식 빌드 — mingw-w64 크로스 컴파일
-CMakeLists.txt    보조 — Windows/MSVC 빌드용
-build.ps1         보조 — Windows/MSVC 빌드용
+src/
+  main.cpp          CLI 계약 — argv 파싱, JSON 출력, 종료 코드, writer/stdin 스레드
+  audio_backend.h   장치 접근 추상 경계
+  asio_backend.cpp  ASIO 구현 (DriverSession RAII, 레지스트리 열거, 능력 조회, 상주 스트림)
+  json_out.h        의존성 없는 최소 JSON 직렬화기
+  ring_buffer.h     락프리 SPSC 링버퍼 — RT 스레드 → writer 스레드
+  sample_convert.h  ASIOSampleType ↔ int16/float 변환 (asio.h 비의존 → WSL/macOS에서 단위 테스트 가능)
+tests/              ring_and_convert_test.cpp — ring_buffer/sample_convert 단위 테스트 (./tests/run-tests.sh)
+build-win.sh        ★ 정식 빌드 — mingw-w64 크로스 컴파일 (src/ → dist/audio-device-helper.exe)
+msvc/
+  CMakeLists.txt    보조 — Windows/MSVC 빌드용
+  build.ps1         보조 — Windows/MSVC 빌드용
+dist/               산출물 audio-device-helper.exe (라이선스 이슈로 .gitignore)
 ```
 
-ASIO를 `asio_backend.cpp`에 격리해 둔 이유는, ASIO 드라이버가 설치되지 않은 Windows PC가
-실사용에서 흔하기 때문이다 — WASAPI 폴백이 필요해지면 `wasapi_backend.cpp` 추가로 끝난다.
+ASIO를 `src/asio_backend.cpp`에 격리해 둔 이유는, ASIO 드라이버가 설치되지 않은 Windows PC가
+실사용에서 흔하기 때문이다 — WASAPI 폴백이 필요해지면 `src/wasapi_backend.cpp` 추가로 끝난다.
 
 ## 구현 시 주의 (상주 모드 착수 전 읽을 것)
 

@@ -85,7 +85,7 @@ long snapBufferSize(long requested, long minSize, long maxSize, long preferred, 
 //
 // 역할 분담: 이 백엔드는 ASIO RT 스레드에서 링버퍼까지만 채우고, stdout으로 내보내는
 // writer 스레드와 stdin 감시는 main.cpp가 돌린다. RT 스레드에서 fwrite하면 파이프가
-// 찼을 때 블로킹되어 그대로 드롭아웃이기 때문이다. (CAPTURE-PLAN.md §2)
+// 찼을 때 블로킹되어 그대로 드롭아웃이기 때문이다.
 
 struct CaptureConfig {
   std::string deviceUid;
@@ -97,7 +97,7 @@ struct CaptureConfig {
   //
   // ASIO가 CoreAudio보다 유리한 유일한 지점이다. 콜백 하나가 입출력을 동시에 다루므로
   // 재생과 캡처가 같은 클록 위에 놓이는 게 구조적으로 보장된다 — IOProc 두 개를 맞출
-  // 필요가 없다. (CAPTURE-PLAN.md §5)
+  // 필요가 없다.
   std::string refPath;   // raw LE Float32 mono, [-1,1], sampleRate로 미리 리샘플된 것
   long outputChannel = 0;
 };
@@ -124,7 +124,7 @@ bool startCapture(const CaptureConfig& cfg, CaptureInfo& out, std::string& error
 size_t readCaptured(void* dst, size_t maxBytes);
 
 // kAsioResetRequest(USB 분리 등)가 왔는지. RT 컨텍스트에서 정리하면 데드락이라
-// 콜백은 플래그만 세우고, main 스레드가 이걸 폴링해 exit 3으로 빠진다. (CAPTURE-PLAN.md §4)
+// 콜백은 플래그만 세우고, main 스레드가 이걸 폴링해 exit 3으로 빠진다.
 bool captureResetRequested();
 
 // ── play-capture 제어 (stdin 라인 명령이 호출) ───────────────────────────────

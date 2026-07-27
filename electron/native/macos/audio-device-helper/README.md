@@ -75,16 +75,17 @@ electron/native/macos/audio-device-helper/dist/audio-device-helper query --devic
 > **장치 기본값**이다 — capture로 요청한 값(예: 1024)은 그 IOProc 안에서만 적용되며 별도
 > 조회로는 관찰되지 않는다. 아래 "`set`의 한계와 `capture` 모드" 참고.
 
-## query-device.c — 장치 능력 진단 CLI (개발용)
+## src/query-device.c — 장치 능력 진단 CLI (개발용)
 
-같은 디렉터리의 `query-device.c`는 **기본 입력 장치에 묶이지 않고** 장치를 이름으로 찾아
+헬퍼 소스는 `src/`에 있다 — 앱에 번들되는 CoreAudio 헬퍼가 `src/mac.swift`, 그리고 개발용
+진단 도구가 `src/query-device.c`다. 후자는 **기본 입력 장치에 묶이지 않고** 장치를 이름으로 찾아
 같은 정보(현재값·지원 SampleRate·Buffer 범위·입력 채널 수)를 사람이 읽기 좋은 형태로 출력하는
 독립 진단 도구다. 앱(Electron)은 이 C 도구가 아니라 위 Swift 헬퍼의 `query`를 쓴다 —
-실제 캡처가 대상으로 삼는 "기본 입력 장치"와 일치하기 때문. `query-device.c`는 여러 장치를
+실제 캡처가 대상으로 삼는 "기본 입력 장치"와 일치하기 때문. `src/query-device.c`는 여러 장치를
 비교하거나 기본 장치가 아닌 장치를 확인할 때 쓴다.
 
 ```bash
-cc -O2 -o dist/query-device query-device.c -framework CoreAudio -framework CoreFoundation
+cc -O2 -o dist/query-device src/query-device.c -framework CoreAudio -framework CoreFoundation
 ./dist/query-device            # 이름에 "MCHStreamer" 포함된 입력 장치
 ./dist/query-device Scarlett   # 다른 장치 이름 일부로 필터
 ./dist/query-device --all      # 모든 입력 장치

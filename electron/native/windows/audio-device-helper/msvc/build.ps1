@@ -1,8 +1,10 @@
-# build.ps1 — audio-device-helper (Windows/ASIO) 빌드
+# build.ps1 — audio-device-helper (Windows/ASIO) MSVC 보조 빌드
 #
-# macOS 쪽 build-mac.sh와 대칭. 산출물은 dist/audio-device-helper.exe 하나다.
+# 정식 빌드는 헬퍼 루트(../)의 build-win.sh(mingw 크로스 컴파일)다. 이 스크립트는 Windows에서
+# MSVC로 직접 빌드해야 할 때만 쓴다. 산출물은 ../dist/audio-device-helper.exe 하나이고,
+# SDK 기본 위치도 ../third_party/ASIOSDK 로 build-win.sh와 공유한다.
 #
-#   .\build.ps1                          # third_party/ASIOSDK 또는 $env:ASIOSDK_DIR 사용
+#   .\build.ps1                          # ../third_party/ASIOSDK 또는 $env:ASIOSDK_DIR 사용
 #   .\build.ps1 -AsioSdkDir D:\ASIOSDK   # SDK 위치 직접 지정
 #   .\build.ps1 -Arch Win32              # 32비트 (기본은 x64)
 #
@@ -23,7 +25,8 @@ $root = $PSScriptRoot
 $buildDir = Join-Path $root "build-$Arch"
 
 if (-not $AsioSdkDir) {
-  $AsioSdkDir = Join-Path $root 'third_party\ASIOSDK'
+  # 헬퍼 루트(..)의 third_party/ 를 build-win.sh와 공유한다.
+  $AsioSdkDir = Join-Path $root '..\third_party\ASIOSDK'
 }
 
 if (-not (Test-Path (Join-Path $AsioSdkDir 'common\asio.h'))) {
@@ -35,7 +38,7 @@ SDK는 재배포가 금지돼 리포에 포함되지 않습니다. 다음 중 �
 
   .\build.ps1 -AsioSdkDir <경로>
   `$env:ASIOSDK_DIR = '<경로>'
-  또는 $root\third_party\ASIOSDK 에 배치
+  또는 $AsioSdkDir 에 배치
 "@
 }
 
@@ -53,12 +56,12 @@ if ($LASTEXITCODE -ne 0) { Write-Error "CMake 구성 실패" }
 cmake --build $buildDir --config Release
 if ($LASTEXITCODE -ne 0) { Write-Error "빌드 실패" }
 
-$exe = Join-Path $root 'dist\audio-device-helper.exe'
+$exe = Join-Path $root '..\dist\audio-device-helper.exe'
 if (-not (Test-Path $exe)) { Write-Error "산출물이 없습니다: $exe" }
 
 Write-Host ""
 Write-Host "완료: $exe" -ForegroundColor Green
 Write-Host ""
 Write-Host "확인:" -ForegroundColor Cyan
-Write-Host "  .\dist\audio-device-helper.exe list"
-Write-Host "  .\dist\audio-device-helper.exe query --device `"{CLSID}`""
+Write-Host "  ..\dist\audio-device-helper.exe list"
+Write-Host "  ..\dist\audio-device-helper.exe query --device `"{CLSID}`""

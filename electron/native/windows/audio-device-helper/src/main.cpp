@@ -222,7 +222,7 @@ std::atomic<bool> g_stopWriter{false};
 std::atomic<bool> g_stdinClosed{false};
 
 // stdout 소비자. RT 콜백은 링에 밀어넣기만 하고 여기서만 fwrite한다 — 파이프가 차면
-// 이 스레드가 블로킹되지만 오디오 콜백은 계속 돈다. (CAPTURE-PLAN.md §2)
+// 이 스레드가 블로킹되지만 오디오 콜백은 계속 돈다.
 void writerLoop() {
   std::vector<uint8_t> buf(64 * 1024);
   for (;;) {
