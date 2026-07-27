@@ -98,8 +98,10 @@ struct CaptureConfig {
   // ASIO가 CoreAudio보다 유리한 유일한 지점이다. 콜백 하나가 입출력을 동시에 다루므로
   // 재생과 캡처가 같은 클록 위에 놓이는 게 구조적으로 보장된다 — IOProc 두 개를 맞출
   // 필요가 없다.
-  std::string refPath;   // raw LE Float32 mono, [-1,1], sampleRate로 미리 리샘플된 것
+  std::string refPath;   // raw LE Float32, [-1,1], sampleRate로 미리 리샘플된 것
   long outputChannel = 0;
+  long refChannels = 1;      // --ref 파일의 채널 수 — 2면 인터리브 스테레오([L0,R0,L1,R1,...])로 해석해 L/R 분리
+  long outputChannelR = -1;  // R을 내보낼 출력 채널 — -1이면 스테레오 미요청(모노만 재생)
 };
 
 // 헤더 한 줄에 실을 실제 값. requested와 달라질 수 있고, 달라지는 게 정상이다.
@@ -111,8 +113,9 @@ struct CaptureInfo {
   long channels = 0;     // 장치 입력 수로 클램프된 실제 인터리브 채널 수
 
   bool playCapture = false;
-  long refFrames = 0;       // ref 총 프레임 수 — 렌더러가 재생 길이를 안다
-  long playbackChannel = 0; // 실제 사용된 출력 채널 (--out-ch echo)
+  long refFrames = 0;        // ref 총 프레임 수 — 렌더러가 재생 길이를 안다
+  long playbackChannel = 0;  // 실제 사용된 L 출력 채널 (--out-ch echo)
+  long playbackChannelR = -1; // 실제 사용된 R 출력 채널 — 범위 밖/L과 중복으로 모노 폴백되면 -1
 };
 
 // 드라이버를 열고 ASIOStart까지 마친다. 성공 시 콜백이 이미 링을 채우고 있다.

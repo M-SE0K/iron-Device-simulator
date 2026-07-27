@@ -2,8 +2,10 @@
 //
 // Electron 파일 모드의 재생/분석 경로. audio-capture.js의 상주 `capture`와 같은 스트리밍
 // 프로토콜(첫 줄 JSON 헤더 → int16 인터리브 raw PCM 청크 중계)이지만, 헬퍼가 같은 IOProc의
-// 출력 ch0으로 --ref 신호(렌더러가 재생 파일을 장치 SR·mono로 디코드한 것)를 연속 재생한다 —
-// 재생과 캡처가 단일 클록에 놓여 렌더러는 수신 프레임 수만으로 재생 위치를 안다.
+// 출력 채널로 --ref 신호(렌더러가 재생 파일을 장치 SR로 디코드한 것 — 인터리브 스테레오
+// [L0,R0,L1,R1,...], --ref-channels 2)를 --out-ch(L)/--out-ch-r(R)로 연속 재생한다 —
+// 재생과 캡처가 단일 클록에 놓여 렌더러는 수신 프레임 수만으로 재생 위치를 안다. R은
+// best-effort라 장치 출력이 1채널뿐이면 헬퍼가 조용히 모노로 폴백한다.
 // ref 전달은 청크 핸드셰이크(start-write/write-chunk/finalize-write)다 — 파일 전체를 한 번의
 // IPC 구조화 복제 + 동기 fs.writeFileSync로 넘기면(수 분 파일 기준 수십 MB) 싱글스레드 메인
 // 프로세스가 그 순간 통째로 멎는다. 렌더러가 PCM을 작은 조각으로 잘라 순차 전송하고, 메인은
@@ -105,7 +107,7 @@ ipcMain.handle("audio-playcapture:start", (event, opts) => {
   if (playCaptureChild) {
     return { success: false, error: "play-capture-already-running" };
   }
-  const { sampleRate, bufferSize, channels, deviceUID, refWriteId, outputChannel, e2e } = opts || {};
+  const { sampleRate, bufferSize, channels, deviceUID, refWriteId, refChannels, outputChannel, outputChannelR, e2e } = opts || {};
   const refPath = refWriteId ? finalizedRefs.get(refWriteId) : undefined;
   if (!refWriteId || !refPath) {
     return { success: false, error: "missing-ref-write-id" };
@@ -114,9 +116,13 @@ ipcMain.handle("audio-playcapture:start", (event, opts) => {
   const cleanupRef = () => fs.unlink(refPath, () => {});
 
   const baseArgs = ["play-capture", "--ref", refPath, String(sampleRate), String(bufferSize), String(channels || 2)];
+  // ref 파일의 채널 수 — 2면 헬퍼가 인터리브 스테레오로 해석해 L/R을 분리한다. 생략 시 헬퍼 기본값(1=모노).
+  if (refChannels != null) baseArgs.push("--ref-channels", String(refChannels));
   // 출력 채널 지정 — 생략/0이면 헬퍼 기본값(ch0)이라 굳이 안 붙여도 되지만, 명시적으로 넘겨
   // Calibration의 Output Channel 필드가 항상 실제 헬퍼 호출에 반영됨을 보장한다.
   if (outputChannel != null) baseArgs.push("--out-ch", String(outputChannel));
+  // R 출력 채널 — 범위 밖/L과 중복이면 헬퍼가 에러 없이 모노로 폴백한다(리그가 항상 스테레오는 아니므로).
+  if (outputChannelR != null) baseArgs.push("--out-ch-r", String(outputChannelR));
 
   return runStreamingHelper({
     event,

@@ -27,7 +27,7 @@ electron/native/macos/audio-device-helper/dist/audio-device-helper set [--device
 electron/native/macos/audio-device-helper/dist/audio-device-helper capture [--device <UID>] <sampleRate> <bufferSize> [channels=2]
 
 # 파일 재생 + 캡처 (연속 재생, 단일 IOProc) — Electron 파일 모드의 재생/분석 경로
-electron/native/macos/audio-device-helper/dist/audio-device-helper play-capture [--device <UID>] --ref <path> [--out-ch <n>] <sampleRate> <bufferSize> [channels=2]
+electron/native/macos/audio-device-helper/dist/audio-device-helper play-capture [--device <UID>] --ref <path> [--ref-channels <1|2>] [--out-ch <n>] [--out-ch-r <n>] <sampleRate> <bufferSize> [channels=2]
 # 예
 electron/native/macos/audio-device-helper/dist/audio-device-helper capture 48000 480 2
 electron/native/macos/audio-device-helper/dist/audio-device-helper query --device BuiltInMicrophoneDevice
@@ -147,18 +147,22 @@ Electron 파일 모드의 재생·분석 경로가 쓴다(`electron/ipc/audio-pl
 `window.audioPlayCapture`). 입출력 겸용 단일 장치에 IOProc 하나를 열어 재생과 캡처가
 **같은 클록** 위에 놓인다 — 렌더러는 수신한 캡처 프레임 수만으로 재생 위치를 계산한다.
 
-- **`--ref <path>`**: 재생할 신호 전체. raw little-endian **Float32 mono** ([-1,1] 정규화),
-  요청 sampleRate로 미리 디코드/리샘플된 것. 출력은 **`--out-ch`로 지정한 단일 채널**
-  (`playbackChannel`)로만 나간다 — 나머지 출력 채널은 무음.
-- **`--out-ch <n>`** (선택, 생략 시 0): ref를 내보낼 출력 채널 인덱스. 장치의 실제 출력
+- **`--ref <path>`**: 재생할 신호 전체. raw little-endian **Float32** ([-1,1] 정규화),
+  요청 sampleRate로 미리 디코드/리샘플된 것 — `--ref-channels 1`(기본)이면 모노 플랫,
+  `2`면 인터리브 스테레오(`[L0,R0,L1,R1,...]`)로 해석해 프레임 단위로 L/R을 분리한다.
+- **`--out-ch <n>`** (선택, 생략 시 0): ref(L)를 내보낼 출력 채널 인덱스. 장치의 실제 출력
   채널 수(`outputChannelCount`, `query`의 `outputChannels`) 밖이면 시작 즉시
-  `{"success":false,"error":"invalid-out-ch(n not in 0..<count)"}`로 종료한다. Calibration
-  드로어의 **Output Channel (파일 재생)** 필드(`CalibrationValues.outputChannel`)가 이 값을
-  채운다 — 멀티채널 앰프 구성에서 ch0이 아닌 다른 출력으로 라우팅할 때 쓴다.
+  `{"success":false,"error":"invalid-out-ch(n not in 0..<count)"}`로 종료한다 — L은 필수 검증이다.
+- **`--out-ch-r <n>`** (선택): ref(R)를 내보낼 출력 채널 인덱스 — `--ref-channels 2`와 함께 쓴다.
+  L과 달리 **best-effort**다: 범위 밖이거나 `--out-ch`와 같으면 에러로 종료하지 않고 조용히
+  스테레오를 포기해 R 없이(모노로) 재생한다 — 응답 헤더의 `playbackChannelR`이 `null`이면
+  폴백된 것. 렌더러(`useCaptureSession.ts`)는 항상 `outputChannel + 1`을 보낸다(Output Channel
+  선택 UI는 UX상 의도적으로 없음 — 하드코딩된 인접 채널 배관).
 - **stdout 첫 줄**: JSON 헤더 — capture 헤더 + `"mode":"play-capture"`, `"refLen"`(재생 총
-  프레임), `"playbackChannel"`(실제 사용된 출력 채널 — `--out-ch` 요청값을 그대로 echo).
+  프레임), `"playbackChannel"`(실제 사용된 L 출력 채널 — `--out-ch` 요청값을 그대로 echo),
+  `"playbackChannelR"`(실제 사용된 R 출력 채널, 모노로 폴백됐으면 `null`).
   (`success:false`면 헤더만 출력하고 종료 — `device-has-no-output(...)`: 출력 채널이 없는
-  장치, `invalid-out-ch(...)`: 범위 밖 채널 인덱스)
+  장치, `invalid-out-ch(...)`: L이 범위 밖인 채널 인덱스)
 - **이후 stdout**: capture 모드와 동일한 int16 인터리브 캡처 PCM 스트림.
   **pause 중에도 캡처는 계속 흐른다** — 차트/저장 게이트는 렌더러(`recordingActiveRef`/
   `analysisActiveRef`) 몫이고, WASM 온도 상태 유지를 위해 세션은 끊지 않는 설계.

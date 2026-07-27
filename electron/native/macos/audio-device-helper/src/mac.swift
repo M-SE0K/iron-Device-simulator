@@ -11,15 +11,19 @@
 //   audio-device-helper query        [--device <UID>]
 //   audio-device-helper set          [--device <UID>] <sampleRate> <bufferFrameSize>
 //   audio-device-helper capture      [--device <UID>] <sampleRate> <bufferFrameSize> [channels=2]
-//   audio-device-helper play-capture [--device <UID>] --ref <path> [--out-ch <n>] <sampleRate> <bufferFrameSize> [channels=2]
+//   audio-device-helper play-capture [--device <UID>] --ref <path> [--ref-channels <1|2>] [--out-ch <n>] [--out-ch-r <n>] <sampleRate> <bufferFrameSize> [channels=2]
 //
 // --device <UID>가 없으면 OS 기본 입력 장치를 대상으로 한다(기존 동작).
 // --out-ch <n>(play-capture 전용, 생략 시 0)는 --ref 신호를 내보낼 출력 채널 인덱스 —
 // 멀티채널 앰프 구성에서 ch0이 아닌 다른 출력 채널로 라우팅할 때 쓴다. 장치의 실제 출력
 // 채널 수(outputChannelCount) 밖이면 invalid-out-ch 에러로 종료한다.
+// --ref-channels <1|2>(생략 시 1)는 --ref 파일의 채널 수 — 2면 인터리브 스테레오
+// ([L0,R0,L1,R1,...] raw little-endian Float32)로 해석해 프레임 단위로 L/R을 분리한다.
+// --out-ch-r <n>(생략 가능)은 R을 내보낼 출력 채널 — --ref-channels 2와 함께 쓴다. R이
+// 장치 출력 채널 범위 밖이거나 --out-ch와 같으면 에러 없이 조용히 모노로 폴백한다(L만 재생).
 // play-capture는 입출력 겸용 단일 장치에 IOProc 하나를 열어 --ref 전체(파일 모드 재생 음원을
-// 렌더러가 mono로 디코드한 것, raw little-endian Float32)를 처음부터 끝까지 출력 채널
-// (--out-ch, 기본 ch0)로 재생하며 입력을 capture 모드와 동일한 int16 스트림으로 내보낸다.
+// 렌더러가 디코드한 것)를 처음부터 끝까지 출력 채널(--out-ch/--out-ch-r)로 재생하며 입력을
+// capture 모드와 동일한 int16 스트림으로 내보낸다.
 // stdin 라인 명령(pause/resume/stop)으로 제어하고, 재생이 끝나면(+감쇠 테일) exit 0으로
 // 스스로 종료한다 — exit 0 = "재생 완료" 신호.
 // list는 연결된 입력 장치 전체를 UID/이름/채널과 함께 반환한다(장치 선택 드롭다운용).
@@ -453,7 +457,8 @@ func runCapture(device: AudioDeviceID, sampleRate reqRate: Double, bufferFrames 
 
 // ─── play-capture 모드 (파일 재생 + V/I 캡처, 단일 IOProc) ─────────────────────
 // 입력·출력을 모두 가진 단일 장치(예: MCHStreamer)에 IOProc 하나를 열어 --ref 신호 전체
-// (렌더러가 재생할 파일을 장치 SR·mono로 디코드한 것)를 출력 채널(--out-ch, 기본 ch0)로
+// (렌더러가 재생할 파일을 장치 SR로 디코드한 인터리브 스테레오, --ref-channels 2)를
+// 출력 채널(--out-ch(L, 기본 ch0)/--out-ch-r(R, best-effort))로
 // 처음부터 끝까지 재생하며, 같은 콜백에서 입력(V/I 센스)을 capture 모드와 동일한 int16
 // 인터리브 스트림으로 stdout에 쓴다. 단일 IOProc = 단일 클록이므로 재생 프레임과 캡처
 // 프레임이 같은 카운터 위에 놓여, 렌더러는 수신 프레임 수만으로 재생 위치를 안다. 출력/
@@ -466,7 +471,8 @@ func runCapture(device: AudioDeviceID, sampleRate reqRate: Double, bufferFrames 
 // SIGTERM/stdin EOF 종료도 exit 0이지만, 부모(audio-playcapture.js)가 사용자 stop 시에는
 // child 참조를 먼저 지워 ended 이벤트 자체를 억제하므로 렌더러에는 재생 완료만 code 0으로 온다.
 
-// --ref 파일(raw little-endian Float32, [-1,1] 정규화 mono)을 읽어 배열로 반환. 실패 시 nil.
+// --ref 파일(raw little-endian Float32, [-1,1] 정규화)을 읽어 배열로 반환. 실패 시 nil.
+// refChannels==1이면 모노 플랫, 2면 인터리브 스테레오([L0,R0,L1,R1,...]) — 해석은 호출부(runPlayCapture)가 한다.
 func readRefSignal(path: String) -> [Float32]? {
     guard let data = FileManager.default.contents(atPath: path), data.count >= 4 else { return nil }
     let count = data.count / 4
@@ -476,7 +482,8 @@ func readRefSignal(path: String) -> [Float32]? {
 }
 
 func runPlayCapture(device: AudioDeviceID, sampleRate reqRate: Double, bufferFrames reqBuffer: UInt32,
-                    outChannels: Int, refSignal: [Float32], outputChannel: Int) -> Never {
+                    outChannels: Int, refSignal: [Float32], refChannels: Int,
+                    outputChannel: Int, outputChannelR: Int?) -> Never {
     signal(SIGPIPE, SIG_IGN)
 
     let deviceOutChannels = outputChannelCount(device)
@@ -490,12 +497,40 @@ func runPlayCapture(device: AudioDeviceID, sampleRate reqRate: Double, bufferFra
         printJSONAndExit(["success": false, "error": "empty-ref-signal"])
     }
 
+    // R 채널은 best-effort다 — 범위 밖이거나 L과 같으면 에러로 죽이지 않고 조용히 스테레오를
+    // 포기한다(모노로 폴백). 렌더러는 항상 outputChannelR=L+1을 보내므로, 출력 채널이 1개뿐인
+    // 장치에서도 재생 자체는 계속되게 하려는 의도(하드웨어 리그가 항상 스테레오는 아님).
+    let playbackChR: Int? = {
+        guard let r = outputChannelR else { return nil }
+        guard r >= 0, r < deviceOutChannels, r != outputChannel else { return nil }
+        return r
+    }()
+
+    // refChannels==2면 인터리브 스테레오를 프레임 단위로 L/R 분리한다. refChannels==1이거나
+    // (모노 파일인데 stereo out을 요청한 경우 등) R 출력이 비활성화되면 refR은 그냥 refL과
+    // 같은 배열을 참조해 "R에도 같은 신호"로 자연스럽게 폴백한다.
+    let refL: [Float32]
+    let refR: [Float32]
+    if refChannels == 2 && refSignal.count >= 2 {
+        let frameCount = refSignal.count / 2
+        var l = [Float32](repeating: 0, count: frameCount)
+        var r = [Float32](repeating: 0, count: frameCount)
+        for i in 0..<frameCount {
+            l[i] = refSignal[i * 2]
+            r[i] = refSignal[i * 2 + 1]
+        }
+        refL = l
+        refR = r
+    } else {
+        refL = refSignal
+        refR = refSignal
+    }
+
     let (actualRate, actualBuffer) = applyDeviceConfig(device, reqRate, reqBuffer)
     let fs = actualRate > 0 ? actualRate : reqRate
-    let refLen = refSignal.count
+    let refLen = refL.count
     let tailFrames = Int(0.25 * fs) // 마지막 샘플 이후 장치의 감쇠 응답까지 캡처
-    let playbackCh = outputChannel  // 참조 신호를 내보낼 출력 채널 — --out-ch(기본 0). 멀티채널
-                                     // 앰프 구성에서 ch0이 아닌 다른 출력으로 라우팅할 때 쓴다.
+    let playbackChL = outputChannel // 참조 신호 L을 내보낼 출력 채널 — --out-ch(기본 0)
 
     var playPos = 0
     var paused = false
@@ -505,7 +540,7 @@ func runPlayCapture(device: AudioDeviceID, sampleRate reqRate: Double, bufferFra
         let framesThis = cycleFrameCount(inInputData, outOutputData)
         guard framesThis > 0 else { return }
 
-        // ── 출력: 전 채널 무음으로 채운 뒤, 재생 중이면 playbackCh에 ref의 현재 구간을 쓴다 ──
+        // ── 출력: 전 채널 무음으로 채운 뒤, 재생 중이면 playbackChL/R에 ref의 현재 구간을 쓴다 ──
         let outABL = UnsafeMutableAudioBufferListPointer(outOutputData)
         for buf in outABL {
             if let md = buf.mData { memset(md, 0, Int(buf.mDataByteSize)) }
@@ -517,9 +552,16 @@ func runPlayCapture(device: AudioDeviceID, sampleRate reqRate: Double, bufferFra
                 let chans = max(1, Int(buf.mNumberChannels))
                 let bufFrames = min(framesThis, Int(buf.mDataByteSize) / (chans * 4))
                 let samples = md.assumingMemoryBound(to: Float32.self)
-                for ch in 0..<chans where outDeviceCh + ch == playbackCh {
-                    for f in 0..<bufFrames where playPos + f < refLen {
-                        samples[f * chans + ch] = refSignal[playPos + f]
+                for ch in 0..<chans {
+                    let globalCh = outDeviceCh + ch
+                    if globalCh == playbackChL {
+                        for f in 0..<bufFrames where playPos + f < refLen {
+                            samples[f * chans + ch] = refL[playPos + f]
+                        }
+                    } else if let rCh = playbackChR, globalCh == rCh {
+                        for f in 0..<bufFrames where playPos + f < refLen {
+                            samples[f * chans + ch] = refR[playPos + f]
+                        }
                     }
                 }
                 outDeviceCh += chans
@@ -562,7 +604,8 @@ func runPlayCapture(device: AudioDeviceID, sampleRate reqRate: Double, bufferFra
         "requested": ["sampleRate": reqRate, "bufferSize": reqBuffer],
         "actual": ["sampleRate": actualRate, "bufferSize": actualBuffer as Any],
         "refLen": refLen,
-        "playbackChannel": playbackCh,
+        "playbackChannel": playbackChL,
+        "playbackChannelR": playbackChR as Any,
     ])
 
     let startStatus = AudioDeviceStart(device, procID)
@@ -587,11 +630,24 @@ if let idx = argv.firstIndex(of: "--ref"), idx + 1 < argv.count {
     refPath = argv[idx + 1]
     argv.removeSubrange(idx...(idx + 1))
 }
-// play-capture 전용: --out-ch <n> — ref를 내보낼 출력 채널 인덱스(생략 시 0 = ch0).
+// play-capture 전용: --out-ch <n> — ref(L)를 내보낼 출력 채널 인덱스(생략 시 0 = ch0).
 // 멀티채널 앰프 구성에서 ch0이 아닌 다른 출력으로 라우팅할 때 Calibration UI가 넘긴다.
 var requestedOutCh: Int? = nil
 if let idx = argv.firstIndex(of: "--out-ch"), idx + 1 < argv.count {
     requestedOutCh = Int(argv[idx + 1])
+    argv.removeSubrange(idx...(idx + 1))
+}
+// play-capture 전용: --ref-channels <1|2> — --ref 파일의 채널 수(생략 시 1=모노).
+var requestedRefChannels: Int = 1
+if let idx = argv.firstIndex(of: "--ref-channels"), idx + 1 < argv.count {
+    requestedRefChannels = Int(argv[idx + 1]) ?? 1
+    argv.removeSubrange(idx...(idx + 1))
+}
+// play-capture 전용: --out-ch-r <n> — ref의 R을 내보낼 출력 채널(스테레오 재생 시). 범위 밖/L과
+// 중복이면 runPlayCapture가 조용히 모노로 폴백한다.
+var requestedOutChR: Int? = nil
+if let idx = argv.firstIndex(of: "--out-ch-r"), idx + 1 < argv.count {
+    requestedOutChR = Int(argv[idx + 1])
     argv.removeSubrange(idx...(idx + 1))
 }
 
@@ -680,7 +736,7 @@ case "capture":
 
 case "play-capture":
     guard argv.count >= 3, let reqRate = Double(argv[1]), let reqBuffer = UInt32(argv[2]) else {
-        printJSONAndExit(["success": false, "error": "usage: audio-device-helper play-capture [--device <UID>] --ref <path> [--out-ch <n>] <sampleRate> <bufferFrameSize> [channels]"])
+        printJSONAndExit(["success": false, "error": "usage: audio-device-helper play-capture [--device <UID>] --ref <path> [--ref-channels <1|2>] [--out-ch <n>] [--out-ch-r <n>] <sampleRate> <bufferFrameSize> [channels]"])
     }
     guard let path = refPath, let refSignal = readRefSignal(path: path) else {
         printJSONAndExit(["success": false, "error": "missing-or-unreadable---ref"])
@@ -688,7 +744,8 @@ case "play-capture":
     let outChannels = argv.count >= 4 ? max(1, Int(argv[3]) ?? 2) : 2
     let outCh = requestedOutCh ?? 0
     runPlayCapture(device: device, sampleRate: reqRate, bufferFrames: reqBuffer,
-                   outChannels: outChannels, refSignal: refSignal, outputChannel: outCh)
+                   outChannels: outChannels, refSignal: refSignal, refChannels: requestedRefChannels,
+                   outputChannel: outCh, outputChannelR: requestedOutChR)
 
 default:
     printJSONAndExit(["success": false, "error": "unknown-command: \(command)"])
