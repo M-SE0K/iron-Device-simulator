@@ -106,7 +106,7 @@ function CalibrationDrawer({ projectName, onApply }: Props) {
     refreshInputDevices, revealDeviceNames,
   } = useMediaDevices();
   const {
-    sampleRateOptions, bufferSizeOptions, channelOptions, outputChannelOptions, deviceOptionsLoading, adjustedNote, clearAdjustedNote,
+    sampleRateOptions, bufferSizeOptions, channelOptions, deviceOptionsLoading, adjustedNote, clearAdjustedNote,
   } = useDeviceOptionAutoCorrect({ deviceInfo, deviceInfoLoading, hasAudioDeviceBridge, draft, set });
   const {
     deviceStatus, appliedRuntime, apply, resetStatus,
@@ -288,16 +288,6 @@ function CalibrationDrawer({ projectName, onApply }: Props) {
                 value={draft.channels}
                 options={channelOptions}
                 onChange={(v) => { clearAdjustedNote(); set({ channels: v }); }}
-                disabled={deviceOptionsLoading}
-              />
-            )}
-            {hasAudioDeviceBridge && (deviceInfo?.outputChannels ?? 0) > 0 && (
-              <SelectField
-                label="Output Channel (file playback)"
-                unit="ch"
-                value={draft.outputChannel}
-                options={outputChannelOptions}
-                onChange={(v) => { clearAdjustedNote(); set({ outputChannel: v }); }}
                 disabled={deviceOptionsLoading}
               />
             )}
