@@ -8,7 +8,7 @@ import SelectedFilePanel from "@/features/audio/components/dashboard/SelectedFil
 import WaveformPlayer, { WaveformPlayerHandle } from "@/features/audio/components/player/WaveformPlayer";
 import DuplexFilePlayer from "@/features/audio/components/player/DuplexFilePlayer";
 import MicrophonePlayer, { type MicRecordingExport, type MicrophonePlayerHandle } from "@/features/audio/components/player/MicrophonePlayer";
-import type { CaptureStreamListener } from "@/features/audio/components/player/capture/useCaptureSession";
+import type { CaptureStreamListener } from "@/features/audio/components/player/capture/types";
 import TemperatureChart from "@/features/audio/components/chart/TemperatureChart";
 import ExcursionChart from "@/features/audio/components/chart/ExcursionChart";
 import ChartDetailOverlay, { type DetailMetric } from "@/features/audio/components/chart/ChartDetailOverlay";
@@ -29,6 +29,7 @@ import type { QueuedFrame } from "@/features/audio/lib/render/types";
 import { useFrameCachePersistence } from "@/features/audio/components/dashboard/hooks/useFrameCachePersistence";
 import { useWorkspaceSave } from "@/features/audio/components/dashboard/hooks/useWorkspaceSave";
 import { useCtrlBToggle } from "@/shared/hooks/useCtrlBToggle";
+import { useActiveDrawer } from "@/features/audio/components/dashboard/ActiveDrawerContext";
 
 interface DashboardPageProps {
   useQueue: boolean;
@@ -45,6 +46,7 @@ export default function DashboardPage({ useQueue }: DashboardPageProps) {
 
   const { values: calibration } = useCalibration();
   const { saveCurrent, pendingLocalFile, clearPendingLocalFile } = useWorkspace();
+  const { active: activeDrawer, openDrawer, closeDrawer } = useActiveDrawer();
   const inputParams = useMemo<InputParameterValues>(
     () => ({
       ampOutputPower: calibration.ampOutputPower,
@@ -271,6 +273,9 @@ export default function DashboardPage({ useQueue }: DashboardPageProps) {
       className="flex flex-col lg:flex-row min-h-screen lg:h-screen lg:overflow-hidden"
     >
       <Sidebar
+        activeDrawer={activeDrawer}
+        onOpenDrawer={openDrawer}
+        onCloseDrawer={closeDrawer}
         mobileOpen={mobileNavOpen}
         onMobileClose={closeMobileNav}
         collapsed={sidebarCollapsed}

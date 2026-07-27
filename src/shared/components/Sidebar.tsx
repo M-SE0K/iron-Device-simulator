@@ -2,23 +2,32 @@
 
 import { memo } from "react";
 import { LayoutDashboard, FolderOpen, History, SlidersHorizontal } from "lucide-react";
-import { useActiveDrawer, type DrawerKey } from "@/features/audio/components/dashboard/ActiveDrawerContext";
 
-const NAV_ITEMS: { key: DrawerKey; label: string; icon: typeof FolderOpen }[] = [
+type SidebarDrawerKey = "workspace" | "records" | "calibration";
+
+const NAV_ITEMS: { key: SidebarDrawerKey; label: string; icon: typeof FolderOpen }[] = [
   { key: "workspace",   label: "Workspace",  icon: FolderOpen },
   { key: "records",     label: "Records",   icon: History },
   { key: "calibration", label: "Calibration", icon: SlidersHorizontal },
 ];
 
 interface SidebarProps {
+  activeDrawer: SidebarDrawerKey | null;
+  onOpenDrawer: (key: SidebarDrawerKey) => void;
+  onCloseDrawer: () => void;
   mobileOpen?: boolean;
   onMobileClose?: () => void;
   collapsed?: boolean;
 }
 
-function Sidebar({ mobileOpen = false, onMobileClose, collapsed = false }: SidebarProps) {
-  const { active, openDrawer, closeDrawer } = useActiveDrawer();
-
+function Sidebar({
+  activeDrawer,
+  onOpenDrawer,
+  onCloseDrawer,
+  mobileOpen = false,
+  onMobileClose,
+  collapsed = false,
+}: SidebarProps) {
   const handleNav = (fn: () => void) => {
     fn();
     onMobileClose?.();
@@ -56,10 +65,10 @@ function Sidebar({ mobileOpen = false, onMobileClose, collapsed = false }: Sideb
       {/* 대시보드(드로어 전부 닫기) */}
       <button
         type="button"
-        onClick={() => handleNav(closeDrawer)}
-        aria-current={active === null}
+        onClick={() => handleNav(onCloseDrawer)}
+        aria-current={activeDrawer === null}
         className={`flex items-center gap-2.5 px-3.5 py-2.5 rounded-[10px] text-sm transition-colors duration-200 ${
-          active === null ? "bg-white/14 text-white font-semibold" : "text-white/65 font-medium hover:bg-white/8 hover:text-white/90"
+          activeDrawer === null ? "bg-white/14 text-white font-semibold" : "text-white/65 font-medium hover:bg-white/8 hover:text-white/90"
         }`}
       >
         <LayoutDashboard className="w-4 h-4 shrink-0" />
@@ -67,12 +76,12 @@ function Sidebar({ mobileOpen = false, onMobileClose, collapsed = false }: Sideb
       </button>
 
       {NAV_ITEMS.map(({ key, label, icon: Icon }) => {
-        const isActive = active === key;
+        const isActive = activeDrawer === key;
         return (
           <button
             key={key}
             type="button"
-            onClick={() => handleNav(() => openDrawer(key))}
+            onClick={() => handleNav(() => onOpenDrawer(key))}
             aria-current={isActive}
             className={`flex items-center gap-2.5 px-3.5 py-2.5 rounded-[10px] text-sm transition-colors duration-200 ${
               isActive ? "bg-white/14 text-white font-semibold" : "text-white/65 font-medium hover:bg-white/8 hover:text-white/90"

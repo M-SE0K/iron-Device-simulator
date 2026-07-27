@@ -8,7 +8,7 @@ import type { SocketLike } from "@/features/audio/lib/engine/protocol/local-sock
 import { clampCaptureChannels, CHANNELS } from "@/features/audio/lib/engine/core";
 import { encodeToInt16 } from "@/features/audio/lib/engine/utils";
 import { humanizeIpcError } from "@/shared/lib/ipc-error";
-import type { CaptureStreamEvent } from "./useCaptureSession";
+import type { CaptureStreamEvent } from "./types";
 import { createNativeFrameReframer } from "./reframeNativeChunk";
 
 // buf(분석 엔진의 In/Out PCM)에 넣을 "음원 신호" 프레임을 만든다 — v_sensing/i_sensing이

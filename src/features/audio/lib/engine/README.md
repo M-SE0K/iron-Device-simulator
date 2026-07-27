@@ -38,7 +38,7 @@ core.ts (leaf)
 
 - **들어옴** — `features/audio/types.ts`에서 `EngineParams`/`WsServerMessage` 타입을 가져온다. 런타임 입력은 플레이어가 `SocketLike.send()`로 넣는 JSON init 메시지(Calibration 값)와 binary PCM 프레임(인터리브 Int16, ch0=V/ch1=I) 두 가지다.
 - **나감** — `emit()`이 `onmessage`로 `WsServerMessage`(`ready`/`frame`/`error`)를 JSON 문자열로 돌려준다. `frame` 메시지는 `{type, frameIndex, time, temperature:[ch0,ch1], excursion:[ch0,ch1], processingMs}`. 이어서 `emitBinary()`가 같은 `frameIndex`를 단 **바이너리 메시지**(보호 감쇠 전/후 PCM 쌍)를 보낸다 — `protocol/analysis.ts`의 `encodeProcessedPcmMessage`/`decodeProcessedPcmMessage` 참고.
-- **소비자(플레이어 → engine 방향)** — `capture/useCaptureSession.ts`가 `createAnalysisSocket`과 `BYTES_PER_SAMPLE`을; `capture/useNativeCapture.ts`·`capture/useWebAudioWorkletCapture.ts`가 `SocketLike` 타입을(웹 캡처는 `encodeToInt16`도); `stream/buildInitMessage.ts`가 `EngineRuntimeConfig`를 가져다 쓴다. `lib/wav-encoder.ts`는 `CHANNELS`/`BYTES_PER_SAMPLE`을 WAV 헤더 계산에 쓴다.
+- **소비자(플레이어 → engine 방향)** — `capture/useCaptureSession.ts`가 `createAnalysisSocket`과 `BYTES_PER_SAMPLE`을; `capture/useNativeCapture.ts`·`capture/useWebAudioWorkletCapture.ts`가 `SocketLike` 타입을(웹 캡처는 `encodeToInt16`도); `capture/build-init-message.ts`가 `EngineRuntimeConfig`를 가져다 쓴다. `lib/wav-encoder.ts`는 `CHANNELS`/`BYTES_PER_SAMPLE`을 WAV 헤더 계산에 쓴다.
 - **WASM 산출물** — `adapters/wasm-client.ts`가 `public/wasm/ff_prot.{js,wasm}`(`electron/native/wasm-engine/build-wasm.sh` 산출물, 원본은 참조 스텁 `electron/native/wasm-engine/ff_prot.c`)를 로드한다.
 
 프레임 1개의 내부 처리 흐름:

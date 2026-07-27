@@ -9,8 +9,9 @@ import {
   buildValueTooltip, buildDataZoom, buildDynamicTimeFormatter,
   extractZoomState, timeDecimalsForInterval, shouldShowFrameSymbols, type ZoomStateRef,
 } from "@/features/audio/lib/render/chart-option";
+import { BucketEnvelope, envelopeToSeries } from "@/features/audio/lib/render/envelope";
 import { peekWavHeader, decodeWavRange } from "@/features/audio/lib/codec/wav-incremental";
-import type { CaptureStreamEvent, CaptureStreamListener } from "@/features/audio/components/player/capture/useCaptureSession";
+import type { CaptureStreamEvent, CaptureStreamListener } from "@/features/audio/components/player/capture/types";
 import { useErrorPopup } from "@/shared/components/error-popup/ErrorPopupContext";
 
 const BUCKETS = 1000;
@@ -28,58 +29,6 @@ const COLOR_INPUT_L     = "#93c5fd"; // blue-300 (옅음 — 원본 참고선)
 const COLOR_PROTECTED_L = "#2563eb"; // blue-600 (진함 — 보호 감쇠 후 신호)
 const COLOR_INPUT_R     = "#fcd34d"; // amber-300 (옅음 — 원본 참고선)
 const COLOR_PROTECTED_R = "#d97706"; // amber-600 (진함 — 보호 감쇠 후 신호)
-
-class BucketEnvelope {
-  readonly min: Float32Array;
-  readonly max: Float32Array;
-  readonly seen: Uint8Array;
-  filledUpTo = -1;
-
-  constructor(readonly buckets: number) {
-    this.min = new Float32Array(buckets);
-    this.max = new Float32Array(buckets);
-    this.seen = new Uint8Array(buckets);
-  }
-
-  add(bucket: number, v: number) {
-    if (bucket < 0 || bucket >= this.buckets) return;
-    if (this.seen[bucket] === 0) {
-      this.min[bucket] = v;
-      this.max[bucket] = v;
-      this.seen[bucket] = 1;
-      if (bucket > this.filledUpTo) this.filledUpTo = bucket;
-      return;
-    }
-    if (v < this.min[bucket]) this.min[bucket] = v;
-    else if (v > this.max[bucket]) this.max[bucket] = v;
-  }
-
-  clear() {
-    this.seen.fill(0);
-    this.filledUpTo = -1;
-  }
-
-  peak(): number {
-    let peak = 0;
-    for (let b = 0; b <= this.filledUpTo; b++) {
-      if (this.seen[b] === 0) continue;
-      const a = Math.max(Math.abs(this.min[b]), Math.abs(this.max[b]));
-      if (a > peak) peak = a;
-    }
-    return peak;
-  }
-}
-
-function envelopeToSeries(env: BucketEnvelope, durationSec: number): [number, number][] {
-  const dt = durationSec / env.buckets;
-  const out: [number, number][] = [];
-  for (let b = 0; b <= env.filledUpTo; b++) {
-    if (env.seen[b] === 0) continue;
-    const t = b * dt;
-    out.push([t, env.min[b]], [t + dt * 0.5, env.max[b]]);
-  }
-  return out;
-}
 
 function ProtectedComparePanelImpl({
   subscribeCaptureStream,

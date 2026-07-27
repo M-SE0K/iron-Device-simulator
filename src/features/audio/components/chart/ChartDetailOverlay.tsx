@@ -16,7 +16,7 @@ import FullscreenOverlay from "@/shared/components/overlay/FullscreenOverlay";
 import { useErrorPopup } from "@/shared/components/error-popup/ErrorPopupContext";
 import { BYTES_PER_SAMPLE, INT16_SCALE } from "@/features/audio/lib/engine/core";
 import { appendWindowed, decodeWavRange, peekWavHeader } from "@/features/audio/lib/codec/wav-incremental";
-import type { CaptureStreamEvent, CaptureStreamListener } from "@/features/audio/components/player/capture/useCaptureSession";
+import type { CaptureStreamEvent, CaptureStreamListener } from "@/features/audio/components/player/capture/types";
 import { channelLabel, channelColor } from "@/features/audio/lib/render/channel-meta";
 import TemperatureChart from "./TemperatureChart";
 import ExcursionChart from "./ExcursionChart";
