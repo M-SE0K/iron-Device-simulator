@@ -27,17 +27,18 @@ contextBridge.exposeInMainWorld("audioCapture", {
 });
 
 contextBridge.exposeInMainWorld("audioPlayCapture", {
-  // 재생할 파일(장치 SR·mono로 디코드한 raw Float32)을 청크로 잘라 미리 전송해두는 핸드셰이크
-  // — 렌더러가 startWrite → writeChunk(반복) → finalizeWrite 순으로 호출해 writeId를 얻는다.
-  // 한 번의 IPC로 파일 전체를 구조화 복제 + 동기 파일쓰기하면 메인 프로세스가 멎으므로,
-  // 작은 조각으로 나눠 순차 전송한다.
+  // 재생할 파일(장치 SR로 디코드한 인터리브 스테레오 raw Float32, [L0,R0,L1,R1,...])을
+  // 청크로 잘라 미리 전송해두는 핸드셰이크 — 렌더러가 startWrite → writeChunk(반복) →
+  // finalizeWrite 순으로 호출해 writeId를 얻는다. 한 번의 IPC로 파일 전체를 구조화 복제 +
+  // 동기 파일쓰기하면 메인 프로세스가 멎으므로, 작은 조각으로 나눠 순차 전송한다.
   startWrite: (opts) => ipcRenderer.invoke("audio-playcapture:start-write", opts),
   writeChunk: (opts) => ipcRenderer.invoke("audio-playcapture:write-chunk", opts),
   finalizeWrite: (opts) => ipcRenderer.invoke("audio-playcapture:finalize-write", opts),
   // 업로드 도중 실패/취소 시 진행 중이거나 완료된 임시 파일을 정리한다.
   cancelWrite: (opts) => ipcRenderer.invoke("audio-playcapture:cancel-write", opts),
   // 파일 재생 + 캡처 (단일 IOProc) — opts.refWriteId(finalizeWrite로 완성해둔 ref 파일)를
-  // 넘기면 play-capture 헬퍼가 출력 ch0으로 재생하며 캡처를 스트리밍한다.
+  // 넘기면 play-capture 헬퍼가 출력 ch0(L)/ch1(R)로 재생하며 캡처를 스트리밍한다. R은
+  // best-effort — 장치에 그 채널이 없으면 헬퍼가 조용히 모노로 폴백한다.
   start: (opts) => ipcRenderer.invoke("audio-playcapture:start", opts),
   // "pause" | "resume" — 헬퍼 stdin 라인 명령 중계 (재생 위치 동결/재개, 캡처는 계속)
   control: (action) => ipcRenderer.invoke("audio-playcapture:control", { action }),

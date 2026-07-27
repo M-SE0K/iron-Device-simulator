@@ -11,6 +11,7 @@ import ChannelRowHeader from "@/features/audio/components/channel/ChannelRowHead
 import { formatTime } from "@/shared/lib/utils";
 import { useOverlayTransition } from "@/shared/hooks/useOverlayTransition";
 import FullscreenOverlay from "@/shared/components/overlay/FullscreenOverlay";
+import { useErrorPopup } from "@/shared/components/error-popup/ErrorPopupContext";
 
 interface Props {
   item: WorkspaceItemMeta;
@@ -18,6 +19,7 @@ interface Props {
 }
 
 export default function ChannelViewerOverlay({ item, onClose }: Props) {
+  const { showError } = useErrorPopup();
   const [decoded, setDecoded] = useState<DecodedChannels | null>(null);
   const [error, setError]     = useState<string | null>(null);
 
@@ -29,17 +31,23 @@ export default function ChannelViewerOverlay({ item, onClose }: Props) {
       try {
         const payload = await getWorkspacePayload(item.id);
         if (!payload?.audioBlob) {
-          if (!cancelled) setError("No audio saved for this session.");
+          if (!cancelled) {
+            setError("No audio saved for this session.");
+            showError("No audio saved for this session.");
+          }
           return;
         }
         const result = await decodeAudioChannels(payload.audioBlob);
         if (!cancelled) setDecoded(result);
       } catch {
-        if (!cancelled) setError("Failed to decode audio.");
+        if (!cancelled) {
+          setError("Failed to decode audio.");
+          showError("Failed to decode audio.");
+        }
       }
     })();
     return () => { cancelled = true; };
-  }, [item.id]);
+  }, [item.id, showError]);
 
   return (
     <FullscreenOverlay show={show} ariaLabel={`${item.name} channel waveforms`}>
@@ -75,7 +83,7 @@ export default function ChannelViewerOverlay({ item, onClose }: Props) {
       </header>
 
       <div className="flex-1 min-h-0 overflow-y-auto p-3 sm:p-5">
-        {error && <p className="text-sm text-red-500 text-center py-10">{error}</p>}
+        {error && <p className="text-sm text-iron-400 text-center py-10">Unable to load channel waveforms.</p>}
         {!error && !decoded && (
           <p className="text-sm text-iron-400 text-center py-10 animate-pulse">Decoding audio…</p>
         )}

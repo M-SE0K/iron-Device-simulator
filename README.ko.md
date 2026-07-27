@@ -78,7 +78,7 @@ npm run electron:preview    # electron . — electron/main.js를 현재 out/ 기
 웹에서의 동작은 배제하고 작성된 명령어로, Electron 개발 명령어이니 참고 부탁드립니다.
 
 ```bash
-npm run wasm:build          # electron/native/wasm-engine/*.c를 브라우저 타깃 WASM으로 컴파일 (emcc, 없으면 Docker 폴백)
+npm run wasm:build          # electron/native/wasm-engine/*.c를 브라우저 타깃 WASM으로 컴파일
 npm run wasm:preview        # 변경된 알고리즘에 대해서만 변경 이후 electron 자동 실행해주는 명령어
 npm run build:desktop       # 정적 빌드 → out/ (위 빌드 항목 참고)
 npm run build:electron      # {:linux, :mac, :windows} 정적 빌드 + Electron 패키징 → out/ + dist-electron/ (위 빌드 항목 참고)

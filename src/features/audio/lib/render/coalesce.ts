@@ -12,17 +12,8 @@ export function coalesceFrames(bucket: QueuedFrame[]): AnalysisFrame {
     sourceCount: frames.length,
     timeStart:   frames[0].time,
     timeEnd:     latest.time,
-    temperatureMax: [
-      Math.max(...frames.map(f => f.temperature[0])),
-      Math.max(...frames.map(f => f.temperature[1])),
-    ],
-    excursionMin: [
-      Math.min(...frames.map(f => f.excursion[0])),
-      Math.min(...frames.map(f => f.excursion[1])),
-    ],
-    excursionMax: [
-      Math.max(...frames.map(f => f.excursion[0])),
-      Math.max(...frames.map(f => f.excursion[1])),
-    ],
+    temperatureMax: Math.max(...frames.map(f => f.temperature)),
+    excursionMin:   Math.min(...frames.map(f => f.excursion)),
+    excursionMax:   Math.max(...frames.map(f => f.excursion)),
   };
 }

@@ -33,14 +33,14 @@ export interface CalibrationValues {
 
 export interface AnalysisFrame {
   time: number;
-  temperature: [number, number];
-  excursion: [number, number];
+  temperature: number;
+  excursion: number;
   sourceCount?: number;
   timeStart?: number;
   timeEnd?: number;
-  excursionMin?: [number, number];
-  excursionMax?: [number, number];
-  temperatureMax?: [number, number];
+  excursionMin?: number;
+  excursionMax?: number;
+  temperatureMax?: number;
   isEvent?: boolean;
   eventType?: "temp_warn" | "temp_danger" | "exc_peak";
 }
@@ -57,5 +57,5 @@ export type AppStatus =
 
 export type WsServerMessage =
   | { type: "ready" }
-  | { type: "frame"; frameIndex: number; time: number; temperature: [number, number]; excursion: [number, number]; processingMs: number; engineExecMs?: number }
+  | { type: "frame"; frameIndex: number; time: number; temperature: number; excursion: number; processingMs: number; engineExecMs?: number }
   | { type: "error"; message: string };

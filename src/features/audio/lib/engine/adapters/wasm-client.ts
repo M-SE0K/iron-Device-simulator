@@ -77,12 +77,12 @@ class ClientWasmMemoryLayout implements MemoryLayout {
   }
 
   readResults(tempPtr: number, excPtr: number) {
+    // WASM 엔진(ff_prot.c)은 여전히 int32[channels]를 채널별로 채우지만, 앱 레이어는
+    // 더 이상 채널을 구분하지 않는 단일 값을 쓴다 — 대표값으로 ch0만 취한다.
     return [
       this.mod.HEAP32[tempPtr >> 2],
-      this.mod.HEAP32[(tempPtr >> 2) + 1],
       this.mod.HEAP32[excPtr >> 2],
-      this.mod.HEAP32[(excPtr >> 2) + 1],
-    ] as [number, number, number, number];
+    ] as [number, number];
   }
 
   free() {

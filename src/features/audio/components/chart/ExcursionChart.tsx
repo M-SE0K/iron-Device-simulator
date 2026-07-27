@@ -5,11 +5,10 @@ import { Maximize2 } from "lucide-react";
 import { AnalysisFrame } from "@/features/audio/types";
 import ReactECharts from "@/shared/components/ReactECharts";
 import { toMm, MM_DECIMALS } from "@/features/audio/lib/units";
-import SegmentedControl from "@/shared/components/ui/SegmentedControl";
 import { perf } from "@/features/audio/lib/perf/collector";
 import { e2e } from "@/features/audio/lib/perf-e2e/collector";
 import {
-  computeStreamWindow, computeExcursionYRange, WINDOW_SIZE, type ChannelMode,
+  computeStreamWindow, computeExcursionYRange, WINDOW_SIZE,
 } from "@/features/audio/lib/render/chart-window";
 import {
   buildValueTooltip, resolveTimeDecimals,
@@ -30,15 +29,9 @@ interface Props {
 
 const SCALE_PADDING = 1.15;
 
-const CH_COLOR: Record<ChannelMode, { ch0: string; ch1: string }> = {
-  L:    { ch0: "#10B981", ch1: "#10B981" },
-  R:    { ch0: "#F59E0B", ch1: "#F59E0B" },
-  Both: { ch0: "#10B981", ch1: "#F59E0B" },
-};
+const EXC_COLOR = "#10B981";
 
 export default function ExcursionChart({ frames, currentTime, isActive, streaming = false, audioDuration, lttb = true, perfTrack = false, onExpand }: Props) {
-  const [channelMode, setChannelMode] = useState<ChannelMode>("Both");
-
   const zoomRef = useRef({ start: 0, end: 100 });
   const [showSymbols, setShowSymbols] = useState(false);
   const pointCountRef = useRef(0);
@@ -93,59 +86,38 @@ export default function ExcursionChart({ frames, currentTime, isActive, streamin
   pointCountRef.current = windowFrames.length;
 
   const { yMin, yMax } = useMemo(
-    () => computeExcursionYRange(windowFrames, channelMode, toMm, SCALE_PADDING),
-    [windowFrames, channelMode],
+    () => computeExcursionYRange(windowFrames, toMm, SCALE_PADDING),
+    [windowFrames],
   );
 
-  const displayExc = useMemo(() => {
-    if (currentExc === null) return null;
-    if (channelMode === "L") return currentExc[0];
-    if (channelMode === "R") return currentExc[1];
-    return Math.abs(currentExc[0]) >= Math.abs(currentExc[1]) ? currentExc[0] : currentExc[1];
-  }, [currentExc, channelMode]);
+  const displayExc = currentExc;
 
   const excColor =
     displayExc !== null && Math.abs(toMm(displayExc)) > Math.abs(yMax) * 0.85
       ? "#EF4444"
-      : CH_COLOR[channelMode].ch0;
+      : EXC_COLOR;
 
   const option = useMemo(() => {
-    const colors = CH_COLOR[channelMode];
-
     const samplingOpts = lttb ? { sampling: "lttb" as const, large: true, largeThreshold: 2000 } : {};
     const timeDecimals = resolveTimeDecimals(windowFrames);
 
-    const seriesL = buildLineSeries({
-      name: "L (ch0)",
-      data: windowFrames.map((f) => [f.time, toMm(f.excursion[0])]),
-      color: colors.ch0, smooth: 0.3, width: 1.5, sampling: samplingOpts,
-      area: channelMode !== "Both" ? buildAreaGradient("rgba(16,185,129,0.15)", "rgba(16,185,129,0)") : undefined,
+    const series = buildLineSeries({
+      name: "Excursion",
+      data: windowFrames.map((f) => [f.time, toMm(f.excursion)]),
+      color: EXC_COLOR, smooth: 0.3, width: 1.5, sampling: samplingOpts,
+      area: buildAreaGradient("rgba(16,185,129,0.15)", "rgba(16,185,129,0)"),
       showSymbol: showSymbols, symbolSize: 4,
     });
-
-    const seriesR = buildLineSeries({
-      name: "R (ch1)",
-      data: windowFrames.map((f) => [f.time, toMm(f.excursion[1])]),
-      color: colors.ch1, smooth: 0.3, width: 1.5, sampling: samplingOpts,
-      area: channelMode === "R" ? buildAreaGradient("rgba(245,158,11,0.15)", "rgba(245,158,11,0)") : undefined,
-      showSymbol: showSymbols, symbolSize: 4,
-    });
-
-
-    const series =
-      channelMode === "L"    ? [seriesL] :
-      channelMode === "R"    ? [seriesR] :
-      [seriesL, seriesR];
 
     return buildBaseChartOption({
-      channelMode, windowFrames, zoomRef, gridLeft: 60,
+      windowFrames, zoomRef, gridLeft: 60,
       zoomColors: { filler: "rgba(16,185,129,0.12)", handle: "#10B981" },
       timeDecimals,
       yAxis: buildValueYAxis({ name: "mm", min: yMin, max: yMax, labelFormatter: (v: number) => v.toFixed(MM_DECIMALS) }),
-      series,
+      series: [series],
       tooltip: buildValueTooltip({ unit: "mm", decimals: MM_DECIMALS, timeDecimals }),
     });
-  }, [windowFrames, channelMode, yMin, yMax, lttb, showSymbols]);
+  }, [windowFrames, yMin, yMax, lttb, showSymbols]);
 
   const showChart = audioDuration != null || frames.length > 0;
 
@@ -168,27 +140,7 @@ export default function ExcursionChart({ frames, currentTime, isActive, streamin
         </div>
 
         <div className="flex items-center gap-2">
-          <SegmentedControl
-            size="sm"
-            value={channelMode}
-            onChange={setChannelMode}
-            options={[
-              { value: "L", label: "L" },
-              { value: "R", label: "R" },
-              { value: "Both", label: "Both" },
-            ]}
-            className="w-[116px]"
-            aria-label="Excursion channel"
-          />
-
-          {currentExc !== null && channelMode === "Both" ? (
-            <div className="flex items-center gap-1.5 font-mono text-sm font-semibold">
-              <span style={{ color: CH_COLOR.Both.ch0 }}>{toMm(currentExc[0]).toFixed(MM_DECIMALS)}</span>
-              <span className="text-iron-300 text-xs">/</span>
-              <span style={{ color: CH_COLOR.Both.ch1 }}>{toMm(currentExc[1]).toFixed(MM_DECIMALS)}</span>
-              <span className="text-xs ml-0.5 font-normal text-iron-400">mm</span>
-            </div>
-          ) : displayExc !== null ? (
+          {displayExc !== null ? (
             <span id="current-excursion-value" className="font-mono text-lg font-semibold" style={{ color: excColor }}>
               {toMm(displayExc).toFixed(MM_DECIMALS)}<span className="text-xs ml-0.5 font-normal text-iron-400">mm</span>
             </span>
@@ -198,7 +150,7 @@ export default function ExcursionChart({ frames, currentTime, isActive, streamin
 
       <div className="chart-body flex-1 p-2 min-h-[160px]">
         {showChart ? (
-          <ReactECharts key={channelMode} option={option} style={{ height: "100%", width: "100%" }} notMerge={false} onEvents={echartsEvents.current} />
+          <ReactECharts option={option} style={{ height: "100%", width: "100%" }} notMerge={false} onEvents={echartsEvents.current} />
         ) : (
           <div className="chart-empty-state h-full flex items-center justify-center text-xs text-iron-300">
             Data will appear here in real time during playback

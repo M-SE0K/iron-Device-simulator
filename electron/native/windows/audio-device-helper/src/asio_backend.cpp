@@ -225,9 +225,11 @@ struct CaptureStream {
 
   // ── play-capture ──
   bool playCapture = false;
-  std::vector<float> ref;          // 재생 신호 전체 (RT 스레드에서 파일 I/O 금지 → 미리 메모리로)
+  std::vector<float> ref;          // 재생 신호 L 전체 (RT 스레드에서 파일 I/O 금지 → 미리 메모리로)
+  std::vector<float> refR;         // 재생 신호 R 전체 — 스테레오 미요청/폴백이면 비어 있다
   long outputCount = 0;            // 등록한 출력 채널 수 (= 장치의 전체 출력 채널)
   long playbackChannel = 0;
+  long playbackChannelR = -1;      // -1이면 R 출력 비활성(모노 폴백)
   size_t refPos = 0;               // RT 스레드 전용 — 다른 스레드가 건드리지 않는다
   size_t tailFrames = 0;           // 재생 종료 후 흘려보낸 프레임 (감쇠 테일)
   size_t tailTarget = 0;
@@ -300,6 +302,12 @@ void bufferSwitch(long index, ASIOBool /*directProcess*/) {
                        s->ref.data() + s->refPos,
                        s->infos[outBase + static_cast<size_t>(s->playbackChannel)].buffers[index],
                        n);
+    if (s->playbackChannelR >= 0 && !s->refR.empty()) {
+      convert::fromFloat(s->outputTypes[static_cast<size_t>(s->playbackChannelR)],
+                         s->refR.data() + s->refPos,
+                         s->infos[outBase + static_cast<size_t>(s->playbackChannelR)].buffers[index],
+                         n);
+    }
     s->refPos += n;
     // 마지막 조각이 buffer보다 짧으면 나머지는 위 memset이 남긴 0이라 그대로 무음이다.
   } else {
@@ -346,7 +354,7 @@ long asioMessage(long selector, long value, void* /*message*/, double* /*opt*/) 
       return 2;
     case kAsioResetRequest: {
       // USB 분리 등. ⚠️ RT 컨텍스트에서 올 수 있어 여기서 ASIOExit을 부르면 데드락이다.
-      // 플래그만 세우고 main 스레드가 정리 후 exit 3으로 나간다. (CAPTURE-PLAN.md §4)
+      // 플래그만 세우고 main 스레드가 정리 후 exit 3으로 나간다.
       CaptureStream* s = g_stream.load(std::memory_order_acquire);
       if (s) s->resetRequested.store(true, std::memory_order_release);
       return 1;
@@ -551,6 +559,12 @@ bool startCapture(const CaptureConfig& cfg, CaptureInfo& out, std::string& error
     s->outputCount = deviceOut;
     s->playbackChannel = cfg.outputChannel;
 
+    // R은 best-effort다 — 범위 밖이거나 L과 같으면 에러 없이 스테레오를 포기한다(모노 폴백).
+    // 렌더러는 항상 L+1을 보내므로, 출력 채널이 1개뿐인 장치에서도 재생 자체는 계속돼야 한다.
+    if (cfg.outputChannelR >= 0 && cfg.outputChannelR < deviceOut && cfg.outputChannelR != cfg.outputChannel) {
+      s->playbackChannelR = cfg.outputChannelR;
+    }
+
     // 전체를 미리 메모리에 올린다 — RT 스레드에서 파일을 읽으면 그대로 드롭아웃이다.
     FILE* f = fopen(cfg.refPath.c_str(), "rb");
     if (!f) {
@@ -565,13 +579,28 @@ bool startCapture(const CaptureConfig& cfg, CaptureInfo& out, std::string& error
       error = "ref-bad-size(" + std::to_string(bytes) + ")";
       return false;
     }
-    s->ref.resize(static_cast<size_t>(bytes) / sizeof(float));
-    if (!s->ref.empty() && fread(s->ref.data(), 1, static_cast<size_t>(bytes), f) != static_cast<size_t>(bytes)) {
+    std::vector<float> flat(static_cast<size_t>(bytes) / sizeof(float));
+    if (!flat.empty() && fread(flat.data(), 1, static_cast<size_t>(bytes), f) != static_cast<size_t>(bytes)) {
       fclose(f);
       error = "ref-read-failed(" + cfg.refPath + ")";
       return false;
     }
     fclose(f);
+
+    // refChannels==2면 인터리브 스테레오([L0,R0,L1,R1,...])를 프레임 단위로 L/R 분리한다.
+    // 그 외(모노)면 flat을 그대로 L로 쓰고 refR은 비워둔다(위에서 playbackChannelR이 -1이 아니어도
+    // refR이 비어 있으면 bufferSwitch가 R 출력을 건너뛴다 — 자연히 모노로 재생됨).
+    if (cfg.refChannels == 2 && flat.size() >= 2) {
+      const size_t frameCount = flat.size() / 2;
+      s->ref.resize(frameCount);
+      s->refR.resize(frameCount);
+      for (size_t i = 0; i < frameCount; ++i) {
+        s->ref[i] = flat[i * 2];
+        s->refR[i] = flat[i * 2 + 1];
+      }
+    } else {
+      s->ref = std::move(flat);
+    }
   }
 
   long minSize = 0, maxSize = 0, preferred = 0, granularity = 0;
@@ -607,7 +636,7 @@ bool startCapture(const CaptureConfig& cfg, CaptureInfo& out, std::string& error
   const long totalChannels = s->srcChannels + s->outputCount;
   ASIOError rc = ASIOCreateBuffers(s->infos.data(), totalChannels, size, &s->callbacks);
   if (rc != ASE_OK && size != preferred) {
-    // 격자 위 값인데도 거절하고 preferred만 받는 드라이버가 있다 (CAPTURE-PLAN.md §0).
+    // 격자 위 값인데도 거절하고 preferred만 받는 드라이버가 있다.
     size = preferred;
     rc = ASIOCreateBuffers(s->infos.data(), totalChannels, size, &s->callbacks);
   }
@@ -679,6 +708,7 @@ bool startCapture(const CaptureConfig& cfg, CaptureInfo& out, std::string& error
   out.playCapture = s->playCapture;
   out.refFrames = static_cast<long>(s->ref.size());
   out.playbackChannel = s->playbackChannel;
+  out.playbackChannelR = (s->playbackChannelR >= 0 && !s->refR.empty()) ? s->playbackChannelR : -1;
 
   // ASIOStart 직후 콜백이 돌기 시작하므로 포인터를 **먼저** 공개해야 한다.
   g_stream.store(s.get(), std::memory_order_release);

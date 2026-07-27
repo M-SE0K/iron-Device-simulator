@@ -1,12 +1,10 @@
 import type { AnalysisFrame } from "@/features/audio/types";
 import { findFrameIndex } from "@/shared/lib/utils";
 
-export type ChannelMode = "L" | "R" | "Both";
-
 export const WINDOW_SIZE = 1000;
 
 export interface StreamWindowResult {
-  current: [number, number] | null;
+  current: number | null;
   windowFrames: AnalysisFrame[];
 }
 
@@ -17,7 +15,7 @@ export function computeStreamWindow(
   streaming: boolean,
   audioDuration: number | null | undefined,
   windowSize: number,
-  pick: (f: AnalysisFrame) => [number, number],
+  pick: (f: AnalysisFrame) => number,
 ): StreamWindowResult {
   if (!isActive || frames.length === 0) {
     return { current: null, windowFrames: frames.slice(0, windowSize) };
@@ -36,7 +34,6 @@ export function computeStreamWindow(
 
 export function computeExcursionYRange(
   windowFrames: AnalysisFrame[],
-  channelMode: ChannelMode,
   toDisplayUnit: (v: number) => number,
   scalePadding: number,
 ): { yMin: number; yMax: number } {
@@ -46,16 +43,9 @@ export function computeExcursionYRange(
   let rawMax = -Infinity;
   const consider = (v: number) => { if (v < rawMin) rawMin = v; if (v > rawMax) rawMax = v; };
   for (const f of windowFrames) {
-    if (channelMode !== "R") {
-      consider(f.excursion[0]);
-      if (f.excursionMin) consider(f.excursionMin[0]);
-      if (f.excursionMax) consider(f.excursionMax[0]);
-    }
-    if (channelMode !== "L") {
-      consider(f.excursion[1]);
-      if (f.excursionMin) consider(f.excursionMin[1]);
-      if (f.excursionMax) consider(f.excursionMax[1]);
-    }
+    consider(f.excursion);
+    if (f.excursionMin !== undefined) consider(f.excursionMin);
+    if (f.excursionMax !== undefined) consider(f.excursionMax);
   }
   if (!isFinite(rawMin) || !isFinite(rawMax)) return { yMin: -0.01, yMax: 0.01 };
 
@@ -68,13 +58,13 @@ export function computeExcursionYRange(
 
 export function computeTemperatureYRange(
   windowFrames: AnalysisFrame[],
-  channelMode: ChannelMode,
 ): { yMin: number; yMax: number } {
   let dataMax = -Infinity;
   let dataMin = Infinity;
   for (const f of windowFrames) {
-    if (channelMode !== "R") { const v = f.temperature[0]; if (v > dataMax) dataMax = v; if (v < dataMin) dataMin = v; }
-    if (channelMode !== "L") { const v = f.temperature[1]; if (v > dataMax) dataMax = v; if (v < dataMin) dataMin = v; }
+    const v = f.temperature;
+    if (v > dataMax) dataMax = v;
+    if (v < dataMin) dataMin = v;
   }
 
   const niceStep = (v: number) => (v <= 200 ? 10 : v <= 500 ? 25 : v <= 1000 ? 50 : 100);

@@ -106,10 +106,10 @@ function CalibrationDrawer({ projectName, onApply }: Props) {
     refreshInputDevices, revealDeviceNames,
   } = useMediaDevices();
   const {
-    sampleRateOptions, bufferSizeOptions, channelOptions, outputChannelOptions, deviceOptionsLoading, adjustedNote, clearAdjustedNote,
+    sampleRateOptions, bufferSizeOptions, channelOptions, deviceOptionsLoading, adjustedNote, clearAdjustedNote,
   } = useDeviceOptionAutoCorrect({ deviceInfo, deviceInfoLoading, hasAudioDeviceBridge, draft, set });
   const {
-    deviceStatus, deviceActual, deviceError, appliedRuntime, apply, resetStatus,
+    deviceStatus, appliedRuntime, apply, resetStatus,
   } = useCalibrationApply({ draft, setValues, setOpen, hasAudioDeviceBridge, deviceInfo, refreshDeviceInfo, onApply });
 
   useEffect(() => {
@@ -291,26 +291,11 @@ function CalibrationDrawer({ projectName, onApply }: Props) {
                 disabled={deviceOptionsLoading}
               />
             )}
-            {hasAudioDeviceBridge && (deviceInfo?.outputChannels ?? 0) > 0 && (
-              <SelectField
-                label="Output Channel (file playback)"
-                unit="ch"
-                value={draft.outputChannel}
-                options={outputChannelOptions}
-                onChange={(v) => { clearAdjustedNote(); set({ outputChannel: v }); }}
-                disabled={deviceOptionsLoading}
-              />
-            )}
             {hasAudioDeviceBridge && (
               <div className="text-xs">
                 {deviceStatus === "applying" && <p className="text-iron-400">Applying to device…</p>}
-                {deviceStatus === "applied" && (
-                  <p className="text-emerald-600">
-                    Applied — requested {draft.sampleRate}Hz/{draft.bufferSize}({draft.channels}ch) → actual{" "}
-                    {deviceActual?.sampleRate ?? "?"}Hz/{deviceActual?.bufferSize ?? "?"}{deviceActual?.channels ? `(${deviceActual.channels}ch)` : ""}
-                  </p>
-                )}
-                {deviceStatus === "error" && <p className="text-red-500">Device apply failed: {deviceError}</p>}
+                {deviceStatus === "applied" && <p className="text-emerald-600">Applied.</p>}
+                {deviceStatus === "error" && <p className="text-red-500">Device apply failed.</p>}
               </div>
             )}
           </section>

@@ -7,24 +7,31 @@ import { e2e } from "@/features/audio/lib/perf-e2e/collector";
 import type { SocketLike } from "@/features/audio/lib/engine/protocol/local-socket";
 import { clampCaptureChannels, CHANNELS } from "@/features/audio/lib/engine/core";
 import { encodeToInt16 } from "@/features/audio/lib/engine/utils";
+import { humanizeIpcError } from "@/shared/lib/ipc-error";
 import type { CaptureStreamEvent } from "./useCaptureSession";
 import { createNativeFrameReframer } from "./reframeNativeChunk";
 
 // buf(분석 엔진의 In/Out PCM)에 넣을 "음원 신호" 프레임을 만든다 — v_sensing/i_sensing이
 // 이미 실측 V/I를 따로 전달하므로 buf는 더 이상 V/I를 중복으로 들고 있지 않는다. 재생 중인
-// 파일이 있으면(Electron 파일 모드) 그 오디오를 캡처 프레임 위치에 맞춰 슬라이스해 쓰고,
-// 없으면(mic 모드) 무음을 채운다.
+// 파일이 있으면(Electron 파일 모드) 그 오디오(인터리브 스테레오 [L0,R0,L1,R1,...])를 캡처
+// 프레임 위치에 맞춰 슬라이스해 실제 L/R로 쓰고, 없으면(mic 모드) 무음을 채운다.
 function buildAudioBufFrame(
-  playbackPcm: Float32Array | null,
+  playbackPcmInterleaved: Float32Array | null,
   frameIndex: number,
   samplesPerCh: number,
 ): Int16Array {
-  if (!playbackPcm) return new Int16Array(samplesPerCh * CHANNELS);
-  const start = frameIndex * samplesPerCh;
-  const mono = new Float32Array(samplesPerCh);
-  const avail = Math.max(0, Math.min(samplesPerCh, playbackPcm.length - start));
-  if (avail > 0) mono.set(playbackPcm.subarray(start, start + avail));
-  return encodeToInt16(mono, mono); // mono를 ch0=ch1로 복제해 인터리브 2ch로 만든다
+  if (!playbackPcmInterleaved) return new Int16Array(samplesPerCh * CHANNELS);
+  const startFrame = frameIndex * samplesPerCh;
+  const totalFrames = playbackPcmInterleaved.length / 2;
+  const left = new Float32Array(samplesPerCh);
+  const right = new Float32Array(samplesPerCh);
+  const avail = Math.max(0, Math.min(samplesPerCh, totalFrames - startFrame));
+  for (let i = 0; i < avail; i++) {
+    const srcIdx = (startFrame + i) * 2;
+    left[i]  = playbackPcmInterleaved[srcIdx];
+    right[i] = playbackPcmInterleaved[srcIdx + 1];
+  }
+  return encodeToInt16(left, right);
 }
 
 function concatFrames(a: Int16Array, b: Int16Array): ArrayBuffer {
@@ -40,9 +47,10 @@ export interface NativeCaptureParams {
   channels: string;
   captureDeviceUID: string;
   playback?: {
-    pcm: Float32Array;
+    pcm: Float32Array; // 인터리브 스테레오 [L0,R0,L1,R1,...]
     onEnded: () => void;
     outputChannel?: number;
+    outputChannelR?: number; // 있으면 스테레오 재생 시도(범위 밖/L과 중복이면 헬퍼가 조용히 모노 폴백)
   };
 }
 
@@ -80,17 +88,17 @@ async function uploadPlaybackRef(
   const bytes = new Uint8Array(pcm.buffer, pcm.byteOffset, pcm.byteLength);
   const started = await bridge.startWrite({ totalBytes: bytes.byteLength });
   if (!started.success || !started.writeId) {
-    throw new Error(`Failed to start playback file transfer: ${started.error ?? "unknown"}`);
+    throw new Error(humanizeIpcError(started.error, "Failed to start the playback file transfer."));
   }
   const { writeId } = started;
   try {
     for (let offset = 0; offset < bytes.byteLength; offset += REF_UPLOAD_CHUNK_BYTES) {
       const chunk = bytes.subarray(offset, Math.min(offset + REF_UPLOAD_CHUNK_BYTES, bytes.byteLength));
       const res = await bridge.writeChunk({ writeId, chunk });
-      if (!res.success) throw new Error(`Failed to transfer playback file: ${res.error ?? "unknown"}`);
+      if (!res.success) throw new Error(humanizeIpcError(res.error, "Failed to transfer the playback file."));
     }
     const finalized = await bridge.finalizeWrite({ writeId });
-    if (!finalized.success) throw new Error(`Failed to finalize playback file transfer: ${finalized.error ?? "unknown"}`);
+    if (!finalized.success) throw new Error(humanizeIpcError(finalized.error, "Failed to finish the playback file transfer."));
   } catch (err) {
     bridge.cancelWrite({ writeId });
     throw err;
@@ -126,7 +134,12 @@ export function useNativeCapture(deps: NativeCaptureDeps) {
       const playCapture = window.audioPlayCapture;
       if (!playCapture) throw new Error("File playback (play-capture) bridge is unavailable.");
       const refWriteId = await uploadPlaybackRef(playCapture, playback.pcm);
-      res = await playCapture.start({ ...baseOpts, refWriteId, outputChannel: playback.outputChannel });
+      res = await playCapture.start({
+        ...baseOpts, refWriteId,
+        refChannels: 2,
+        outputChannel: playback.outputChannel,
+        outputChannelR: playback.outputChannelR,
+      });
       if (!res.success && res.error?.includes("device-has-no-output")) {
         throw new Error(
           "The selected Capture Device has no output channels, so file playback isn't possible. " +
@@ -139,7 +152,7 @@ export function useNativeCapture(deps: NativeCaptureDeps) {
       res = await nativeCapture.start(baseOpts);
     }
     if (!res.success) {
-      throw new Error(`Failed to start native capture: ${res.error ?? "unknown"}`);
+      throw new Error(humanizeIpcError(res.error, "Failed to start native capture."));
     }
 
     const actualRate = res.actual?.sampleRate ?? params.sampleRate;

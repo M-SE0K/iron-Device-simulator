@@ -54,6 +54,8 @@ struct Args
   bool probe = true;  // list 전용. --no-probe로 끌 수 있다
   std::string refPath;        // play-capture 전용
   long outputChannel = 0;     // play-capture 전용
+  long refChannels = 1;       // play-capture 전용 — --ref 파일 채널 수(2=인터리브 스테레오)
+  long outputChannelR = -1;   // play-capture 전용 — R 출력 채널(생략 시 -1=모노만)
   std::vector<std::string> positional;
 };
 
@@ -79,6 +81,18 @@ bool parseArgs(int argc, char** argv, Args& out, std::string& error)
         return false;
       }
       out.outputChannel = atol(argv[++i]);
+    } else if (a == "--ref-channels") {
+      if (i + 1 >= argc) {
+        error = "usage: --ref-channels requires 1 or 2";
+        return false;
+      }
+      out.refChannels = atol(argv[++i]);
+    } else if (a == "--out-ch-r") {
+      if (i + 1 >= argc) {
+        error = "usage: --out-ch-r requires a channel index";
+        return false;
+      }
+      out.outputChannelR = atol(argv[++i]);
     } else if (a == "--probe") {
       out.probe = true;
     } else if (a == "--no-probe") {
@@ -222,7 +236,7 @@ std::atomic<bool> g_stopWriter{false};
 std::atomic<bool> g_stdinClosed{false};
 
 // stdout 소비자. RT 콜백은 링에 밀어넣기만 하고 여기서만 fwrite한다 — 파이프가 차면
-// 이 스레드가 블로킹되지만 오디오 콜백은 계속 돈다. (CAPTURE-PLAN.md §2)
+// 이 스레드가 블로킹되지만 오디오 콜백은 계속 돈다.
 void writerLoop() {
   std::vector<uint8_t> buf(64 * 1024);
   for (;;) {
@@ -269,7 +283,7 @@ void stdinWatchLoop() {
 int cmdCapture(const Args& args, bool playCapture) {
   if (args.positional.size() < 2) {
     return fail(playCapture
-        ? "usage: play-capture [--device <UID>] --ref <path> [--out-ch <n>] <sampleRate> <bufferSize> [channels=2]"
+        ? "usage: play-capture [--device <UID>] --ref <path> [--ref-channels <1|2>] [--out-ch <n>] [--out-ch-r <n>] <sampleRate> <bufferSize> [channels=2]"
         : "usage: capture [--device <UID>] <sampleRate> <bufferSize> [channels=2]");
   }
   if (playCapture && args.refPath.empty()) {
@@ -284,6 +298,8 @@ int cmdCapture(const Args& args, bool playCapture) {
   if (playCapture) {
     cfg.refPath = args.refPath;
     cfg.outputChannel = args.outputChannel;
+    cfg.refChannels = args.refChannels;
+    cfg.outputChannelR = args.outputChannelR;
   }
 
   // ⚠️ 반드시 첫 출력 전에. 기본 텍스트 모드에서는 CRT가 PCM 안의 0x0A를 0x0D 0x0A로
@@ -316,10 +332,13 @@ int cmdCapture(const Args& args, bool playCapture) {
       .endObj();
   if (info.playCapture) {
     // capture 헤더에 얹는 가산 키 — 렌더러가 refLen으로 재생 길이를,
-    // playbackChannel로 실제 사용된 출력 채널을 안다.
+    // playbackChannel/playbackChannelR로 실제 사용된 출력 채널을 안다.
     w.kv("mode", "play-capture")
         .kv("refLen", info.refFrames)
         .kv("playbackChannel", info.playbackChannel);
+    w.key("playbackChannelR");
+    if (info.playbackChannelR >= 0) w.val(info.playbackChannelR);
+    else w.null();
   }
   w.endObj();
   emit(w.str());

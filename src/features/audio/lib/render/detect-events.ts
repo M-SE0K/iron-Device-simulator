@@ -12,7 +12,7 @@ const DEFAULT_THRESHOLDS: TempThresholds = { warn: DEFAULT_TEMP_WARN, danger: DE
 
 export function detectEvents(
   bucket: QueuedFrame[],
-  prevTemp: [number, number] | null,
+  prevTemp: number | null,
   thresholds: TempThresholds = DEFAULT_THRESHOLDS,
 ): QueuedFrame[] {
   const { warn: TEMP_WARN, danger: TEMP_DANGER } = thresholds;
@@ -22,33 +22,25 @@ export function detectEvents(
     const prev = i > 0 ? bucket[i - 1].frame : null;
     const prevT = prev ? prev.temperature : prevTemp;
 
-    if (prevT) {
-      for (let ch = 0; ch < 2; ch++) {
-        const was = prevT[ch];
-        const now = f.temperature[ch];
-        if ((was < TEMP_WARN && now >= TEMP_WARN) || (was >= TEMP_WARN && now < TEMP_WARN)) {
-          events.push(bucket[i]);
-          bucket[i].frame = { ...f, isEvent: true, eventType: "temp_warn" };
-          break;
-        }
-        if ((was < TEMP_DANGER && now >= TEMP_DANGER) || (was >= TEMP_DANGER && now < TEMP_DANGER)) {
-          events.push(bucket[i]);
-          bucket[i].frame = { ...f, isEvent: true, eventType: "temp_danger" };
-          break;
-        }
+    if (prevT !== null) {
+      const was = prevT;
+      const now = f.temperature;
+      if ((was < TEMP_WARN && now >= TEMP_WARN) || (was >= TEMP_WARN && now < TEMP_WARN)) {
+        events.push(bucket[i]);
+        bucket[i].frame = { ...f, isEvent: true, eventType: "temp_warn" };
+      } else if ((was < TEMP_DANGER && now >= TEMP_DANGER) || (was >= TEMP_DANGER && now < TEMP_DANGER)) {
+        events.push(bucket[i]);
+        bucket[i].frame = { ...f, isEvent: true, eventType: "temp_danger" };
       }
     }
     if (bucket[i].frame.isEvent) continue;
 
     if (prev && i < bucket.length - 1) {
       const next = bucket[i + 1].frame;
-      for (let ch = 0; ch < 2; ch++) {
-        const cur = Math.abs(f.excursion[ch]);
-        if (cur > Math.abs(prev.excursion[ch]) && cur > Math.abs(next.excursion[ch])) {
-          events.push(bucket[i]);
-          bucket[i].frame = { ...f, isEvent: true, eventType: "exc_peak" };
-          break;
-        }
+      const cur = Math.abs(f.excursion);
+      if (cur > Math.abs(prev.excursion) && cur > Math.abs(next.excursion)) {
+        events.push(bucket[i]);
+        bucket[i].frame = { ...f, isEvent: true, eventType: "exc_peak" };
       }
     }
   }

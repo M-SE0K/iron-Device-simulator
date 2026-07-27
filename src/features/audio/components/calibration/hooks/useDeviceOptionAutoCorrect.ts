@@ -42,11 +42,6 @@ export function useDeviceOptionAutoCorrect(deps: DeviceOptionAutoCorrectDeps) {
     const inRange = CHANNEL_OPTIONS.filter((c) => Number(c) <= max);
     return inRange.length ? inRange : CHANNEL_OPTIONS;
   })();
-  const outputChannelOptions = (() => {
-    const count = deviceInfo?.outputChannels;
-    if (!count) return ["0"];
-    return Array.from({ length: count }, (_, i) => String(i));
-  })();
   const deviceOptionsLoading = hasAudioDeviceBridge && deviceInfoLoading;
 
   useEffect(() => {
@@ -74,13 +69,6 @@ export function useDeviceOptionAutoCorrect(deps: DeviceOptionAutoCorrectDeps) {
         notes.push(`Channels ${draft.channels}→${nearest}`);
       }
     }
-    if (!outputChannelOptions.includes(draft.outputChannel)) {
-      const nearest = nearestOption(outputChannelOptions, draft.outputChannel);
-      if (nearest && nearest !== draft.outputChannel) {
-        patch.outputChannel = nearest;
-        notes.push(`Output Channel ${draft.outputChannel}→${nearest}`);
-      }
-    }
     if (notes.length) {
       set(patch);
       setAdjustedNote(`Auto-adjusted — not supported by this device: ${notes.join(", ")}`);
@@ -89,7 +77,7 @@ export function useDeviceOptionAutoCorrect(deps: DeviceOptionAutoCorrectDeps) {
   }, [deviceInfo, deviceInfoLoading]);
 
   return {
-    sampleRateOptions, bufferSizeOptions, channelOptions, outputChannelOptions, deviceOptionsLoading,
+    sampleRateOptions, bufferSizeOptions, channelOptions, deviceOptionsLoading,
     adjustedNote, clearAdjustedNote: () => setAdjustedNote(null),
   };
 }

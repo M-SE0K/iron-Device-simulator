@@ -1,6 +1,10 @@
-# audio-device-helper (Windows/ASIO)
+# audio-device-helper (Windows/ASIO) — MSVC 보조 빌드
 #
-# 산출물: dist/audio-device-helper.exe
+# 정식 빌드는 상위 폴더의 build-win.sh(mingw 크로스 컴파일)다. 이 CMakeLists.txt와 나란히
+# 있는 build.ps1은 Windows에서 MSVC로 직접 빌드해야 할 때만 쓰는 보조 경로다.
+# 소스는 상위 ../src/, SDK 기본값은 ../third_party/, 산출물은 ../dist/ (모두 헬퍼 루트 공유).
+#
+# 산출물: ../dist/audio-device-helper.exe
 #   electron/ipc/audio-device.js 의 AUDIO_HELPER_PATH(dev 폴백)와 electron-builder.yml 의
 #   win extraResources가 이 경로/이름 규칙을 전제한다. 바꾸면 양쪽을 같이 고쳐야 한다.
 #
@@ -19,7 +23,8 @@ endif()
 # --- ASIO SDK 위치 ------------------------------------------------------------
 set(ASIO_SDK_DIR "$ENV{ASIOSDK_DIR}" CACHE PATH "Steinberg ASIO SDK 2.3 루트 (common/, host/ 를 포함하는 폴더)")
 if(NOT ASIO_SDK_DIR)
-  set(ASIO_SDK_DIR "${CMAKE_CURRENT_SOURCE_DIR}/third_party/ASIOSDK")
+  # 헬퍼 루트(../)의 third_party/ 를 build-win.sh와 공유한다.
+  set(ASIO_SDK_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../third_party/ASIOSDK")
 endif()
 
 if(NOT EXISTS "${ASIO_SDK_DIR}/common/asio.h")
@@ -30,8 +35,8 @@ if(NOT EXISTS "${ASIO_SDK_DIR}/common/asio.h")
 endif()
 
 add_executable(audio-device-helper
-  main.cpp
-  asio_backend.cpp
+  ../src/main.cpp
+  ../src/asio_backend.cpp
   # --- SDK에서 끌어오는 host 측 소스 3개 -------------------------------------
   # ASIO SDK는 라이브러리로 빌드해 링크하는 물건이 아니라 소스를 직접 컴파일해 넣는 구조다.
   # driver/ 밑(asiodrvr, dllentry, combase, register)은 ASIO 드라이버를 *만들* 때 쓰는
@@ -42,7 +47,7 @@ add_executable(audio-device-helper
 )
 
 target_include_directories(audio-device-helper PRIVATE
-  "${CMAKE_CURRENT_SOURCE_DIR}"
+  "${CMAKE_CURRENT_SOURCE_DIR}/../src"
   "${ASIO_SDK_DIR}/common"
   "${ASIO_SDK_DIR}/host"
   "${ASIO_SDK_DIR}/host/pc"
@@ -61,9 +66,9 @@ if(MSVC)
   set_property(TARGET audio-device-helper PROPERTY MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
 endif()
 
-# 빌드 타입과 무관하게 dist/ 한 곳으로 떨군다 — macOS 쪽 dist/ 규칙과 대칭.
+# 빌드 타입과 무관하게 헬퍼 루트의 ../dist/ 한 곳으로 떨군다 — build-win.sh·macOS dist/ 규칙과 대칭.
 set_target_properties(audio-device-helper PROPERTIES
-  RUNTIME_OUTPUT_DIRECTORY         "${CMAKE_CURRENT_SOURCE_DIR}/dist"
-  RUNTIME_OUTPUT_DIRECTORY_DEBUG   "${CMAKE_CURRENT_SOURCE_DIR}/dist"
-  RUNTIME_OUTPUT_DIRECTORY_RELEASE "${CMAKE_CURRENT_SOURCE_DIR}/dist"
+  RUNTIME_OUTPUT_DIRECTORY         "${CMAKE_CURRENT_SOURCE_DIR}/../dist"
+  RUNTIME_OUTPUT_DIRECTORY_DEBUG   "${CMAKE_CURRENT_SOURCE_DIR}/../dist"
+  RUNTIME_OUTPUT_DIRECTORY_RELEASE "${CMAKE_CURRENT_SOURCE_DIR}/../dist"
 )

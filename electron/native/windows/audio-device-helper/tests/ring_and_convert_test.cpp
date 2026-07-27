@@ -1,12 +1,11 @@
-// test_phase1.cpp — ring_buffer.h / sample_convert.h 단위 테스트.
+// ring_and_convert_test.cpp — src/ring_buffer.h / src/sample_convert.h 단위 테스트.
 //
-// 두 헤더 모두 Windows/ASIO 의존이 없어 WSL에서 g++로 그대로 돌아간다. 실시간 스레드와
-// 포맷 변환은 실기에서 디버깅하기 가장 어려운 부분이라, 하드웨어를 붙이기 전에
-// 여기서 잡는다. (CAPTURE-PLAN.md Phase 1)
+// 두 헤더 모두 Windows/ASIO 의존이 없어 WSL/macOS에서 g++로 그대로 돌아간다. 실시간 스레드와
+// 포맷 변환은 실기에서 디버깅하기 가장 어려운 부분이라, 하드웨어를 붙이기 전에 여기서 잡는다.
 //
 //   ./tests/run-tests.sh
-#include "../ring_buffer.h"
-#include "../sample_convert.h"
+#include "../src/ring_buffer.h"
+#include "../src/sample_convert.h"
 
 #include <atomic>
 #include <cstdio>
@@ -355,7 +354,7 @@ static void testFromFloatRoundTrip() {
 }
 
 int main() {
-  printf("Phase 1 단위 테스트 — ring_buffer.h / sample_convert.h\n");
+  printf("단위 테스트 — ring_buffer.h / sample_convert.h\n");
 
   testRingBasic();
   testRingWrap();

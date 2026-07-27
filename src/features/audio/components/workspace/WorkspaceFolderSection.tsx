@@ -81,7 +81,7 @@ function FolderTree({
 
 export default function WorkspaceFolderSection() {
   const {
-    localFolderPath, localFolderFiles, localFolderError, localFolderConnecting,
+    localFolderPath, localFolderFiles, localFolderConnecting,
     connectLocalFolder, disconnectLocalFolder, loadLocalFile,
     browserFolderName, browserFolderFiles, selectBrowserFolder, disconnectBrowserFolder,
     loadBrowserFile, activeFileName,
@@ -145,7 +145,6 @@ export default function WorkspaceFolderSection() {
             }}
           />
         )}
-        {localFolderError && <p className="px-1 pt-2 text-[10px] text-red-500">{localFolderError}</p>}
       </div>
     );
   }

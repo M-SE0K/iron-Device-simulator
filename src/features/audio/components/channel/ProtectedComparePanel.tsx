@@ -4,20 +4,30 @@ import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import ReactECharts from "@/shared/components/ReactECharts";
 import { cn } from "@/shared/lib/utils";
 import { INT16_SCALE, CHANNELS } from "@/features/audio/lib/engine/core";
+import SegmentedControl from "@/shared/components/ui/SegmentedControl";
 import {
   buildValueTooltip, buildDataZoom, buildDynamicTimeFormatter,
   timeDecimalsForInterval, shouldShowFrameSymbols, type ZoomStateRef,
 } from "@/features/audio/lib/render/chart-option";
 import { peekWavHeader, decodeWavRange } from "@/features/audio/lib/codec/wav-incremental";
 import type { CaptureStreamEvent, CaptureStreamListener } from "@/features/audio/components/player/capture/useCaptureSession";
+import { useErrorPopup } from "@/shared/components/error-popup/ErrorPopupContext";
 
 const BUCKETS = 1000;
 const FLUSH_INTERVAL_MS = 50;
 const Y_SCALE_PADDING = 1.1;
 const Y_MIN_SPAN = 0.05;
 
-const COLOR_INPUT     = "#94a3b8";
-const COLOR_PROTECTED = "#38bdf8";
+type ChannelMode = "L" | "R" | "Both";
+
+// 채널 정체성은 색상(hue)으로, Input/Protected 구분은 스타일(옅은 점선 vs 굵은 실선)로 —
+// 예전엔 Input L/R이 둘 다 무채색(회색 계열)이라 서로 거의 구분이 안 됐다. 지금은 L=파랑,
+// R=주황 계열을 Input까지 일관되게 써서, Both 모드에서도 어느 라인이 어느 채널인지 색만
+// 보고 바로 알 수 있게 한다.
+const COLOR_INPUT_L     = "#93c5fd"; // blue-300 (옅음 — 원본 참고선)
+const COLOR_PROTECTED_L = "#2563eb"; // blue-600 (진함 — 보호 감쇠 후 신호)
+const COLOR_INPUT_R     = "#fcd34d"; // amber-300 (옅음 — 원본 참고선)
+const COLOR_PROTECTED_R = "#d97706"; // amber-600 (진함 — 보호 감쇠 후 신호)
 
 class BucketEnvelope {
   readonly min: Float32Array;
@@ -75,7 +85,6 @@ function ProtectedComparePanelImpl({
   subscribeCaptureStream,
   sourceFile,
   getProtectedBlob,
-  channel = 0,
   bare = false,
 }: {
   subscribeCaptureStream: (fn: CaptureStreamListener) => () => void;
@@ -86,14 +95,15 @@ function ProtectedComparePanelImpl({
    * 들어오는 라이브 프레임만 그려져 늦게 연 상세 뷰에서는 빈 파형으로 보인다.
    */
   getProtectedBlob?: () => Blob | null;
-  channel?: number;
   bare?: boolean;
 }) {
-  const [original, setOriginal] = useState<{ env: BucketEnvelope; durationSec: number } | null>(null);
+  const { showError } = useErrorPopup();
+  const [channelMode, setChannelMode] = useState<ChannelMode>("Both");
+  const [original, setOriginal] = useState<{ envL: BucketEnvelope; envR: BucketEnvelope; durationSec: number } | null>(null);
   const [decodeError, setDecodeError] = useState<string | null>(null);
   const [decoding, setDecoding] = useState(false);
 
-  const protectedEnvRef = useRef<BucketEnvelope>(new BucketEnvelope(BUCKETS));
+  const protectedEnvRefs = useRef<[BucketEnvelope, BucketEnvelope]>([new BucketEnvelope(BUCKETS), new BucketEnvelope(BUCKETS)]);
   const sampleRateRef   = useRef(0);
   const totalSamplesRef = useRef(0);
   const [version, setVersion] = useState(0);
@@ -131,23 +141,33 @@ function ProtectedComparePanelImpl({
     (async () => {
       const Ctor = window.AudioContext ?? (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
       if (!Ctor) {
-        if (!cancelled) { setDecodeError("This browser doesn't support audio decoding."); setDecoding(false); }
+        if (!cancelled) {
+          setDecodeError("This browser doesn't support audio decoding.");
+          showError("This browser doesn't support audio decoding.");
+          setDecoding(false);
+        }
         return;
       }
       const ctx = new Ctor();
       try {
         const buf = await ctx.decodeAudioData(await sourceFile.arrayBuffer());
         if (cancelled) return;
-        const data = buf.getChannelData(Math.min(channel, buf.numberOfChannels - 1));
-        const env = new BucketEnvelope(BUCKETS);
-        const n = data.length;
+        const dataL = buf.getChannelData(0);
+        const dataR = buf.getChannelData(Math.min(1, buf.numberOfChannels - 1));
+        const envL = new BucketEnvelope(BUCKETS);
+        const envR = new BucketEnvelope(BUCKETS);
+        const n = dataL.length;
         for (let i = 0; i < n; i++) {
           const b = Math.min(BUCKETS - 1, Math.floor((i * BUCKETS) / n));
-          env.add(b, data[i]);
+          envL.add(b, dataL[i]);
+          envR.add(b, dataR[i]);
         }
-        setOriginal({ env, durationSec: buf.duration });
+        setOriginal({ envL, envR, durationSec: buf.duration });
       } catch {
-        if (!cancelled) setDecodeError("Failed to decode audio.");
+        if (!cancelled) {
+          setDecodeError("Failed to decode audio.");
+          showError("Failed to decode audio.");
+        }
       } finally {
         void ctx.close();
         if (!cancelled) setDecoding(false);
@@ -155,10 +175,11 @@ function ProtectedComparePanelImpl({
     })();
 
     return () => { cancelled = true; };
-  }, [sourceFile, channel]);
+  }, [sourceFile, showError]);
 
   useEffect(() => {
-    protectedEnvRef.current.clear();
+    protectedEnvRefs.current[0].clear();
+    protectedEnvRefs.current[1].clear();
     totalSamplesRef.current = 0;
     zoomRef.current = { start: 0, end: 100 };
     setShowSymbols(false);
@@ -184,19 +205,22 @@ function ProtectedComparePanelImpl({
 
   const applyProtectedEvent = useCallback((ev: ProtectedEvent, durationSec: number) => {
     sampleRateRef.current = ev.sampleRate;
-    const env = protectedEnvRef.current;
+    const [envL, envR] = protectedEnvRefs.current;
     const base = totalSamplesRef.current;
     const perBucketSec = durationSec / BUCKETS;
 
-    for (let i = channel, s = 0; i < ev.processed.length; i += CHANNELS, s++) {
-      const t = (base + s) / ev.sampleRate;
-      env.add(Math.floor(t / perBucketSec), ev.processed[i] / INT16_SCALE);
+    for (let ch = 0; ch < CHANNELS; ch++) {
+      const env = ch === 0 ? envL : envR;
+      for (let i = ch, s = 0; i < ev.processed.length; i += CHANNELS, s++) {
+        const t = (base + s) / ev.sampleRate;
+        env.add(Math.floor(t / perBucketSec), ev.processed[i] / INT16_SCALE);
+      }
     }
     totalSamplesRef.current = base + ev.processed.length / CHANNELS;
 
     dirtyRef.current = true;
     if (rafRef.current === null) rafRef.current = requestAnimationFrame(flush);
-  }, [channel, flush]);
+  }, [flush]);
 
   // 원본 디코드가 끝나면(= x축 durationSec 확보) 지금까지 캡처된 보호 감쇠 PCM을 한 번
   // 백필한다 — getChannelsBlob 백필(ChartDetailOverlay)과 동일한 idiom. 백필이 끝나기
@@ -213,15 +237,20 @@ function ProtectedComparePanelImpl({
           if (blob) {
             const header = await peekWavHeader(blob);
             if (header && !cancelled && backfillTokenRef.current === token) {
-              const data = await decodeWavRange(blob, header, channel, 0, header.durationSec);
-              if (!cancelled && backfillTokenRef.current === token && data.length > 0) {
+              const [dataL, dataR] = await Promise.all([
+                decodeWavRange(blob, header, 0, 0, header.durationSec),
+                decodeWavRange(blob, header, Math.min(1, header.channels - 1), 0, header.durationSec),
+              ]);
+              if (!cancelled && backfillTokenRef.current === token && dataL.length > 0) {
                 const perBucketSec = original.durationSec / BUCKETS;
-                const env = protectedEnvRef.current;
-                for (let s = 0; s < data.length; s++) {
+                const [envL, envR] = protectedEnvRefs.current;
+                for (let s = 0; s < dataL.length; s++) {
                   const t = s / header.sampleRate;
-                  env.add(Math.floor(t / perBucketSec), data[s]);
+                  const b = Math.floor(t / perBucketSec);
+                  envL.add(b, dataL[s]);
+                  envR.add(b, dataR[s]);
                 }
-                totalSamplesRef.current = data.length;
+                totalSamplesRef.current = dataL.length;
               }
             }
           }
@@ -242,12 +271,13 @@ function ProtectedComparePanelImpl({
     })();
 
     return () => { cancelled = true; };
-  }, [original, getProtectedBlob, channel, applyProtectedEvent]);
+  }, [original, getProtectedBlob, applyProtectedEvent]);
 
   useEffect(() => {
     const off = subscribeCaptureStream((ev: CaptureStreamEvent) => {
       if (ev.type === "reset") {
-        protectedEnvRef.current.clear();
+        protectedEnvRefs.current[0].clear();
+        protectedEnvRefs.current[1].clear();
         totalSamplesRef.current = 0;
         pendingProtectedRef.current = [];
         backfillTokenRef.current += 1; // 진행 중이던 백필 결과를 무효화 — 새 세션은 0부터 라이브로만 채운다
@@ -271,8 +301,12 @@ function ProtectedComparePanelImpl({
     };
   }, [subscribeCaptureStream, applyProtectedEvent]);
 
-  const originalSeries = useMemo(
-    () => (original ? envelopeToSeries(original.env, original.durationSec) : []),
+  const originalSeriesL = useMemo(
+    () => (original ? envelopeToSeries(original.envL, original.durationSec) : []),
+    [original],
+  );
+  const originalSeriesR = useMemo(
+    () => (original ? envelopeToSeries(original.envR, original.durationSec) : []),
     [original],
   );
 
@@ -293,23 +327,56 @@ function ProtectedComparePanelImpl({
     if (!original) return null;
     void version;
 
-    const protectedSeries = envelopeToSeries(protectedEnvRef.current, original.durationSec);
-    const peak = Math.max(original.env.peak(), Y_MIN_SPAN) * Y_SCALE_PADDING;
-    pointCountRef.current = originalSeries.length;
+    const showL = channelMode !== "R";
+    const showR = channelMode !== "L";
+
+    const [protectedEnvL, protectedEnvR] = protectedEnvRefs.current;
+    const protectedSeriesL = showL ? envelopeToSeries(protectedEnvL, original.durationSec) : [];
+    const protectedSeriesR = showR ? envelopeToSeries(protectedEnvR, original.durationSec) : [];
+
+    let peak = Y_MIN_SPAN;
+    if (showL) peak = Math.max(peak, original.envL.peak());
+    if (showR) peak = Math.max(peak, original.envR.peak());
+    peak *= Y_SCALE_PADDING;
+
+    pointCountRef.current = showL ? originalSeriesL.length : originalSeriesR.length;
 
     const timeDecimals = timeDecimalsForInterval(original.durationSec / BUCKETS);
     const axisDomain = { dataMin: 0, dataMax: original.durationSec, dataDecimals: timeDecimals };
+
+    // Input(원본 참고선)은 옅은 색 + 점선으로 배경에 깔고, Protected(보호 감쇠 후 신호)는
+    // 진한 색 + 굵은 실선으로 항상 그 위에(z로 고정, 배열 순서와 무관하게) 그린다 — 그래야
+    // Both 모드에서 반대 채널의 Input 라인이 Protected 라인을 가리는 일이 없다.
+    const series = [
+      ...(showL ? [
+        { name: channelMode === "Both" ? "Input L" : "Input", type: "line" as const, z: 1, symbol: showSymbols ? "circle" : "none", showSymbol: showSymbols, symbolSize: 4, lineStyle: { width: 1, color: COLOR_INPUT_L, type: "dashed" as const, opacity: 0.85 }, data: originalSeriesL },
+      ] : []),
+      ...(showR ? [
+        { name: channelMode === "Both" ? "Input R" : "Input", type: "line" as const, z: 1, symbol: showSymbols ? "circle" : "none", showSymbol: showSymbols, symbolSize: 4, lineStyle: { width: 1, color: COLOR_INPUT_R, type: "dashed" as const, opacity: 0.85 }, data: originalSeriesR },
+      ] : []),
+      ...(showL ? [
+        { name: channelMode === "Both" ? "Protected L" : "Protected", type: "line" as const, z: 2, symbol: showSymbols ? "circle" : "none", showSymbol: showSymbols, symbolSize: 4, lineStyle: { width: 1.8, color: COLOR_PROTECTED_L }, data: protectedSeriesL },
+      ] : []),
+      ...(showR ? [
+        { name: channelMode === "Both" ? "Protected R" : "Protected", type: "line" as const, z: 2, symbol: showSymbols ? "circle" : "none", showSymbol: showSymbols, symbolSize: 4, lineStyle: { width: 1.8, color: COLOR_PROTECTED_R }, data: protectedSeriesR },
+      ] : []),
+    ];
+
+    // 범례는 채널별로 짝지어 보이는 게 읽기 편해서 z-순서(위 배열)와 별개로 [Input L, Protected L,
+    // Input R, Protected R] 순으로 재배열한다 — 실제 렌더 순서는 각 series의 z 값이 결정한다.
+    const legendOrder = ["Input L", "Protected L", "Input R", "Protected R", "Input", "Protected"];
+    const legendNames = series.map((s) => s.name).sort((a, b) => legendOrder.indexOf(a) - legendOrder.indexOf(b));
 
     return {
       animation: false,
       tooltip: buildValueTooltip({ unit: "", decimals: 3, timeDecimals: 3 }),
       legend: {
-        data: ["Input", "Protected"],
-        textStyle: { color: "#94a3b8", fontSize: 10 },
+        data: legendNames,
+        textStyle: { color: "#64748b", fontSize: 11 },
         top: 0,
       },
       grid: { left: 56, right: 16, top: 32, bottom: 44 },
-      dataZoom: buildDataZoom(zoomRef, { filler: "rgba(56,189,248,0.12)", handle: COLOR_PROTECTED }, axisDomain),
+      dataZoom: buildDataZoom(zoomRef, { filler: "rgba(37,99,235,0.12)", handle: COLOR_PROTECTED_L }, axisDomain),
       xAxis: {
         type: "value" as const,
         min: 0,
@@ -326,31 +393,13 @@ function ProtectedComparePanelImpl({
         axisLine: { show: false },
         splitLine: { lineStyle: { color: "#F1F5F9" } },
       },
-      series: [
-        {
-          name: "Input",
-          type: "line" as const,
-          symbol: showSymbols ? "circle" : "none",
-          showSymbol: showSymbols,
-          symbolSize: 4,
-          lineStyle: { width: 1, color: COLOR_INPUT },
-          data: originalSeries,
-        },
-        {
-          name: "Protected",
-          type: "line" as const,
-          symbol: showSymbols ? "circle" : "none",
-          showSymbol: showSymbols,
-          symbolSize: 4,
-          lineStyle: { width: 1.2, color: COLOR_PROTECTED },
-          data: protectedSeries,
-        },
-      ],
+      series,
     };
-  }, [original, originalSeries, version, showSymbols]);
+  }, [original, originalSeriesL, originalSeriesR, version, showSymbols, channelMode]);
 
   const placeholder = decodeError
-    ?? (decoding ? "Preparing original waveform…" : null)
+    ? "Unable to load original waveform."
+    : (decoding ? "Preparing original waveform…" : null)
     ?? (!sourceFile ? "Select an audio source to see the original waveform." : null);
 
   return (
@@ -359,6 +408,19 @@ function ProtectedComparePanelImpl({
         <div className="chart-title-group flex items-center gap-2">
           <span className="card-title">Protection Algorithm</span>
         </div>
+
+        <SegmentedControl
+          size="sm"
+          value={channelMode}
+          onChange={setChannelMode}
+          options={[
+            { value: "L", label: "L" },
+            { value: "R", label: "R" },
+            { value: "Both", label: "Both" },
+          ]}
+          className="w-[116px]"
+          aria-label="Protected channel"
+        />
       </div>
 
       <div className="chart-body flex-1 p-2 min-h-[160px]">

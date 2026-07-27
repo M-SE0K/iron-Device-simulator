@@ -73,15 +73,15 @@ export function createAnalysisFrame(
     const tExec0 = performance.now();
     layout.execAnalysis(bufPtr, tempPtr, excPtr, params.ambientTemp, sensing);
     const execMs = performance.now() - tExec0;
-    const [temp0, temp1, exc0, exc1] = layout.readResults(tempPtr, excPtr);
+    const [temperature, excursion] = layout.readResults(tempPtr, excPtr);
 
     const processedPcm = opts.includeProcessedPcm
       ? interleaveFromPlanar(layout.readProcessedPcm(bufPtr, config.samplesPerCh), config.samplesPerCh)
       : undefined;
 
     return {
-      temperature: [temp0, temp1],
-      excursion: [exc0, exc1],
+      temperature,
+      excursion,
       processingMs: round3(performance.now() - t0),
       execMs: round3(execMs),
       ...(processedPcm && { processedPcm }),
