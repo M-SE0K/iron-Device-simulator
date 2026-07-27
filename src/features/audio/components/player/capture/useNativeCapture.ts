@@ -2,8 +2,8 @@
 
 import { useCallback, type MutableRefObject } from "react";
 import type { AppStatus } from "@/features/audio/types";
-import { perf } from "@/features/audio/lib/perf/collector";
 import { e2e } from "@/features/audio/lib/perf-e2e/collector";
+import { createCaptureTelemetry } from "@/features/audio/lib/perf/capture-telemetry";
 import type { SocketLike } from "@/features/audio/lib/engine/protocol/local-socket";
 import { clampCaptureChannels, CHANNELS } from "@/features/audio/lib/engine/core";
 import { encodeToInt16 } from "@/features/audio/lib/engine/utils";
@@ -176,27 +176,23 @@ export function useNativeCapture(deps: NativeCaptureDeps) {
     recordingActiveRef.current = true;
     emitStreamEvent({ type: "reset", channels: captureChannels, sampleRate: actualRate });
 
-    perf.startSession({
+    const telemetry = createCaptureTelemetry<Int16Array>({
       mode: "native", sampleRate: actualRate, samplesPerCh: wireSamplesPerCh,
       channels: captureChannels, deviceName: res.device || null,
-    });
-    e2e.startSession({
-      mode: "native", sampleRate: actualRate, samplesPerCh: wireSamplesPerCh,
-      channels: captureChannels, deviceName: res.device || null,
-      engine: process.env.USE_WORKER_ENGINE === "0" ? "main-thread" : "worker",
+      onEncodedFrame: (frame) => {
+        const audioBuf = buildAudioBufFrame(playback?.pcm ?? null, emittedFrames++, wireSamplesPerCh);
+        ws.send(concatFrames(audioBuf, frame));
+        ++frameCountRef.current;
+      },
     });
 
-    let encStartAt = 0;
     let emittedFrames = 0;
     const reframe = createNativeFrameReframer(
       captureChannels,
       wireSamplesPerCh,
       (frame) => {
         if (!analysisActiveRef.current) return;
-        perf.markFrameSent(encStartAt > 0 ? performance.now() - encStartAt : null);
-        const audioBuf = buildAudioBufFrame(playback?.pcm ?? null, emittedFrames++, wireSamplesPerCh);
-        ws.send(concatFrames(audioBuf, frame));
-        ++frameCountRef.current;
+        telemetry.markEncodedFrame(frame);
       },
       (rawFrame) => {
         if (!recordingActiveRef.current) return;
@@ -209,9 +205,8 @@ export function useNativeCapture(deps: NativeCaptureDeps) {
     const bridge = playback ? window.audioPlayCapture! : window.audioCapture!;
     const offData = bridge.onData((chunk) => {
       if (!isActiveRef.current || ws.readyState !== WebSocket.OPEN) return;
-      perf.markChunkArrival();
-      encStartAt = performance.now();
-      e2e.time("N2", () => reframe(chunk));
+      telemetry.markChunkArrival();
+      telemetry.measureEncoding(() => reframe(chunk));
     });
     // N1(네이티브 IPC 릴레이) — main 프로세스가 stdout 청크를 받은 시각(Date.now(), baseOpts.e2e로
     // 요청했을 때만 옴)과 이 렌더러 콜백이 실행된 시각의 차이. 프로세스 경계라 performance.now()는

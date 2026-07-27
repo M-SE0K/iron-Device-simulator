@@ -7,7 +7,7 @@ import { INT16_SCALE, CHANNELS } from "@/features/audio/lib/engine/core";
 import SegmentedControl from "@/shared/components/ui/SegmentedControl";
 import {
   buildValueTooltip, buildDataZoom, buildDynamicTimeFormatter,
-  timeDecimalsForInterval, shouldShowFrameSymbols, type ZoomStateRef,
+  extractZoomState, timeDecimalsForInterval, shouldShowFrameSymbols, type ZoomStateRef,
 } from "@/features/audio/lib/render/chart-option";
 import { peekWavHeader, decodeWavRange } from "@/features/audio/lib/codec/wav-incremental";
 import type { CaptureStreamEvent, CaptureStreamListener } from "@/features/audio/components/player/capture/useCaptureSession";
@@ -313,11 +313,8 @@ function ProtectedComparePanelImpl({
   const echartsEvents = useRef<Record<string, (...args: unknown[]) => void>>({});
   echartsEvents.current = {
     datazoom: (params: unknown) => {
-      const p = params as { batch?: Array<{ start?: number; end?: number }>; start?: number; end?: number };
-      const src = p.batch?.[0] ?? p;
-      if (src.start !== undefined && src.end !== undefined) {
-        zoomRef.current = { start: src.start, end: src.end };
-      }
+      const zoom = extractZoomState(params);
+      if (zoom) zoomRef.current = zoom;
       const next = shouldShowFrameSymbols(pointCountRef.current, zoomRef.current);
       setShowSymbols((prev) => (prev === next ? prev : next));
     },

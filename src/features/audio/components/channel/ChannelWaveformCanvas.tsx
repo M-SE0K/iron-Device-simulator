@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import ReactECharts from "@/shared/components/ReactECharts";
-import { buildDataZoom, buildDynamicTimeFormatter, buildValueTooltip, timeDecimalsForInterval, SYMBOL_VISIBLE_MAX } from "@/features/audio/lib/render/chart-option";
+import { buildDataZoom, buildDynamicTimeFormatter, buildValueTooltip, extractZoomState, timeDecimalsForInterval, SYMBOL_VISIBLE_MAX } from "@/features/audio/lib/render/chart-option";
 import type { WaveformWindow } from "@/features/audio/lib/render/waveform";
 
 const LTTB_THRESHOLD = 2000;
@@ -128,11 +128,10 @@ export function ChannelWaveformCanvas({
   const echartsEvents = useRef<Record<string, (...args: unknown[]) => void>>({});
   echartsEvents.current = {
     datazoom: useCallback((params: unknown) => {
-      const p = params as { batch?: Array<{ start?: number; end?: number }>; start?: number; end?: number };
-      const src = p.batch?.[0] ?? p;
-      if (src.start !== undefined && src.end !== undefined) {
-        zoomRef.current = { start: src.start, end: src.end };
-        resolveZoom(src.start, src.end);
+      const zoom = extractZoomState(params);
+      if (zoom) {
+        zoomRef.current = zoom;
+        resolveZoom(zoom.start, zoom.end);
         recomputeSymbols();
       }
     }, [resolveZoom, recomputeSymbols]),

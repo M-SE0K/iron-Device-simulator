@@ -20,9 +20,9 @@ const fs = require("fs");
 const os = require("os");
 const path = require("path");
 const { AUDIO_HELPER_PATH, SUPPORTED_PLATFORMS, withDevice } = require("./audio-device");
-const { runStreamingHelper, stopStreamingChild } = require("./run-streaming-helper");
+const { runStreamingHelper, createStreamingChildController } = require("./run-streaming-helper");
 
-let playCaptureChild = null;
+const playCaptureController = createStreamingChildController();
 let writeSeq = 0;
 // 진행 중인 청크 업로드: writeId -> { stream, path }
 const writeSessions = new Map();
@@ -30,11 +30,7 @@ const writeSessions = new Map();
 const finalizedRefs = new Map();
 
 function stopPlayCapture() {
-  if (!playCaptureChild) return { success: true };
-  const child = playCaptureChild;
-  playCaptureChild = null; // exit 핸들러가 "ended" 이벤트를 보내지 않도록 먼저 비운다 (사용자 주도 종료)
-  stopStreamingChild(child);
-  return { success: true };
+  return playCaptureController.stop();
 }
 
 // 렌더러가 재생 파일 PCM을 청크로 잘라 보내기 시작 — 임시 파일에 대한 쓰기 스트림을 연다.
@@ -104,7 +100,7 @@ ipcMain.handle("audio-playcapture:start", (event, opts) => {
   if (!SUPPORTED_PLATFORMS.includes(process.platform)) {
     return { success: false, error: "unsupported-platform" };
   }
-  if (playCaptureChild) {
+  if (playCaptureController.current()) {
     return { success: false, error: "play-capture-already-running" };
   }
   const { sampleRate, bufferSize, channels, deviceUID, refWriteId, refChannels, outputChannel, outputChannelR, e2e } = opts || {};
@@ -132,9 +128,9 @@ ipcMain.handle("audio-playcapture:start", (event, opts) => {
     endedChannel: "audio-playcapture:ended",
     // E2E 지연 실험(N1) 전용 — 렌더러가 명시적으로 요청했을 때만 채널명을 넘긴다.
     markChannel: e2e ? "audio-playcapture:e2e-mark" : undefined,
-    setChild: (child) => { playCaptureChild = child; },
-    isCurrentChild: (child) => playCaptureChild === child,
-    stopActiveChild: stopPlayCapture,
+    setChild: playCaptureController.setChild,
+    isCurrentChild: playCaptureController.isCurrentChild,
+    stopActiveChild: playCaptureController.stop,
     onChildError: cleanupRef,
     // 재생 완료(code 0) 포함 모든 종료 — ref 임시 파일은 어느 경로든 여기서 정리된다.
     onChildExit: cleanupRef,
@@ -143,12 +139,13 @@ ipcMain.handle("audio-playcapture:start", (event, opts) => {
 
 // pause/resume — 헬퍼 stdin 라인 명령으로 중계. stop은 별도 채널(아래)로 stdin EOF→유예→kill.
 ipcMain.handle("audio-playcapture:control", (_event, { action }) => {
-  if (!playCaptureChild) return { success: false, error: "not-running" };
+  const child = playCaptureController.current();
+  if (!child) return { success: false, error: "not-running" };
   if (action !== "pause" && action !== "resume") {
     return { success: false, error: `unknown-action: ${action}` };
   }
   try {
-    playCaptureChild.stdin.write(`${action}\n`);
+    child.stdin.write(`${action}\n`);
     return { success: true };
   } catch (err) {
     return { success: false, error: err.message };

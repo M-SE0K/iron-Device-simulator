@@ -7,6 +7,17 @@ export interface ZoomState {
 
 export type ZoomStateRef = { current: ZoomState };
 
+export function extractZoomState(params: unknown): ZoomState | null {
+  const event = params as {
+    batch?: Array<{ start?: number; end?: number }>;
+    start?: number;
+    end?: number;
+  };
+  const source = event.batch?.[0] ?? event;
+  if (source.start === undefined || source.end === undefined) return null;
+  return { start: source.start, end: source.end };
+}
+
 const MAX_TIME_DECIMALS = 3;
 const MIN_TIME_DECIMALS = 0;
 
