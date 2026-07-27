@@ -44,8 +44,8 @@ function computeMeasurementSummary(
   let peakTemp = -Infinity;
   let peakExcursion = 0;
   for (const f of frames) {
-    peakTemp = Math.max(peakTemp, f.temperature[0], f.temperature[1]);
-    peakExcursion = Math.max(peakExcursion, Math.abs(f.excursion[0]), Math.abs(f.excursion[1]));
+    peakTemp = Math.max(peakTemp, f.temperature);
+    peakExcursion = Math.max(peakExcursion, Math.abs(f.excursion));
   }
   const status: SessionStatus =
     peakTemp >= thresholds.danger ? "danger" : peakTemp >= thresholds.warn ? "warning" : "normal";
@@ -96,6 +96,8 @@ export default function DashboardPage({ useQueue }: DashboardPageProps) {
   useCtrlBToggle(() => setSidebarCollapsed((prev) => !prev));
 
   const streamingFramesRef = useRef<AnalysisFrame[]>([]);
+  // 엔진이 실제로 계산한 프레임 전부(useQueue 코얼레싱과 무관) — 저장/CSV·JSON export 전용.
+  const allFramesRef       = useRef<AnalysisFrame[]>([]);
   const audioDurationRef   = useRef<number | null>(null);
   const fileNameRef        = useRef<string | null>(null);
 
@@ -119,7 +121,7 @@ export default function DashboardPage({ useQueue }: DashboardPageProps) {
     [inputMode, isElectron],
   );
   const outputQueueRef       = useRef<QueuedFrame[]>([]);
-  const prevTempRef          = useRef<[number, number] | null>(null);
+  const prevTempRef          = useRef<number | null>(null);
   const thresholdsRef        = useRef<TempThresholds>({ warn: DEFAULT_TEMP_WARN, danger: DEFAULT_TEMP_DANGER });
 
   useEffect(() => { streamingFramesRef.current = streamingFrames; }, [streamingFrames]);
@@ -133,7 +135,7 @@ export default function DashboardPage({ useQueue }: DashboardPageProps) {
 
   const handleSaveToWorkspace = useCallback(async () => {
     if (!audioFile) return;
-    const frames = streamingFramesRef.current;
+    const frames = allFramesRef.current;
     if (frames.length === 0) return;
     const name = splitFileName(audioFile.name).stem || "Untitled";
     const recordedAudio = realtimeWaveRef.current?.exportRecordedAudio() ?? null;
@@ -158,7 +160,7 @@ export default function DashboardPage({ useQueue }: DashboardPageProps) {
     const name =
       `capture-${stamp.getFullYear()}${pad(stamp.getMonth() + 1)}${pad(stamp.getDate())}` +
       `-${pad(stamp.getHours())}${pad(stamp.getMinutes())}${pad(stamp.getSeconds())}-${rec.channels}ch`;
-    const frames = streamingFramesRef.current;
+    const frames = allFramesRef.current;
     const protectedAudio = getProtectedBlob();
     const { peakTemp, peakExcursion, status } = computeMeasurementSummary(frames, tempThresholds);
     await saveCurrent({
@@ -177,6 +179,7 @@ export default function DashboardPage({ useQueue }: DashboardPageProps) {
   const resetAnalysisState = useCallback(() => {
     setAudioDuration(null);
     setStreamingFrames([]);
+    allFramesRef.current = [];
     setCurrentTime(0);
     setRealtimeStatus("idle");
   }, []);
@@ -212,6 +215,7 @@ export default function DashboardPage({ useQueue }: DashboardPageProps) {
 
   const handleStreamStart = useCallback(() => {
     setStreamingFrames([]);
+    allFramesRef.current   = [];
     outputQueueRef.current = [];
     prevTempRef.current    = null;
   }, []);
@@ -221,6 +225,7 @@ export default function DashboardPage({ useQueue }: DashboardPageProps) {
   const isPlaying = realtimeStatus === "playing";
 
   const handleFrameReceived = useCallback((frame: AnalysisFrame) => {
+    allFramesRef.current.push(frame);
     if (useQueue) {
       outputQueueRef.current.push({ frame, recvAt: performance.now() });
     } else {
