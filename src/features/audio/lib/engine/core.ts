@@ -31,8 +31,8 @@ export function frameBytes(config: EngineRuntimeConfig): number {
 
 
 export interface FrameResult {
-  temperature:  [number, number];
-  excursion:    [number, number];
+  temperature:  number;
+  excursion:    number;
   processingMs: number;
   // processingMs 중 execAnalysis(엔진 호출) 구간만 분리한 값 — E2E 지연 실험(N5/N6) 전용,
   // src/features/audio/lib/perf-e2e/ 참고.
@@ -50,7 +50,7 @@ export interface MemoryLayout {
   allocBuf(): number;
   writePlanar(bufPtr: number, planar: Int16Array): void;
   execAnalysis(bufPtr: number, tempPtr: number, excPtr: number, ambientTemp: number, sensing?: RealSensingPair): void;
-  readResults(tempPtr: number, excPtr: number): [number, number, number, number];
+  readResults(tempPtr: number, excPtr: number): [number, number];
   readProcessedPcm(bufPtr: number, samplesPerCh: number): Int16Array;
   free(ptrs: number[]): void;
 }

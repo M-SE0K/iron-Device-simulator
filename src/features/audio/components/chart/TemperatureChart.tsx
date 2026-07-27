@@ -4,12 +4,11 @@ import { useMemo, useLayoutEffect, useRef, useCallback, useState, useEffect } fr
 import { Maximize2 } from "lucide-react";
 import { AnalysisFrame } from "@/features/audio/types";
 import ReactECharts from "@/shared/components/ReactECharts";
-import SegmentedControl from "@/shared/components/ui/SegmentedControl";
 import { perf } from "@/features/audio/lib/perf/collector";
 import { e2e } from "@/features/audio/lib/perf-e2e/collector";
 import { DEFAULT_TEMP_WARN, DEFAULT_TEMP_DANGER } from "@/features/audio/lib/render/detect-events";
 import {
-  computeStreamWindow, computeTemperatureYRange, WINDOW_SIZE, type ChannelMode,
+  computeStreamWindow, computeTemperatureYRange, WINDOW_SIZE,
 } from "@/features/audio/lib/render/chart-window";
 import {
   buildValueTooltip, resolveTimeDecimals,
@@ -30,15 +29,9 @@ interface Props {
   dangerThreshold?: number;
 }
 
-const CH_COLOR: Record<ChannelMode, { ch0: string; ch1: string }> = {
-  L:    { ch0: "#0B4171", ch1: "#0B4171" },
-  R:    { ch0: "#6B9BD1", ch1: "#6B9BD1" },
-  Both: { ch0: "#0B4171", ch1: "#6B9BD1" },
-};
+const TEMP_COLOR = "#0B4171";
 
 export default function TemperatureChart({ frames, currentTime, isActive, streaming = false, audioDuration, lttb = true, perfTrack = false, onExpand, warnThreshold = DEFAULT_TEMP_WARN, dangerThreshold = DEFAULT_TEMP_DANGER }: Props) {
-  const [channelMode, setChannelMode] = useState<ChannelMode>("Both");
-
   const zoomRef = useRef({ start: 0, end: 100 });
   const [showSymbols, setShowSymbols] = useState(false);
   const pointCountRef = useRef(0);
@@ -92,27 +85,20 @@ export default function TemperatureChart({ frames, currentTime, isActive, stream
   );
   pointCountRef.current = windowFrames.length;
 
-  const displayTemp = useMemo(() => {
-    if (currentTemp === null) return null;
-    if (channelMode === "L")    return currentTemp[0];
-    if (channelMode === "R")    return currentTemp[1];
-    return Math.max(currentTemp[0], currentTemp[1]);
-  }, [currentTemp, channelMode]);
+  const displayTemp = currentTemp;
 
   const tempColor =
     displayTemp === null ? "#94A3B8"
     : displayTemp >= dangerThreshold ? "#EF4444"
     : displayTemp >= warnThreshold   ? "#F59E0B"
-    : CH_COLOR[channelMode].ch0;
+    : TEMP_COLOR;
 
   const { yMin, yMax } = useMemo(
-    () => computeTemperatureYRange(windowFrames, channelMode),
-    [windowFrames, channelMode],
+    () => computeTemperatureYRange(windowFrames),
+    [windowFrames],
   );
 
   const option = useMemo(() => {
-    const colors = CH_COLOR[channelMode];
-
     const samplingOpts = lttb ? { sampling: "lttb", large: true, largeThreshold: 2000 } : {};
     const timeDecimals = resolveTimeDecimals(windowFrames);
 
@@ -125,36 +111,23 @@ export default function TemperatureChart({ frames, currentTime, isActive, stream
       ],
     };
 
-    const seriesL = buildLineSeries({
-      name: "L (ch0)",
-      data: windowFrames.map((f) => [f.time, f.temperature[0]]),
-      color: colors.ch0, smooth: true, width: 2, sampling: samplingOpts,
-      area: channelMode !== "Both" ? buildAreaGradient("rgba(11,65,113,0.18)", "rgba(11,65,113,0)") : undefined,
+    const series = buildLineSeries({
+      name: "Temperature",
+      data: windowFrames.map((f) => [f.time, f.temperature]),
+      color: TEMP_COLOR, smooth: true, width: 2, sampling: samplingOpts,
+      area: buildAreaGradient("rgba(11,65,113,0.18)", "rgba(11,65,113,0)"),
       markLine, showSymbol: showSymbols, symbolSize: 5,
     });
 
-    const seriesR = buildLineSeries({
-      name: "R (ch1)",
-      data: windowFrames.map((f) => [f.time, f.temperature[1]]),
-      color: colors.ch1, smooth: true, width: 2, sampling: samplingOpts,
-      area: channelMode !== "Both" ? buildAreaGradient("rgba(107,155,209,0.18)", "rgba(107,155,209,0)") : undefined,
-      showSymbol: showSymbols, symbolSize: 5,
-    });
-
-    const series =
-      channelMode === "L"    ? [seriesL] :
-      channelMode === "R"    ? [{ ...seriesR, markLine }] :
-      [seriesL, seriesR];
-
     return buildBaseChartOption({
-      channelMode, windowFrames, zoomRef, gridLeft: 52,
+      windowFrames, zoomRef, gridLeft: 52,
       zoomColors: { filler: "rgba(11,65,113,0.12)", handle: "#0B4171" },
       timeDecimals,
       yAxis: buildValueYAxis({ name: "°C", min: yMin, max: yMax }),
-      series,
+      series: [series],
       tooltip: buildValueTooltip({ unit: "°C", decimals: 1, timeDecimals }),
     });
-  }, [windowFrames, channelMode, yMin, yMax, lttb, warnThreshold, dangerThreshold, showSymbols]);
+  }, [windowFrames, yMin, yMax, lttb, warnThreshold, dangerThreshold, showSymbols]);
 
   const showChart = audioDuration != null || frames.length > 0;
 
@@ -177,26 +150,7 @@ export default function TemperatureChart({ frames, currentTime, isActive, stream
         </div>
 
         <div className="flex items-center gap-2">
-          <SegmentedControl
-            size="sm"
-            value={channelMode}
-            onChange={setChannelMode}
-            options={[
-              { value: "L", label: "L" },
-              { value: "R", label: "R" },
-              { value: "Both", label: "Both" },
-            ]}
-            className="w-[116px]"
-            aria-label="Temperature channel"
-          />
-
-          {currentTemp !== null && channelMode === "Both" ? (
-            <div className="flex items-center gap-1.5 font-mono text-sm font-semibold">
-              <span style={{ color: CH_COLOR.Both.ch0 }}>{currentTemp[0].toFixed(1)}°</span>
-              <span className="text-iron-300 text-xs">/</span>
-              <span style={{ color: CH_COLOR.Both.ch1 }}>{currentTemp[1].toFixed(1)}°</span>
-            </div>
-          ) : displayTemp !== null ? (
+          {displayTemp !== null ? (
             <span id="current-temperature-value" className="font-mono text-lg font-semibold" style={{ color: tempColor }}>
               {displayTemp.toFixed(1)}<span className="text-xs ml-0.5 font-normal">°C</span>
             </span>
@@ -207,7 +161,6 @@ export default function TemperatureChart({ frames, currentTime, isActive, stream
       <div className="chart-body flex-1 p-2 min-h-[160px]">
         {showChart ? (
           <ReactECharts
-            key={channelMode}
             option={option}
             style={{ height: "100%", width: "100%" }}
             notMerge={false}

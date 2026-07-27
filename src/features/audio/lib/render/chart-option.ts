@@ -1,5 +1,4 @@
 import type { AnalysisFrame } from "@/features/audio/types";
-import type { ChannelMode } from "./chart-window";
 
 export interface ZoomState {
   start: number;
@@ -136,12 +135,6 @@ export function shouldShowFrameSymbols(pointCount: number, zoom: ZoomState): boo
   return visible > 0 && visible <= SYMBOL_VISIBLE_MAX;
 }
 
-function buildLegend(channelMode: ChannelMode) {
-  return channelMode === "Both"
-    ? { top: "auto" as const, bottom: 56, textStyle: { color: "#94A3B8", fontSize: 10 } }
-    : { show: false as const };
-}
-
 export function buildAreaGradient(topColor: string, bottomColor: string) {
   return {
     color: {
@@ -206,7 +199,6 @@ export function buildLineSeries(opts: {
 }
 
 export function buildBaseChartOption(opts: {
-  channelMode: ChannelMode;
   windowFrames: AnalysisFrame[];
   zoomRef: ZoomStateRef;
   gridLeft: number;
@@ -219,7 +211,7 @@ export function buildBaseChartOption(opts: {
   return {
     animation: false,
     grid: { top: 8, right: 16, bottom: 52, left: opts.gridLeft },
-    legend: buildLegend(opts.channelMode),
+    legend: { show: false as const },
     dataZoom: buildDataZoom(opts.zoomRef, opts.zoomColors, {
       dataMin: 0,
       dataMax: opts.windowFrames[opts.windowFrames.length - 1]?.time ?? 10,
