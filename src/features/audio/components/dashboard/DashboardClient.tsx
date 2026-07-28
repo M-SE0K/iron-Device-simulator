@@ -307,6 +307,7 @@ export default function DashboardPage({ useQueue }: DashboardPageProps) {
                   <ExcursionChart
                     frames={streamingFrames}
                     isActive={isActive}
+                    streaming={isPlaying}
                     audioDuration={audioDuration}
                     perfTrack
                     onExpand={() => setDetailChart("excursion")}
@@ -316,6 +317,7 @@ export default function DashboardPage({ useQueue }: DashboardPageProps) {
                   <TemperatureChart
                     frames={streamingFrames}
                     isActive={isActive}
+                    streaming={isPlaying}
                     audioDuration={audioDuration}
                     perfTrack
                     onExpand={() => setDetailChart("temperature")}
