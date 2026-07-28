@@ -1,20 +1,17 @@
 "use client";
 
-import { useMemo, useLayoutEffect, useRef, useCallback, useState, useEffect } from "react";
+import { useMemo } from "react";
 import { Maximize2 } from "lucide-react";
+import uPlot from "uplot";
 import { AnalysisFrame } from "@/features/audio/types";
-import ReactECharts from "@/shared/components/ReactECharts";
-import { perf } from "@/features/audio/lib/perf/collector";
-import { e2e } from "@/features/audio/lib/perf-e2e/collector";
+import UPlotChart, { type UPlotOptions } from "@/shared/components/UPlotChart";
 import { DEFAULT_TEMP_WARN, DEFAULT_TEMP_DANGER } from "@/features/audio/lib/render/detect-events";
+import { computeTemperatureYRange } from "@/features/audio/lib/render/chart-window";
 import {
-  computeStreamWindow, computeTemperatureYRange, WINDOW_SIZE,
-} from "@/features/audio/lib/render/chart-window";
-import {
-  buildValueTooltip, resolveTimeDecimals,
-  buildAreaGradient, buildValueYAxis, buildLineSeries, buildBaseChartOption,
-  shouldShowFrameSymbols,
-} from "@/features/audio/lib/render/chart-option";
+  buildAreaFill, buildTimeAxis, buildValueAxis, resolveTimeDecimals, toAlignedData,
+} from "@/features/audio/lib/render/uplot-option";
+import { thresholdsPlugin, tooltipPlugin, zoomPlugin } from "@/features/audio/lib/render/uplot-plugins";
+import { useMetricChartRuntime } from "./hooks/useMetricChartRuntime";
 
 interface Props {
   frames: AnalysisFrame[];
@@ -22,7 +19,6 @@ interface Props {
   isActive: boolean;
   streaming?: boolean;
   audioDuration?: number | null;
-  lttb?: boolean;
   perfTrack?: boolean;
   onExpand?: () => void;
   warnThreshold?: number;
@@ -31,59 +27,21 @@ interface Props {
 
 const TEMP_COLOR = "#0B4171";
 
-export default function TemperatureChart({ frames, currentTime, isActive, streaming = false, audioDuration, lttb = true, perfTrack = false, onExpand, warnThreshold = DEFAULT_TEMP_WARN, dangerThreshold = DEFAULT_TEMP_DANGER }: Props) {
-  const zoomRef = useRef({ start: 0, end: 100 });
-  const [showSymbols, setShowSymbols] = useState(false);
-  const pointCountRef = useRef(0);
-  useEffect(() => { zoomRef.current = { start: 0, end: 100 }; setShowSymbols(false); }, [audioDuration]);
-
-  const prevFrameLenRef  = useRef(0);
-  const renderStartAtRef = useRef(0);
-  const pendingCommitSampleRef = useRef(false);
-  if (perfTrack && streaming && frames.length !== prevFrameLenRef.current) {
-    prevFrameLenRef.current = frames.length;
-    // N12 시작점은 렌더 단계(커밋 전)에서 찍어야 한다 — useLayoutEffect에서 찍으면 자식
-    // ReactECharts의 componentDidUpdate(자식이 부모보다 먼저 커밋됨)가 이미 setOption을
-    // 호출한 뒤라 늦어서, 이번 렌더가 아니라 다음 drain 사이클의 rendered 이벤트를 붙잡아
-    // N12가 항상 RENDER_INTERVAL에 가깝게 나오는 버그가 있었다.
-    renderStartAtRef.current = performance.now();
-    pendingCommitSampleRef.current = true;
-  }
-  useLayoutEffect(() => {
-    if (pendingCommitSampleRef.current) {
-      pendingCommitSampleRef.current = false;
-      // N11 — DashboardClient가 setStreamingFrames 직전에 남긴 커밋 시각 대비, 이 레이아웃
-      // 이펙트(React 커밋 이후)까지 걸린 시간.
-      e2e.sampleSinceCommit("N11", "temperature");
-    }
+export default function TemperatureChart({ frames, currentTime, isActive, streaming = false, audioDuration, perfTrack = false, onExpand, warnThreshold = DEFAULT_TEMP_WARN, dangerThreshold = DEFAULT_TEMP_DANGER }: Props) {
+  const {
+    current: currentTemp,
+    windowFrames,
+    onRender,
+    showChart,
+  } = useMetricChartRuntime({
+    metric: "temperature",
+    frames,
+    currentTime,
+    isActive,
+    streaming,
+    audioDuration,
+    perfTrack,
   });
-
-  const echartsEvents = useRef<Record<string, (...args: unknown[]) => void>>({});
-  echartsEvents.current = {
-    rendered: useCallback(() => {
-      if (perfTrack && renderStartAtRef.current > 0) {
-        const renderMs = performance.now() - renderStartAtRef.current;
-        perf.recordRender("temperature", renderMs);
-        e2e.sample("N12", renderMs, "temperature");
-        renderStartAtRef.current = 0;
-      }
-    }, [perfTrack]),
-    datazoom: useCallback((params: unknown) => {
-      const p = params as { batch?: Array<{ start?: number; end?: number }>; start?: number; end?: number };
-      const src = p.batch?.[0] ?? p;
-      if (src.start !== undefined && src.end !== undefined) {
-        zoomRef.current = { start: src.start, end: src.end };
-      }
-      const next = shouldShowFrameSymbols(pointCountRef.current, zoomRef.current);
-      setShowSymbols((prev) => (prev === next ? prev : next));
-    }, []),
-  };
-
-  const { current: currentTemp, windowFrames } = useMemo(
-    () => computeStreamWindow(frames, currentTime, isActive, streaming, audioDuration, WINDOW_SIZE, (f) => f.temperature),
-    [frames, currentTime, isActive, streaming],
-  );
-  pointCountRef.current = windowFrames.length;
 
   const displayTemp = currentTemp;
 
@@ -98,38 +56,37 @@ export default function TemperatureChart({ frames, currentTime, isActive, stream
     [windowFrames],
   );
 
-  const option = useMemo(() => {
-    const samplingOpts = lttb ? { sampling: "lttb", large: true, largeThreshold: 2000 } : {};
-    const timeDecimals = resolveTimeDecimals(windowFrames);
+  const data = useMemo(
+    () => toAlignedData(windowFrames, (f) => f.temperature),
+    [windowFrames],
+  );
 
-    const markLine = {
-      silent: true,
-      symbol: "none",
-      data: [
-        { yAxis: warnThreshold,   lineStyle: { color: "#F59E0B", type: "dashed", width: 1 }, label: { formatter: "WARN",   color: "#F59E0B", fontSize: 9 } },
-        { yAxis: dangerThreshold, lineStyle: { color: "#EF4444", type: "dashed", width: 1 }, label: { formatter: "DANGER", color: "#EF4444", fontSize: 9 } },
-      ],
-    };
+  const timeDecimals = resolveTimeDecimals(windowFrames);
 
-    const series = buildLineSeries({
-      name: "Temperature",
-      data: windowFrames.map((f) => [f.time, f.temperature]),
-      color: TEMP_COLOR, smooth: true, width: 2, sampling: samplingOpts,
-      area: buildAreaGradient("rgba(11,65,113,0.18)", "rgba(11,65,113,0)"),
-      markLine, showSymbol: showSymbols, symbolSize: 5,
-    });
-
-    return buildBaseChartOption({
-      windowFrames, zoomRef, gridLeft: 52,
-      zoomColors: { filler: "rgba(11,65,113,0.12)", handle: "#0B4171" },
-      timeDecimals,
-      yAxis: buildValueYAxis({ name: "°C", min: yMin, max: yMax }),
-      series: [series],
-      tooltip: buildValueTooltip({ unit: "°C", decimals: 1, timeDecimals }),
-    });
-  }, [windowFrames, yMin, yMax, lttb, warnThreshold, dangerThreshold, showSymbols]);
-
-  const showChart = audioDuration != null || frames.length > 0;
+  const options = useMemo<UPlotOptions>(() => ({
+    legend: { show: false },
+    cursor: { drag: { x: true, y: false } },
+    series: [
+      {},
+      {
+        label: "Temperature",
+        stroke: TEMP_COLOR,
+        width: 2,
+        fill: buildAreaFill("rgba(11,65,113,0.18)", "rgba(11,65,113,0)"),
+        paths: uPlot.paths.spline!(),
+        points: { size: 5, fill: TEMP_COLOR },
+      },
+    ],
+    axes: [buildTimeAxis(timeDecimals), buildValueAxis({ size: 52 })],
+    plugins: [
+      zoomPlugin(),
+      tooltipPlugin({ unit: "°C", decimals: 1, timeDecimals }),
+      thresholdsPlugin([
+        { y: warnThreshold,   color: "#F59E0B", label: "WARN" },
+        { y: dangerThreshold, color: "#EF4444", label: "DANGER" },
+      ]),
+    ],
+  }), [timeDecimals, warnThreshold, dangerThreshold]);
 
   return (
     <div id="temperature-chart" className="card flex flex-col h-full">
@@ -160,11 +117,12 @@ export default function TemperatureChart({ frames, currentTime, isActive, stream
 
       <div className="chart-body flex-1 p-2 min-h-[160px]">
         {showChart ? (
-          <ReactECharts
-            option={option}
-            style={{ height: "100%", width: "100%" }}
-            notMerge={false}
-            onEvents={echartsEvents.current}
+          <UPlotChart
+            key={audioDuration ?? "live"}
+            options={options}
+            data={data}
+            yRange={[yMin, yMax]}
+            onRender={onRender}
           />
         ) : (
           <div className="chart-empty-state h-full flex items-center justify-center text-xs text-iron-300">

@@ -1,5 +1,7 @@
 // perf-e2e/types.ts — N1~N12 E2E 지연 실험 노드 정의. src/features/audio/lib/perf/ (기존 5단계
 // 하네스)와는 독립된 별도 수집기다 — docs/e2e-latency-experiment.md 참고.
+import type { StatBlock } from "../perf/statistics";
+
 export type E2ENodeId =
   | "N1" | "N2" | "N3" | "N4" | "N5" | "N6"
   | "N7" | "N8" | "N9" | "N10" | "N11" | "N12";
@@ -21,7 +23,7 @@ export const E2E_NODES: Record<E2ENodeId, E2ENodeMeta> = {
   N9:  { label: "출력 큐 대기",            desc: "outputQueueRef 적재 → drain() 처리 (설계상 최대 RENDER_INTERVAL=100ms 배치 지연)" },
   N10: { label: "coalesce/detectEvents",  desc: "버킷 다운샘플링(coalesceFrames) + 이벤트 검출(detectEvents) 연산 시간" },
   N11: { label: "React 커밋 전파",         desc: "setStreamingFrames 호출 → 차트 useLayoutEffect(frames 변경 감지) 진입" },
-  N12: { label: "ECharts 렌더",           desc: "setOption 반영 → ECharts 'rendered' 이벤트(실제 페인트 완료)" },
+  N12: { label: "uPlot 렌더",             desc: "uPlot setData 동기 캔버스 드로우 구간 (paint 전 layout effect에서 측정)" },
 };
 
 export interface E2ESample {
@@ -29,15 +31,7 @@ export interface E2ESample {
   tag?: string;
 }
 
-export interface E2EStatBlock {
-  count: number;
-  avg: number | null;
-  min: number | null;
-  max: number | null;
-  p50: number | null;
-  p95: number | null;
-  p99: number | null;
-}
+export type E2EStatBlock = StatBlock;
 
 export interface E2ESessionMeta {
   mode: "native" | "web";

@@ -8,7 +8,7 @@ import SelectedFilePanel from "@/features/audio/components/dashboard/SelectedFil
 import WaveformPlayer, { WaveformPlayerHandle } from "@/features/audio/components/player/WaveformPlayer";
 import DuplexFilePlayer from "@/features/audio/components/player/DuplexFilePlayer";
 import MicrophonePlayer, { type MicRecordingExport, type MicrophonePlayerHandle } from "@/features/audio/components/player/MicrophonePlayer";
-import type { CaptureStreamListener } from "@/features/audio/components/player/capture/useCaptureSession";
+import type { CaptureStreamListener } from "@/features/audio/components/player/capture/types";
 import TemperatureChart from "@/features/audio/components/chart/TemperatureChart";
 import ExcursionChart from "@/features/audio/components/chart/ExcursionChart";
 import ChartDetailOverlay, { type DetailMetric } from "@/features/audio/components/chart/ChartDetailOverlay";
@@ -17,7 +17,6 @@ import WorkspaceDrawer from "@/features/audio/components/workspace/WorkspaceDraw
 import RecordsDrawer from "@/features/audio/components/workspace/RecordsDrawer";
 import CalibrationDrawer from "@/features/audio/components/calibration/CalibrationDrawer";
 import { AppStatus, AnalysisFrame, InputParameterValues } from "@/features/audio/types";
-import type { SessionStatus } from "@/features/audio/lib/cache/workspace";
 import { useCalibration } from "../calibration/CalibrationContext";
 import { useWorkspace } from "../workspace/WorkspaceContext";
 import { clearFrameCache } from "@/features/audio/lib/cache/frame";
@@ -28,29 +27,15 @@ import { e2e } from "@/features/audio/lib/perf-e2e/collector";
 import { detectEvents, DEFAULT_TEMP_WARN, DEFAULT_TEMP_DANGER, type TempThresholds } from "@/features/audio/lib/render/detect-events";
 import type { QueuedFrame } from "@/features/audio/lib/render/types";
 import { useFrameCachePersistence } from "@/features/audio/components/dashboard/hooks/useFrameCachePersistence";
+import { useWorkspaceSave } from "@/features/audio/components/dashboard/hooks/useWorkspaceSave";
 import { useCtrlBToggle } from "@/shared/hooks/useCtrlBToggle";
+import { useActiveDrawer } from "@/features/audio/components/dashboard/ActiveDrawerContext";
 
 interface DashboardPageProps {
   useQueue: boolean;
 }
 
-const RENDER_INTERVAL = 100;
-
-function computeMeasurementSummary(
-  frames: AnalysisFrame[],
-  thresholds: TempThresholds,
-): { peakTemp: number | null; peakExcursion: number | null; status: SessionStatus | null } {
-  if (frames.length === 0) return { peakTemp: null, peakExcursion: null, status: null };
-  let peakTemp = -Infinity;
-  let peakExcursion = 0;
-  for (const f of frames) {
-    peakTemp = Math.max(peakTemp, f.temperature);
-    peakExcursion = Math.max(peakExcursion, Math.abs(f.excursion));
-  }
-  const status: SessionStatus =
-    peakTemp >= thresholds.danger ? "danger" : peakTemp >= thresholds.warn ? "warning" : "normal";
-  return { peakTemp, peakExcursion, status };
-}
+const RENDER_INTERVAL = 5;
 
 export default function DashboardPage({ useQueue }: DashboardPageProps) {
   const [realtimeStatus, setRealtimeStatus]   = useState<AppStatus>("idle");
@@ -61,6 +46,7 @@ export default function DashboardPage({ useQueue }: DashboardPageProps) {
 
   const { values: calibration } = useCalibration();
   const { saveCurrent, pendingLocalFile, clearPendingLocalFile } = useWorkspace();
+  const { active: activeDrawer, openDrawer, closeDrawer } = useActiveDrawer();
   const inputParams = useMemo<InputParameterValues>(
     () => ({
       ampOutputPower: calibration.ampOutputPower,
@@ -133,26 +119,25 @@ export default function DashboardPage({ useQueue }: DashboardPageProps) {
     setStreamingFrames, setAudioDuration, setAudioFile,
   });
 
+  const saveWorkspace = useWorkspaceSave({
+    framesRef: allFramesRef,
+    thresholds: tempThresholds,
+    getProtectedBlob,
+    saveCurrent,
+  });
+
   const handleSaveToWorkspace = useCallback(async () => {
     if (!audioFile) return;
     const frames = allFramesRef.current;
     if (frames.length === 0) return;
     const name = splitFileName(audioFile.name).stem || "Untitled";
     const recordedAudio = realtimeWaveRef.current?.exportRecordedAudio() ?? null;
-    const protectedAudio = getProtectedBlob();
-    const { peakTemp, peakExcursion, status } = computeMeasurementSummary(frames, tempThresholds);
-    await saveCurrent({
+    await saveWorkspace({
       name,
-      audioFileName: recordedAudio ? `${name}.wav` : audioFile.name,
       audioDuration: audioDurationRef.current,
-      analysisMode:  "realtime",
-      frames,
-      audioBlob: recordedAudio ?? audioFile,
-      audioType: recordedAudio ? "audio/wav" : audioFile.type,
-      protectedAudioBlob: protectedAudio,
-      peakTemp, peakExcursion, status,
+      source: { mode: "file", originalFile: audioFile, capturedAudio: recordedAudio },
     });
-  }, [audioFile, saveCurrent, tempThresholds, getProtectedBlob]);
+  }, [audioFile, saveWorkspace]);
 
   const handleSaveMicRecording = useCallback(async (rec: MicRecordingExport) => {
     const stamp = new Date();
@@ -160,21 +145,12 @@ export default function DashboardPage({ useQueue }: DashboardPageProps) {
     const name =
       `capture-${stamp.getFullYear()}${pad(stamp.getMonth() + 1)}${pad(stamp.getDate())}` +
       `-${pad(stamp.getHours())}${pad(stamp.getMinutes())}${pad(stamp.getSeconds())}-${rec.channels}ch`;
-    const frames = allFramesRef.current;
-    const protectedAudio = getProtectedBlob();
-    const { peakTemp, peakExcursion, status } = computeMeasurementSummary(frames, tempThresholds);
-    await saveCurrent({
+    await saveWorkspace({
       name,
-      audioFileName: `${name}.wav`,
       audioDuration: rec.durationSec,
-      analysisMode:  "realtime",
-      frames,
-      audioBlob: rec.blob,
-      audioType: "audio/wav",
-      protectedAudioBlob: protectedAudio,
-      peakTemp, peakExcursion, status,
+      source: { mode: "mic", capturedAudio: rec.blob },
     });
-  }, [saveCurrent, tempThresholds, getProtectedBlob]);
+  }, [saveWorkspace]);
 
   const resetAnalysisState = useCallback(() => {
     setAudioDuration(null);
@@ -220,8 +196,6 @@ export default function DashboardPage({ useQueue }: DashboardPageProps) {
     prevTempRef.current    = null;
   }, []);
 
-  const expParams    = typeof window !== "undefined" ? new URLSearchParams(window.location.search) : null;
-  const LTTB_ENABLED  = expParams?.get("lttb") !== "0";
   const isPlaying = realtimeStatus === "playing";
 
   const handleFrameReceived = useCallback((frame: AnalysisFrame) => {
@@ -297,6 +271,9 @@ export default function DashboardPage({ useQueue }: DashboardPageProps) {
       className="flex flex-col lg:flex-row min-h-screen lg:h-screen lg:overflow-hidden"
     >
       <Sidebar
+        activeDrawer={activeDrawer}
+        onOpenDrawer={openDrawer}
+        onCloseDrawer={closeDrawer}
         mobileOpen={mobileNavOpen}
         onMobileClose={closeMobileNav}
         collapsed={sidebarCollapsed}
@@ -374,7 +351,6 @@ export default function DashboardPage({ useQueue }: DashboardPageProps) {
                     isActive={isActive}
                     streaming
                     audioDuration={audioDuration}
-                    lttb={LTTB_ENABLED}
                     perfTrack
                     onExpand={() => setDetailChart("excursion")}
                   />
@@ -386,7 +362,6 @@ export default function DashboardPage({ useQueue }: DashboardPageProps) {
                     isActive={isActive}
                     streaming
                     audioDuration={audioDuration}
-                    lttb={LTTB_ENABLED}
                     perfTrack
                     onExpand={() => setDetailChart("temperature")}
                     warnThreshold={tempThresholds.warn}
@@ -457,7 +432,6 @@ export default function DashboardPage({ useQueue }: DashboardPageProps) {
           currentTime={currentTime}
           isActive={isActive}
           audioDuration={audioDuration}
-          lttb={LTTB_ENABLED}
           warnThreshold={tempThresholds.warn}
           dangerThreshold={tempThresholds.danger}
           getChannelsBlob={getChannelsBlob}

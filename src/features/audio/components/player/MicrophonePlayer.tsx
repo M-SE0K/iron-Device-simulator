@@ -4,7 +4,8 @@ import { useEffect, forwardRef, useImperativeHandle } from "react";
 import { Mic, Save, Square } from "lucide-react";
 import { cn } from "@/shared/lib/utils";
 import { AppStatus, AnalysisFrame, InputParameterValues } from "@/features/audio/types";
-import { useCaptureSession, type CaptureRecordingExport, type CaptureStreamListener } from "./capture/useCaptureSession";
+import { useCaptureSession } from "./capture/useCaptureSession";
+import type { CaptureRecordingExport, CaptureStreamListener } from "./capture/types";
 
 export type MicRecordingExport = CaptureRecordingExport;
 

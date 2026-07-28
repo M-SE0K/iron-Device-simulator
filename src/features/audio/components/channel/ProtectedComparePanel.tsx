@@ -1,16 +1,16 @@
 "use client";
 
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import ReactECharts from "@/shared/components/ReactECharts";
+import type uPlot from "uplot";
+import UPlotChart, { type UPlotOptions } from "@/shared/components/UPlotChart";
 import { cn } from "@/shared/lib/utils";
 import { INT16_SCALE, CHANNELS } from "@/features/audio/lib/engine/core";
 import SegmentedControl from "@/shared/components/ui/SegmentedControl";
-import {
-  buildValueTooltip, buildDataZoom, buildDynamicTimeFormatter,
-  timeDecimalsForInterval, shouldShowFrameSymbols, type ZoomStateRef,
-} from "@/features/audio/lib/render/chart-option";
+import { buildTimeAxis, buildValueAxis, timeDecimalsForInterval } from "@/features/audio/lib/render/uplot-option";
+import { tooltipPlugin, zoomPlugin } from "@/features/audio/lib/render/uplot-plugins";
+import { BucketEnvelope, envelopesToAligned } from "@/features/audio/lib/render/envelope";
 import { peekWavHeader, decodeWavRange } from "@/features/audio/lib/codec/wav-incremental";
-import type { CaptureStreamEvent, CaptureStreamListener } from "@/features/audio/components/player/capture/useCaptureSession";
+import type { CaptureStreamEvent, CaptureStreamListener } from "@/features/audio/components/player/capture/types";
 import { useErrorPopup } from "@/shared/components/error-popup/ErrorPopupContext";
 
 const BUCKETS = 1000;
@@ -28,58 +28,6 @@ const COLOR_INPUT_L     = "#93c5fd"; // blue-300 (옅음 — 원본 참고선)
 const COLOR_PROTECTED_L = "#2563eb"; // blue-600 (진함 — 보호 감쇠 후 신호)
 const COLOR_INPUT_R     = "#fcd34d"; // amber-300 (옅음 — 원본 참고선)
 const COLOR_PROTECTED_R = "#d97706"; // amber-600 (진함 — 보호 감쇠 후 신호)
-
-class BucketEnvelope {
-  readonly min: Float32Array;
-  readonly max: Float32Array;
-  readonly seen: Uint8Array;
-  filledUpTo = -1;
-
-  constructor(readonly buckets: number) {
-    this.min = new Float32Array(buckets);
-    this.max = new Float32Array(buckets);
-    this.seen = new Uint8Array(buckets);
-  }
-
-  add(bucket: number, v: number) {
-    if (bucket < 0 || bucket >= this.buckets) return;
-    if (this.seen[bucket] === 0) {
-      this.min[bucket] = v;
-      this.max[bucket] = v;
-      this.seen[bucket] = 1;
-      if (bucket > this.filledUpTo) this.filledUpTo = bucket;
-      return;
-    }
-    if (v < this.min[bucket]) this.min[bucket] = v;
-    else if (v > this.max[bucket]) this.max[bucket] = v;
-  }
-
-  clear() {
-    this.seen.fill(0);
-    this.filledUpTo = -1;
-  }
-
-  peak(): number {
-    let peak = 0;
-    for (let b = 0; b <= this.filledUpTo; b++) {
-      if (this.seen[b] === 0) continue;
-      const a = Math.max(Math.abs(this.min[b]), Math.abs(this.max[b]));
-      if (a > peak) peak = a;
-    }
-    return peak;
-  }
-}
-
-function envelopeToSeries(env: BucketEnvelope, durationSec: number): [number, number][] {
-  const dt = durationSec / env.buckets;
-  const out: [number, number][] = [];
-  for (let b = 0; b <= env.filledUpTo; b++) {
-    if (env.seen[b] === 0) continue;
-    const t = b * dt;
-    out.push([t, env.min[b]], [t + dt * 0.5, env.max[b]]);
-  }
-  return out;
-}
 
 function ProtectedComparePanelImpl({
   subscribeCaptureStream,
@@ -114,10 +62,6 @@ function ProtectedComparePanelImpl({
 
   const durationRef = useRef(0);
   useEffect(() => { durationRef.current = original?.durationSec ?? 0; }, [original]);
-
-  const zoomRef: ZoomStateRef = useRef({ start: 0, end: 100 });
-  const [showSymbols, setShowSymbols] = useState(false);
-  const pointCountRef = useRef(0);
 
   // 패널이 세션 도중 마운트됐을 때(상세 뷰에서 뒤늦게 "보호 감쇠" 항목을 선택하는 경우)
   // 백필이 끝나기 전까지 들어오는 라이브 프레임을 잃지 않도록 대기시킨다.
@@ -181,8 +125,6 @@ function ProtectedComparePanelImpl({
     protectedEnvRefs.current[0].clear();
     protectedEnvRefs.current[1].clear();
     totalSamplesRef.current = 0;
-    zoomRef.current = { start: 0, end: 100 };
-    setShowSymbols(false);
     readyRef.current = false;
     pendingProtectedRef.current = [];
     backfillTokenRef.current += 1;
@@ -301,101 +243,65 @@ function ProtectedComparePanelImpl({
     };
   }, [subscribeCaptureStream, applyProtectedEvent]);
 
-  const originalSeriesL = useMemo(
-    () => (original ? envelopeToSeries(original.envL, original.durationSec) : []),
-    [original],
-  );
-  const originalSeriesR = useMemo(
-    () => (original ? envelopeToSeries(original.envR, original.durationSec) : []),
-    [original],
-  );
+  const showL = channelMode !== "R";
+  const showR = channelMode !== "L";
 
-  const echartsEvents = useRef<Record<string, (...args: unknown[]) => void>>({});
-  echartsEvents.current = {
-    datazoom: (params: unknown) => {
-      const p = params as { batch?: Array<{ start?: number; end?: number }>; start?: number; end?: number };
-      const src = p.batch?.[0] ?? p;
-      if (src.start !== undefined && src.end !== undefined) {
-        zoomRef.current = { start: src.start, end: src.end };
-      }
-      const next = shouldShowFrameSymbols(pointCountRef.current, zoomRef.current);
-      setShowSymbols((prev) => (prev === next ? prev : next));
-    },
-  };
-
-  const option = useMemo(() => {
+  // 4개 시리즈가 같은 버킷 격자(2점/버킷)를 공유하므로 x축 하나의 aligned 데이터로 만든다.
+  // protected 엔벨로프는 ref 내용만 바뀌므로 version(플러시 틱)으로 재계산을 트리거한다.
+  const chartData = useMemo(() => {
     if (!original) return null;
     void version;
-
-    const showL = channelMode !== "R";
-    const showR = channelMode !== "L";
-
     const [protectedEnvL, protectedEnvR] = protectedEnvRefs.current;
-    const protectedSeriesL = showL ? envelopeToSeries(protectedEnvL, original.durationSec) : [];
-    const protectedSeriesR = showR ? envelopeToSeries(protectedEnvR, original.durationSec) : [];
+    return envelopesToAligned(
+      [original.envL, original.envR, protectedEnvL, protectedEnvR],
+      original.durationSec,
+    ) as unknown as uPlot.AlignedData;
+  }, [original, version]);
 
+  const yRange = useMemo<[number, number] | null>(() => {
+    if (!original) return null;
     let peak = Y_MIN_SPAN;
     if (showL) peak = Math.max(peak, original.envL.peak());
     if (showR) peak = Math.max(peak, original.envR.peak());
     peak *= Y_SCALE_PADDING;
+    return [-peak, peak];
+  }, [original, showL, showR]);
 
-    pointCountRef.current = showL ? originalSeriesL.length : originalSeriesR.length;
-
+  // Input(원본 참고선)은 옅은 색 + 점선으로 먼저 그리고, Protected(보호 감쇠 후 신호)는
+  // 진한 색 + 굵은 실선으로 나중에(= 위에) 그린다 — Both 모드에서 반대 채널의 Input 라인이
+  // Protected 라인을 가리는 일이 없게 시리즈 순서로 z를 고정한다.
+  const options = useMemo<UPlotOptions | null>(() => {
+    if (!original) return null;
     const timeDecimals = timeDecimalsForInterval(original.durationSec / BUCKETS);
-    const axisDomain = { dataMin: 0, dataMax: original.durationSec, dataDecimals: timeDecimals };
-
-    // Input(원본 참고선)은 옅은 색 + 점선으로 배경에 깔고, Protected(보호 감쇠 후 신호)는
-    // 진한 색 + 굵은 실선으로 항상 그 위에(z로 고정, 배열 순서와 무관하게) 그린다 — 그래야
-    // Both 모드에서 반대 채널의 Input 라인이 Protected 라인을 가리는 일이 없다.
-    const series = [
-      ...(showL ? [
-        { name: channelMode === "Both" ? "Input L" : "Input", type: "line" as const, z: 1, symbol: showSymbols ? "circle" : "none", showSymbol: showSymbols, symbolSize: 4, lineStyle: { width: 1, color: COLOR_INPUT_L, type: "dashed" as const, opacity: 0.85 }, data: originalSeriesL },
-      ] : []),
-      ...(showR ? [
-        { name: channelMode === "Both" ? "Input R" : "Input", type: "line" as const, z: 1, symbol: showSymbols ? "circle" : "none", showSymbol: showSymbols, symbolSize: 4, lineStyle: { width: 1, color: COLOR_INPUT_R, type: "dashed" as const, opacity: 0.85 }, data: originalSeriesR },
-      ] : []),
-      ...(showL ? [
-        { name: channelMode === "Both" ? "Protected L" : "Protected", type: "line" as const, z: 2, symbol: showSymbols ? "circle" : "none", showSymbol: showSymbols, symbolSize: 4, lineStyle: { width: 1.8, color: COLOR_PROTECTED_L }, data: protectedSeriesL },
-      ] : []),
-      ...(showR ? [
-        { name: channelMode === "Both" ? "Protected R" : "Protected", type: "line" as const, z: 2, symbol: showSymbols ? "circle" : "none", showSymbol: showSymbols, symbolSize: 4, lineStyle: { width: 1.8, color: COLOR_PROTECTED_R }, data: protectedSeriesR },
-      ] : []),
-    ];
-
-    // 범례는 채널별로 짝지어 보이는 게 읽기 편해서 z-순서(위 배열)와 별개로 [Input L, Protected L,
-    // Input R, Protected R] 순으로 재배열한다 — 실제 렌더 순서는 각 series의 z 값이 결정한다.
-    const legendOrder = ["Input L", "Protected L", "Input R", "Protected R", "Input", "Protected"];
-    const legendNames = series.map((s) => s.name).sort((a, b) => legendOrder.indexOf(a) - legendOrder.indexOf(b));
-
+    const inputSeries = (label: string, color: string): uPlot.Series => ({
+      label, stroke: `${color}D9`, width: 1, dash: [4, 4], spanGaps: true, points: { size: 4, fill: color },
+    });
+    const protectedSeries = (label: string, color: string): uPlot.Series => ({
+      label, stroke: color, width: 1.8, spanGaps: true, points: { size: 4, fill: color },
+    });
     return {
-      animation: false,
-      tooltip: buildValueTooltip({ unit: "", decimals: 3, timeDecimals: 3 }),
-      legend: {
-        data: legendNames,
-        textStyle: { color: "#64748b", fontSize: 11 },
-        top: 0,
-      },
-      grid: { left: 56, right: 16, top: 32, bottom: 44 },
-      dataZoom: buildDataZoom(zoomRef, { filler: "rgba(37,99,235,0.12)", handle: COLOR_PROTECTED_L }, axisDomain),
-      xAxis: {
-        type: "value" as const,
-        min: 0,
-        max: original.durationSec,
-        axisLabel: { formatter: buildDynamicTimeFormatter(zoomRef, axisDomain), color: "#94A3B8", fontSize: 10 },
-        axisLine: { lineStyle: { color: "#E2E8F0" } },
-        splitLine: { lineStyle: { color: "#F1F5F9" } },
-      },
-      yAxis: {
-        type: "value" as const,
-        min: -peak,
-        max: peak,
-        axisLabel: { formatter: (v: number) => v.toFixed(2), color: "#94A3B8", fontSize: 10 },
-        axisLine: { show: false },
-        splitLine: { lineStyle: { color: "#F1F5F9" } },
-      },
-      series,
+      cursor: { drag: { x: true, y: false } },
+      series: [
+        {},
+        inputSeries("Input L", COLOR_INPUT_L),
+        inputSeries("Input R", COLOR_INPUT_R),
+        protectedSeries("Protected L", COLOR_PROTECTED_L),
+        protectedSeries("Protected R", COLOR_PROTECTED_R),
+      ],
+      axes: [
+        buildTimeAxis(timeDecimals),
+        buildValueAxis({ size: 56, formatter: (v: number) => v.toFixed(2) }),
+      ],
+      plugins: [
+        // 이 옵션은 original이 바뀔 때만 재생성되므로(=차트 재마운트) durationSec을 그대로
+        // 클로저에 담아도 안전하다 — ChannelWaveformCanvas처럼 매 청크 갱신되는 값이 아니다.
+        zoomPlugin({ getFullXRange: () => [0, original.durationSec] }),
+        tooltipPlugin({ unit: "", decimals: 3, timeDecimals: 3 }),
+      ],
     };
-  }, [original, originalSeriesL, originalSeriesR, version, showSymbols, channelMode]);
+  }, [original]);
+
+  const seriesShow = useMemo(() => [showL, showR, showL, showR], [showL, showR]);
 
   const placeholder = decodeError
     ? "Unable to load original waveform."
@@ -424,8 +330,14 @@ function ProtectedComparePanelImpl({
       </div>
 
       <div className="chart-body flex-1 p-2 min-h-[160px]">
-        {option && !placeholder ? (
-          <ReactECharts option={option} style={{ height: "100%", width: "100%" }} notMerge={false} onEvents={echartsEvents.current} />
+        {options && chartData && yRange && !placeholder ? (
+          <UPlotChart
+            options={options}
+            data={chartData}
+            yRange={yRange}
+            xRange={[0, original!.durationSec]}
+            seriesShow={seriesShow}
+          />
         ) : (
           <div className="chart-empty-state h-full flex items-center justify-center text-xs text-iron-300">
             {placeholder ?? "Once analysis starts, the protected waveform will overlay here."}

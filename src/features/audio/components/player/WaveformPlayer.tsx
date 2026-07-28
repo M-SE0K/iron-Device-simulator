@@ -4,7 +4,8 @@ import { useEffect, useRef, useState, useCallback, forwardRef, useImperativeHand
 import { cn } from "@/shared/lib/utils";
 import { AppStatus, AnalysisFrame, InputParameterValues } from "@/features/audio/types";
 import { useCalibration } from "@/features/audio/components/calibration/CalibrationContext";
-import { useCaptureSession, type CaptureStreamListener } from "./capture/useCaptureSession";
+import { useCaptureSession } from "./capture/useCaptureSession";
+import type { CaptureStreamListener } from "./capture/types";
 import PlayerBar from "./PlayerBar";
 
 const WAVEFORM_CANVAS_HEIGHT: number | "auto" = "auto";

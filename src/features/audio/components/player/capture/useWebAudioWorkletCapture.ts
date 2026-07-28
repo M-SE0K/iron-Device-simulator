@@ -1,8 +1,7 @@
 "use client";
 
 import { useCallback, type MutableRefObject } from "react";
-import { perf } from "@/features/audio/lib/perf/collector";
-import { e2e } from "@/features/audio/lib/perf-e2e/collector";
+import { createCaptureTelemetry } from "@/features/audio/lib/perf/capture-telemetry";
 import type { SocketLike } from "@/features/audio/lib/engine/protocol/local-socket";
 import { encodeToInt16 } from "@/features/audio/lib/engine/utils";
 
@@ -78,27 +77,22 @@ export function useWebAudioWorkletCapture(deps: WebCaptureDeps) {
     const ws = openAnalysisSocket(actualRate, params.bufferSize);
 
     const deviceName = stream.getAudioTracks()[0]?.label || params.inputDeviceLabel || null;
-    perf.startSession({
+    const telemetry = createCaptureTelemetry<Int16Array>({
       mode: "web", sampleRate: actualRate, samplesPerCh: params.bufferSize,
       channels: 2, deviceName,
-    });
-    // N1(네이티브 IPC 릴레이)은 Electron 전용이라 web 캡처 경로에는 없다.
-    e2e.startSession({
-      mode: "web", sampleRate: actualRate, samplesPerCh: params.bufferSize,
-      channels: 2, deviceName,
-      engine: process.env.USE_WORKER_ENGINE === "0" ? "main-thread" : "worker",
+      onEncodedFrame: (interleaved) => {
+        ws.send(interleaved.buffer as ArrayBuffer);
+        ++frameCountRef.current;
+      },
     });
 
+    // N1(네이티브 IPC 릴레이)은 Electron 전용이라 web 캡처 경로에는 없다.
     worklet.port.onmessage = (e: MessageEvent<{ L: Float32Array; R: Float32Array }>) => {
       if (!isActiveRef.current || ws.readyState !== WebSocket.OPEN) return;
-      perf.markChunkArrival();
+      telemetry.markChunkArrival();
       if (!analysisActiveRef.current) return;
-
-      const encStartAt = performance.now();
-      const interleaved = e2e.time("N2", () => encodeToInt16(e.data.L, e.data.R));
-      perf.markFrameSent(performance.now() - encStartAt);
-      ws.send(interleaved.buffer as ArrayBuffer);
-      ++frameCountRef.current;
+      const interleaved = telemetry.measureEncoding(() => encodeToInt16(e.data.L, e.data.R));
+      telemetry.markEncodedFrame(interleaved);
     };
   }, [
     audioCtxRef, streamRef, workletRef, analysisActiveRef, isActiveRef, frameCountRef,

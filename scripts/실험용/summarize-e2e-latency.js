@@ -9,8 +9,6 @@
 const fs = require("fs");
 const path = require("path");
 
-const RENDER_INTERVAL_MS = 100; // DashboardClient.tsx의 RENDER_INTERVAL과 일치시켜둔 값
-
 const NODE_ORDER = ["N1", "N2", "N3", "N4", "N5", "N6", "N7", "N8", "N9", "N10", "N11", "N12"];
 
 // 스레드/프로세스 경계가 있어 특정 조건에서만 값이 채워지는 노드 — count=0이어도 정상일 수 있다.

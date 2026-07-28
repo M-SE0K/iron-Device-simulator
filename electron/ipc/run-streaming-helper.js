@@ -95,4 +95,21 @@ function stopStreamingChild(child, graceMs = 200) {
   child.once("exit", () => clearTimeout(timer));
 }
 
-module.exports = { runStreamingHelper, stopStreamingChild };
+function createStreamingChildController() {
+  let child = null;
+
+  return {
+    setChild: (nextChild) => { child = nextChild; },
+    isCurrentChild: (candidate) => child === candidate,
+    current: () => child,
+    stop: () => {
+      if (!child) return { success: true };
+      const activeChild = child;
+      child = null; // exit 핸들러가 ended 이벤트를 보내지 않도록 사용자 주도 종료 전에 비운다.
+      stopStreamingChild(activeChild);
+      return { success: true };
+    },
+  };
+}
+
+module.exports = { runStreamingHelper, stopStreamingChild, createStreamingChildController };

@@ -18,10 +18,11 @@
 
 | 파일 | 역할 |
 |------|------|
-| `DashboardClient.tsx` | 최상위 클라이언트 컴포넌트(기본 export `DashboardPage`). 실시간 상태(`realtimeStatus`)와 단일 프레임 버퍼(`streamingFrames`), 모든 측정용 refs를 소유한다. `handleFrameReceived`로 프레임을 받아 `useQueue`에 따라 `outputQueueRef`에 push하거나 즉시 state append한다. `RENDER_INTERVAL`(100ms) `setInterval` 스케줄러가 큐를 drain해 `detectEvents()`+`coalesceFrames()`를 거친 프레임만 렌더하고, 스케줄러 해제 시 남은 큐를 한 번 더 drain해 비운다. 버퍼(`streamingFrames`)는 윈도우·slice 상한 없이 세션 동안 계속 누적된다. Workspace 저장은 파일 모드 `handleSaveToWorkspace`와 마이크 모드 `handleSaveMicRecording` 두 갈래다. 저장 직전 `computeMeasurementSummary()`로 버퍼에서 Peak 온도/진폭과 WARN/DANGER 상태를 한 번 계산해 함께 싣는다. `ChartDetailOverlay`에는 활성 플레이어 핸들(파일=`realtimeWaveRef`/마이크=`micWaveRef`)에서 뽑은 `getChannelsBlob`(전 채널 WAV 스냅샷)·`subscribeChannelStream`(캡처 청크 실시간 구독)을 넘겨 채널 뷰를 잇는다. 데스크톱(lg 이상)에서는 Ctrl/Cmd+B(또는 헤더 버튼)로 Sidebar를 접는 `sidebarCollapsed`도 소유한다. 우측 드로어 3종(`WorkspaceDrawer`/`RecordsDrawer`/`CalibrationDrawer`)과 플로팅 플레이어 독도 여기서 렌더한다. |
+| `DashboardClient.tsx` | 최상위 클라이언트 컴포넌트(기본 export `DashboardPage`). 실시간 상태(`realtimeStatus`)와 단일 프레임 버퍼(`streamingFrames`), 모든 측정용 refs를 소유한다. `handleFrameReceived`로 프레임을 받아 `useQueue`에 따라 `outputQueueRef`에 push하거나 즉시 state append한다. `RENDER_INTERVAL`(10ms) `setInterval` 스케줄러가 큐를 drain해 `detectEvents()`+`coalesceFrames()`를 거친 프레임만 렌더하고, 스케줄러 해제 시 남은 큐를 한 번 더 drain해 비운다. 버퍼(`streamingFrames`)는 윈도우·slice 상한 없이 세션 동안 계속 누적된다. Workspace 저장은 파일 모드 `handleSaveToWorkspace`와 마이크 모드 `handleSaveMicRecording` 두 갈래다. 공통 저장 로직은 `hooks/useWorkspaceSave.ts`가 맡는다. `ChartDetailOverlay`에는 활성 플레이어 핸들(파일=`realtimeWaveRef`/마이크=`micWaveRef`)에서 뽑은 `getChannelsBlob`(전 채널 WAV 스냅샷)·`subscribeChannelStream`(캡처 청크 실시간 구독)을 넘겨 채널 뷰를 잇는다. 데스크톱(lg 이상)에서는 Ctrl/Cmd+B(또는 헤더 버튼)로 Sidebar를 접는 `sidebarCollapsed`도 소유한다. 우측 드로어 3종(`WorkspaceDrawer`/`RecordsDrawer`/`CalibrationDrawer`)과 플로팅 플레이어 독도 여기서 렌더한다. |
 | `ActiveDrawerContext.tsx` | 우측 드로어 배타 전환 컨텍스트(앱 전역 단일 소스). `active: DrawerKey \| null`과 `openDrawer`/`closeDrawer`를 노출한다. `DrawerKey`는 `"workspace" \| "records" \| "calibration"`. Provider 밖에서 `useActiveDrawer()`를 호출하면 예외를 던진다. |
 | `SelectedFilePanel.tsx` | "파일 없음" 안내 전용 컴포넌트. 클릭하면 좌측 Workspace 드로어를 여는 진입점 버튼 하나만 렌더한다(prop 없음). 파일 선택 자체는 Workspace 드로어의 "폴더" 섹션이 맡고, 선택 뒤의 미리보기/저장 버튼은 플로팅 플레이어 독(`WaveformPlayer`)으로 옮겼다. |
 | `hooks/useFrameCachePersistence.ts` | sessionStorage 프레임 캐시(`lib/cache/frame.ts`) 저장/복원 + IndexedDB 오디오 blob(`lib/cache/audio-blob.ts`) 복원. 마운트 시 캐시를 복원하고 재생 정지(`paused`/`ready`)와 `pagehide`/`visibilitychange`(hidden) 시점에 `persistCache()`를 호출한다. F5 새로고침·탭 전환 후에도 파형/차트가 유지되는 이유가 이 훅이다. 저장/복원 대상은 실시간 버퍼(`streamingFrames`) 하나다. |
+| `hooks/useWorkspaceSave.ts` | 파일/마이크 공용 Workspace 저장 훅. 저장 직전 `computeMeasurementSummary()`로 버퍼에서 Peak 온도/진폭과 상태(`normal`/`warning`/`danger`, 임계값 기준)를 계산한다. 저장 대상은 파일 모드가 캡처 WAV 우선(없으면 원본 파일 fallback), 마이크 모드가 캡처 WAV다. 이렇게 고른 대상을 보호 감쇠 PCM(`getProtectedBlob`)과 함께 `saveCurrent`로 넘긴다. 프레임 버퍼는 `framesRef`로 주입받는다(상태 소유는 여전히 `DashboardClient`). |
 | perf telemetry | 렌더/차트 성능 수집은 `lib/perf/collector.ts`와 각 차트의 `perfTrack` 인스턴스가 담당한다. |
 
 ## 4. 의존성 및 흐름
@@ -36,7 +37,7 @@
 이 도메인이 의존하는 모듈(방향: dashboard → 대상):
 
 - `components/player/` — `WaveformPlayer`(파일 재생+캡처 분석, `WaveformPlayerHandle` ref)·`MicrophonePlayer`(마이크, `MicRecordingExport`). 프레임은 반대 방향(player → dashboard)으로 `onFrameReceived` 콜백을 타고 들어온다.
-- `components/chart/` — `TemperatureChart`·`ExcursionChart`·`ChartDetailOverlay`에 `streamingFrames`를 공급. 렌더 완료 시각은 반대 방향으로 `onReactRender`/`onEchartsRender` 콜백을 타고 돌아온다. `ChartDetailOverlay`에는 활성 플레이어 핸들 기반 `getChannelsBlob`/`subscribeChannelStream`(채널 뷰용 WAV 스냅샷·캡처 청크 스트림)도 함께 넘긴다.
+- `components/chart/` — `TemperatureChart`·`ExcursionChart`·`ChartDetailOverlay`에 `streamingFrames`를 공급한다. `perfTrack`은 메인 차트 두 인스턴스에만 켠다(렌더 계측은 콜백으로 돌아오지 않고 차트 쪽이 `lib/perf` 수집기에 직접 기록한다). `ChartDetailOverlay`에는 활성 플레이어 핸들 기반 `getChannelsBlob`/`subscribeChannelStream`(채널 뷰용 WAV 스냅샷·캡처 청크 스트림)과 `getProtectedBlob`/`sourceFile`(보호 감쇠 비교 뷰용)도 함께 넘긴다.
 - `components/workspace/` — `WorkspaceDrawer`·`RecordsDrawer`를 직접 렌더하고, `useWorkspace()`의 `saveCurrent`로 세션을 저장한다. `pendingLocalFile`로 로컬 폴더에서 고른 파일을 수신(수신 즉시 `handleFileSelected`로 흘려보내고 `clearPendingLocalFile` 호출).
 - `components/calibration/` — `CalibrationDrawer`를 직접 렌더하고, `useCalibration()`으로 `ampOutputPower`/`speakerModel`/`ambientTemp`(엔진 파라미터)와 `tempWarn`/`tempDanger`(임계값, 파싱 실패 시 65/75°C fallback)를 읽는다.
 - `lib/render/` — `coalesceFrames`(버킷 병합), `detectEvents`+`DEFAULT_TEMP_WARN`(65)/`DEFAULT_TEMP_DANGER`(75)(임계값 이벤트 감지), `QueuedFrame` 타입.
@@ -50,7 +51,7 @@
 WaveformPlayer/MicrophonePlayer
   → onFrameReceived(frame)
   → outputQueueRef.push({frame, recvAt})
-  → [RENDER_INTERVAL=100ms 스케줄러] detectEvents(bucket) + coalesceFrames(bucket)
+  → [RENDER_INTERVAL=10ms 스케줄러] detectEvents(bucket) + coalesceFrames(bucket)
   → setStreamingFrames (윈도우 없이 세션 동안 누적)
   → streamingFrames → TemperatureChart / ExcursionChart / ChartDetailOverlay
 ```
@@ -75,3 +76,4 @@ Workspace 저장 시 파일 모드는 원본 업로드 파일이 아니라 활�
 - 2026-07-09: realtime/batch 분석 모드 제거 반영 — `AnalysisModeContext` 삭제(입력 소스는 `DashboardClient` 로컬 state로 흡수), `ActiveDrawerContext`(우측 드로어 배타 전환) 신규 추가, `batchStatus`/`batchFrames`/`handleRunBatch`/Reference JSON 서술 삭제, `SelectedFilePanel` 무-prop 축소, `useFrameCachePersistence` batch deps 제거. 섹션 1·2·3·4·5 갱신 (커밋 범위: e0add14..9242fd2, 워크트리 포함)
 - 2026-07-09: workspace 도메인 리네임 반영 — `MeasurementRecordsDrawer` → `RecordsDrawer`, `lib/cache/workspace.ts`의 `MeasurementStatus` → `SessionStatus`. 이 도메인의 `useMeasurementCapture`/`MeasurementExport`(성능 측정 하네스)와 이름이 겹쳐 혼동을 주던 문제를 없애기 위한 순수 리네임. 섹션 1·3·4의 관련 언급 갱신 (커밋 범위: 9242fd2..HEAD, 워크트리 포함)
 - 2026-07-13: `DashboardClient` 배선 갱신 반영 — `ChartDetailOverlay` 채널 뷰에 `getChannelsBlob`/`subscribeChannelStream`(활성 플레이어 핸들의 전 채널 WAV 스냅샷·캡처 청크 스트림)을 연결, 데스크톱 Sidebar 접기(`sidebarCollapsed`, Ctrl/Cmd+B) 추가, 16ms 스케줄러 해제 시 잔여 큐 flush. `SelectedFilePanel`은 `CalibrationSummary` 제거로 무-배지 진입점만 남음(섹션 3·4 관련 언급 정정). 섹션 3·4 부분 갱신 (커밋 범위: 14742c6..HEAD, 워크트리 포함)
+- 2026-07-27: 미반영분 일괄 정리 — `hooks/useWorkspaceSave.ts` 추출 반영(공용 저장 로직 + `computeMeasurementSummary`), `components/chart/` 쪽 렌더 계측 배선 서술 정정(`onReactRender`/`onEchartsRender` 콜백은 삭제된 지 오래 — 현재는 `perfTrack` prop만 내려주고 차트가 `lib/perf`에 직접 기록), ECharts → uPlot 이관으로 `lttb` prop 체인 삭제. 섹션 3·4 부분 갱신 (커밋 범위: f9ad37e..HEAD, 워크트리 포함)
