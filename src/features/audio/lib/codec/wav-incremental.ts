@@ -61,20 +61,3 @@ export async function decodeWavRange(
   for (let i = 0; i < frameCount; i++) out[i] = read(i * blockAlign + channel * bytesPerSample);
   return out;
 }
-
-export function appendWindowed(existing: Float32Array, incoming: Float32Array, maxSamples: number): Float32Array {
-  if (incoming.length === 0) return existing;
-  const total = existing.length + incoming.length;
-  if (total <= maxSamples) {
-    const out = new Float32Array(total);
-    out.set(existing, 0);
-    out.set(incoming, existing.length);
-    return out;
-  }
-  if (incoming.length >= maxSamples) return incoming.slice(incoming.length - maxSamples);
-  const keepFromExisting = maxSamples - incoming.length;
-  const out = new Float32Array(maxSamples);
-  out.set(existing.subarray(existing.length - keepFromExisting), 0);
-  out.set(incoming, keepFromExisting);
-  return out;
-}

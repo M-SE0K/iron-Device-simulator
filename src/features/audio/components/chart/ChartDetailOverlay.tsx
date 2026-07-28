@@ -15,20 +15,23 @@ import { useCtrlBToggle } from "@/shared/hooks/useCtrlBToggle";
 import FullscreenOverlay from "@/shared/components/overlay/FullscreenOverlay";
 import { useErrorPopup } from "@/shared/components/error-popup/ErrorPopupContext";
 import { BYTES_PER_SAMPLE, INT16_SCALE } from "@/features/audio/lib/engine/core";
-import { appendWindowed, decodeWavRange, peekWavHeader } from "@/features/audio/lib/codec/wav-incremental";
+import { decodeWavRange, peekWavHeader } from "@/features/audio/lib/codec/wav-incremental";
 import type { CaptureStreamEvent, CaptureStreamListener } from "@/features/audio/components/player/capture/types";
 import { channelLabel, channelColor } from "@/features/audio/lib/render/channel-meta";
 import TemperatureChart from "./TemperatureChart";
 import ExcursionChart from "./ExcursionChart";
 import ChannelSelectDrawer, { type DrawerEntry } from "../channel/ChannelSelectDrawer";
 import ChannelStackView, { type StackItem } from "../channel/ChannelStackView";
-import { ChannelWaveformCanvas } from "../channel/ChannelWaveformCanvas";
-import { channelStats, type WaveformWindow } from "@/features/audio/lib/render/waveform";
+import { ChannelStatsBadge, ChannelWaveformCanvas } from "../channel/ChannelWaveformCanvas";
+import { ChannelWaveStore } from "@/features/audio/lib/render/wave-store";
 import { ProtectedComparePanel } from "../channel/ProtectedComparePanel";
 
-// 채널 라이브 뷰가 화면에 유지하는 슬라이딩 윈도우 길이(초) — 이보다 오래된 샘플은 버려서
-// 세션이 길어져도 채널당 메모리 사용량이 상한(윈도우 크기)을 넘지 않게 한다.
-const LIVE_WINDOW_SEC = 30;
+/**
+ * 채널을 새로 선택했을 때 지금까지의 캡처를 스토어에 채워 넣는 백필의 한 번 디코딩 단위(초).
+ * 세션 전체를 통째로 디코딩하면 순간 메모리가 세션 길이에 비례해 커지므로 구간을 끊어
+ * 넣는다 — 스토어는 어차피 버킷 엔벨로프로 접으므로 원본은 구간마다 바로 버려진다.
+ */
+const SEED_SEGMENT_SEC = 30;
 
 const METRIC_ID = "metric";
 // 보호 감쇠 전/후 비교 뷰 — 원본 채널(channel 섹션)이 아니라 분석 결과라 metric 섹션에 둔다.
@@ -36,11 +39,14 @@ const PROTECT_ID = "protected-compare";
 const channelId = (ch: number) => `ch:${ch}`;
 const parseChannelId = (id: string) => Number(id.slice(3));
 
-/** 채널 뷰 헤더 — WavHeader 전체가 아니라 UI/축 계산에 필요한 만큼만 들고 있는다. */
+/**
+ * 채널 뷰 헤더 — WavHeader 전체가 아니라 UI/축 계산에 필요한 만큼만 들고 있는다.
+ * 세션 길이는 여기 두지 않는다: 청크마다 늘어나는 값이라 상태로 두면 초당 100번 리렌더가
+ * 되고, 필요한 쪽(채널 파형)은 스토어 스냅샷에서 직접 읽는다.
+ */
 interface ChannelHeader {
   channels: number;
   sampleRate: number;
-  durationSec: number;
 }
 
 export type DetailMetric = "temperature" | "excursion";
@@ -113,11 +119,22 @@ export default function ChartDetailOverlay({
   );
   const hasSelectedChannel = wantedChannels.length > 0;
 
-  // ── 채널 헤더 + 채널별 라이브 윈도우(최근 LIVE_WINDOW_SEC초) — 전부 push로 갱신된다 ──────
+  // ── 채널 헤더 + 채널별 파형 스토어(세션 전체 엔벨로프) — 전부 push로 갱신된다 ──────────
   const [header, setHeader] = useState<ChannelHeader | null>(null);
-  const [windows, setWindows] = useState<Map<number, WaveformWindow>>(new Map());
   const [channelError, setChannelError] = useState<string | null>(null);
   const [headerLoading, setHeaderLoading] = useState(false);
+
+  // 채널별 표시 스토어. 메인 차트의 ChartStore와 같은 역할이라 React 상태가 아니라 ref다 —
+  // 청크가 도착해도 setState 없이 스토어가 직접 구독자(차트)에게 알린다.
+  const storesRef = useRef<Map<number, ChannelWaveStore>>(new Map());
+  const getStore = useCallback((ch: number): ChannelWaveStore => {
+    let store = storesRef.current.get(ch);
+    if (!store) {
+      store = new ChannelWaveStore();
+      storesRef.current.set(ch, store);
+    }
+    return store;
+  }, []);
 
   // 현재 렌더의 wantedChannels를 청크 콜백(안정된 참조로 한 번만 구독)이 항상 최신으로
   // 읽을 수 있게 ref로 미러링한다 — 매 청크마다 구독을 재생성하지 않기 위함.
@@ -125,67 +142,61 @@ export default function ChartDetailOverlay({
   useEffect(() => { wantedChannelsRef.current = wantedChannels; }, [wantedChannels]);
   // 세션 누적 프레임 수 — 청크가 들어올 때마다 늘어나며, durationSec = 이 값/sampleRate.
   const totalFramesRef = useRef(0);
-  // 이미 최근 LIVE_WINDOW_SEC초를 백필(seed)한 채널 집합 — 한 번만 백필하고, 그 뒤로는
-  // 청크 push로만 이어붙인다.
+  // 이미 세션 시작~현재를 백필(seed)한 채널 집합 — 한 번만 백필하고, 그 뒤로는 청크 push로만
+  // 이어붙인다.
   const seededRef = useRef<Set<number>>(new Set());
 
-  // 선택 해제된 채널은 캐시(윈도우/시드 여부)에서 지워 메모리를 되돌린다 — 나중에 다시
-  // 선택되면 처음 선택했을 때와 동일하게 최근 LIVE_WINDOW_SEC초를 다시 백필한다.
+  // 선택 해제된 채널은 스토어/시드 여부를 지워 메모리를 되돌린다 — 나중에 다시 선택되면
+  // 처음 선택했을 때와 동일하게 세션 전체를 다시 백필한다.
   useEffect(() => {
     const wantedSet = new Set(wantedChannels);
     for (const ch of seededRef.current) {
       if (!wantedSet.has(ch)) seededRef.current.delete(ch);
     }
-    setWindows((prev) => {
-      let changed = false;
-      const next = new Map(prev);
-      for (const ch of prev.keys()) {
-        if (!wantedSet.has(ch)) { next.delete(ch); changed = true; }
-      }
-      return changed ? next : prev;
-    });
+    for (const ch of storesRef.current.keys()) {
+      if (!wantedSet.has(ch)) storesRef.current.delete(ch);
+    }
   }, [wantedChannels]);
 
   // 캡처 청크가 들어올 때마다 즉시 호출된다(Temperature/Excursion과 동일한 push 타이밍) —
-  // 선택된 채널의 새 샘플만 뽑아 라이브 윈도우에 이어붙인다. 폴링이 없으므로 렌더 갱신
-  // 단위가 곧 실제 캡처 청크 단위(예: 10ms)가 된다.
+  // 선택된 채널의 새 샘플을 세션 시각 그대로 스토어에 넣는다. 폴링도, React 커밋도 없다.
   const handleChunk = useCallback((chunk: ArrayBuffer, channels: number, sampleRate: number) => {
     const bytesPerFrame = channels * BYTES_PER_SAMPLE;
     const frameCount = Math.floor(chunk.byteLength / bytesPerFrame);
     if (frameCount === 0) return;
+    const startSec = totalFramesRef.current / sampleRate;
     totalFramesRef.current += frameCount;
-    const durationSec = totalFramesRef.current / sampleRate;
-    setHeader({ channels, sampleRate, durationSec });
+    // 채널 수/샘플레이트가 그대로면 같은 객체를 돌려줘 리렌더를 건너뛴다 — 세션 길이는
+    // 헤더에 담지 않으므로 이 setState는 세션당 사실상 한 번만 실제 갱신된다.
+    setHeader((prev) => (
+      prev && prev.channels === channels && prev.sampleRate === sampleRate
+        ? prev
+        : { channels, sampleRate }
+    ));
 
     const wanted = wantedChannelsRef.current;
     if (wanted.length === 0) return;
 
     const view = new DataView(chunk);
-    const maxSamples = Math.round(LIVE_WINDOW_SEC * sampleRate);
-    setWindows((prev) => {
-      const next = new Map(prev);
-      for (const ch of wanted) {
-        if (!seededRef.current.has(ch)) continue; // 백필 전 — 백필이 곧 지금까지를 커버
-        const incoming = new Float32Array(frameCount);
-        for (let i = 0; i < frameCount; i++) {
-          incoming[i] = view.getInt16(i * bytesPerFrame + ch * BYTES_PER_SAMPLE, true) / INT16_SCALE;
-        }
-        const existing = next.get(ch) ?? { data: new Float32Array(0), startSec: durationSec };
-        const merged = appendWindowed(existing.data, incoming, maxSamples);
-        const startSec = Math.max(0, durationSec - merged.length / sampleRate);
-        next.set(ch, { data: merged, startSec });
+    for (const ch of wanted) {
+      if (ch >= channels) continue;
+      const store = getStore(ch);
+      const samples = new Float32Array(frameCount);
+      for (let i = 0; i < frameCount; i++) {
+        samples[i] = view.getInt16(i * bytesPerFrame + ch * BYTES_PER_SAMPLE, true) / INT16_SCALE;
       }
-      return next;
-    });
-  }, []);
+      store.addBlock(samples, startSec, sampleRate);
+      store.flush();
+    }
+  }, [getStore]);
 
   const handleStreamEvent = useCallback((ev: CaptureStreamEvent) => {
     if (ev.type === "reset") {
       totalFramesRef.current = 0;
       seededRef.current.clear();
-      setWindows(new Map());
+      storesRef.current.forEach((store) => store.reset());
       setChannelError(null);
-      setHeader({ channels: ev.channels, sampleRate: ev.sampleRate, durationSec: 0 });
+      setHeader({ channels: ev.channels, sampleRate: ev.sampleRate });
       return;
     }
     // "protected"(보호 감쇠 PCM)는 이 뷰의 관심사가 아니다 — 원본 채널 파형만 그린다.
@@ -214,9 +225,11 @@ export default function ChartDetailOverlay({
         const h = await peekWavHeader(blob);
         if (!h || cancelled) return;
         if (totalFramesRef.current === 0) totalFramesRef.current = Math.round(h.durationSec * h.sampleRate);
-        setHeader((prev) => (prev && prev.durationSec >= h.durationSec ? prev : {
-          channels: h.channels, sampleRate: h.sampleRate, durationSec: h.durationSec,
-        }));
+        setHeader((prev) => (
+          prev && prev.channels === h.channels && prev.sampleRate === h.sampleRate
+            ? prev
+            : { channels: h.channels, sampleRate: h.sampleRate }
+        ));
       } catch {
         if (!cancelled) {
           setChannelError("Failed to read channel header.");
@@ -229,37 +242,40 @@ export default function ChartDetailOverlay({
     return () => { cancelled = true; };
   }, [drawerOpen, getChannelsBlob, showError]);
 
-  // 채널을 새로 선택한 순간 — 청크 스트림에는 "지금부터"만 쌓이므로, 최근 LIVE_WINDOW_SEC초는
-  // getChannelsBlob()에서 딱 한 번만 백필한다(세션 전체를 훑지 않고 그 구간만 디코딩).
+  // 채널을 새로 선택한 순간 — 청크 스트림에는 "지금부터"만 쌓이므로, 세션 시작부터 지금까지를
+  // getChannelsBlob()에서 딱 한 번 백필한다. 스토어는 버킷을 절대 시각으로 찾으므로 백필이
+  // 진행되는 동안 도착한 라이브 청크(항상 백필 구간보다 뒤의 시각)와 섞여도 서로 덮어쓰지 않는다.
   useEffect(() => {
     const toSeed = wantedChannels.filter((ch) => !seededRef.current.has(ch));
     if (toSeed.length === 0 || !getChannelsBlob) return;
+    toSeed.forEach((ch) => seededRef.current.add(ch)); // 재진입 방지 — 실패해도 라이브로 계속 그린다
     let cancelled = false;
     (async () => {
       const blob = getChannelsBlob();
       if (!blob) return;
       const h = await peekWavHeader(blob);
       if (!h || cancelled) return;
-      const seedStart = Math.max(0, h.durationSec - LIVE_WINDOW_SEC);
-      const seeded = await Promise.all(
-        toSeed.map(async (ch) => {
-          const data = await decodeWavRange(blob, h, ch, seedStart, h.durationSec);
-          return [ch, { data, startSec: seedStart }] as const;
-        }),
-      );
-      if (cancelled) return;
-      setWindows((prev) => {
-        const next = new Map(prev);
-        for (const [ch, w] of seeded) next.set(ch, w);
-        return next;
-      });
-      toSeed.forEach((ch) => seededRef.current.add(ch));
-      setHeader((prev) => (prev && prev.durationSec >= h.durationSec ? prev : {
-        channels: h.channels, sampleRate: h.sampleRate, durationSec: h.durationSec,
-      }));
+      // 채널 × 구간을 순차로 처리한다 — 한 번에 들고 있는 원본은 항상 SEED_SEGMENT_SEC 하나뿐.
+      for (const ch of toSeed) {
+        if (ch >= h.channels) continue;
+        const store = getStore(ch);
+        for (let start = 0; start < h.durationSec; start += SEED_SEGMENT_SEC) {
+          if (cancelled) return;
+          const end = Math.min(h.durationSec, start + SEED_SEGMENT_SEC);
+          const data = await decodeWavRange(blob, h, ch, start, end);
+          if (cancelled) return;
+          store.addBlock(data, start, h.sampleRate);
+          store.flush();
+        }
+      }
+      setHeader((prev) => (
+        prev && prev.channels === h.channels && prev.sampleRate === h.sampleRate
+          ? prev
+          : { channels: h.channels, sampleRate: h.sampleRate }
+      ));
     })();
     return () => { cancelled = true; };
-  }, [wantedChannels, getChannelsBlob]);
+  }, [wantedChannels, getChannelsBlob, getStore]);
 
   // 과거 구간(라이브 윈도우 밖)을 사용자가 확대했을 때만 호출되는 온디맨드 디코딩 — 요청한
   // 구간 길이에만 비용이 비례한다. header를 캐시하지 않고 그때그때 새로 peek해 최신 길이를 쓴다.
@@ -406,7 +422,7 @@ export default function ChartDetailOverlay({
       }
 
       const ch = parseChannelId(entry.id);
-      const liveWindow = windows.get(ch);
+      const store = getStore(ch);
       items.push({
         id: entry.id,
         header: (
@@ -414,22 +430,14 @@ export default function ChartDetailOverlay({
             <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: entry.color }} />
             <span className="text-xs font-semibold text-iron-800 font-mono">{entry.name}</span>
             <span className="text-[11px] text-iron-400">{entry.role}</span>
-            {liveWindow && (
-              <span className="ml-auto text-[10px] font-mono text-iron-400">
-                {(() => {
-                  const { peak, rms } = channelStats(liveWindow.data);
-                  return `peak ${peak.toFixed(4)} · rms ${rms.toFixed(4)}`;
-                })()}
-              </span>
-            )}
+            <ChannelStatsBadge store={store} />
           </>
         ),
-        content: liveWindow && header ? (
+        content: header ? (
           <ChannelWaveformCanvas
             color={entry.color}
             sampleRate={header.sampleRate}
-            totalDurationSec={header.durationSec}
-            liveWindow={liveWindow}
+            store={store}
             fetchRange={(s, e) => fetchRangeFor(ch, s, e)}
           />
         ) : (
@@ -445,7 +453,7 @@ export default function ChartDetailOverlay({
     return items;
   }, [
     orderedEntries, selected, Icon, accent, title, isTemp, store, isActive,
-    audioDuration, warnThreshold, dangerThreshold, windows, header, channelError, fetchRangeFor,
+    audioDuration, warnThreshold, dangerThreshold, header, channelError, fetchRangeFor, getStore,
     subscribeChannelStream, getProtectedBlob, getChannelsBlob, sourceFile,
   ]);
 

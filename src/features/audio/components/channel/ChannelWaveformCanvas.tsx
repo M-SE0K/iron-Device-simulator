@@ -1,23 +1,35 @@
 "use client";
 
+// 채널 파형 뷰 — 기본 화면은 ChannelWaveStore가 들고 있는 **세션 전체** min/max 엔벨로프다
+// (메인 차트가 ChartStore를 source로 구독하는 것과 같은 경로 — React 커밋 없이 rAF로 커밋).
+// 사용자가 충분히 확대하면 그 구간만 캡처 WAV에서 원본 해상도로 디코딩해 덮어 보여준다.
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type uPlot from "uplot";
-import UPlotChart, { type UPlotOptions } from "@/shared/components/UPlotChart";
+import UPlotChart, { type UPlotDataSource, type UPlotOptions } from "@/shared/components/UPlotChart";
 import { buildTimeAxis, buildValueAxis, timeDecimalsForInterval } from "@/features/audio/lib/render/uplot-option";
 import { tooltipPlugin, zoomPlugin } from "@/features/audio/lib/render/uplot-plugins";
-import type { WaveformWindow } from "@/features/audio/lib/render/waveform";
+import type { ChannelWaveStore } from "@/features/audio/lib/render/wave-store";
 
 const LTTB_THRESHOLD = 2000;
-const PAST_EPSILON_SEC = 0.05;
 const FETCH_DEBOUNCE_MS = 200;
 const Y_SCALE_PADDING = 1.1;
 const Y_MIN_SPAN = 0.01;
+/**
+ * 확대 구간이 이 길이 이하일 때만 원본 해상도로 다시 디코딩한다. 더 넓게 보고 있으면
+ * 엔벨로프만으로 충분하고(그 구간을 원본으로 받아봐야 어차피 2000점으로 다시 줄인다),
+ * 디코딩 비용/메모리만 커진다 — 48 kHz 기준 30초 ≈ 5.8 MB.
+ */
+const RAW_ZOOM_MAX_SPAN_SEC = 30;
 
-function computeSymmetricYRange(data: Float32Array): { yMin: number; yMax: number } {
+function symmetricYRange(peak: number): [number, number] {
+  const yMax = Math.max(peak * Y_SCALE_PADDING, Y_MIN_SPAN);
+  return [-yMax, yMax];
+}
+
+function peakOf(data: Float32Array): number {
   let peak = 0;
   for (let i = 0; i < data.length; i++) { const a = Math.abs(data[i]); if (a > peak) peak = a; }
-  const yMax = Math.max(peak * Y_SCALE_PADDING, Y_MIN_SPAN);
-  return { yMin: -yMax, yMax };
+  return peak;
 }
 
 function buildLttb(
@@ -66,82 +78,104 @@ function buildLttb(
   return sampled;
 }
 
+function toAligned(data: Float32Array, sampleRate: number, startSec: number): uPlot.AlignedData {
+  const points = buildLttb(data, sampleRate, startSec, LTTB_THRESHOLD);
+  const xs = new Float64Array(points.length);
+  const ys = new Float64Array(points.length);
+  for (let i = 0; i < points.length; i++) {
+    xs[i] = points[i][0];
+    ys[i] = points[i][1];
+  }
+  return [xs, ys] as unknown as uPlot.AlignedData;
+}
+
 export function ChannelWaveformCanvas({
   color,
   sampleRate,
-  totalDurationSec,
-  liveWindow,
+  store,
   fetchRange,
 }: {
   color: string;
   sampleRate: number;
-  totalDurationSec: number;
-  liveWindow: WaveformWindow;
+  store: ChannelWaveStore;
   fetchRange: (startSec: number, endSec: number) => Promise<Float32Array>;
 }) {
-  const [historical, setHistorical] = useState<WaveformWindow | null>(null);
+  // 확대 구간의 원본 해상도 데이터. React 상태가 아니라 ref다 — 데이터 커밋 경로가
+  // source(rAF)로 일원화돼 있어 상태로 들고 있을 이유가 없다.
+  const zoomedDataRef = useRef<{ data: uPlot.AlignedData; yRange: [number, number] } | null>(null);
   const fetchSeqRef = useRef(0);
   const debounceRef = useRef<number | null>(null);
-
-  // 사용자 줌 콜백(안정된 참조)이 항상 최신 값을 읽을 수 있게 ref로 미러링한다.
-  const liveStartRef = useRef(liveWindow.startSec);
-  liveStartRef.current = liveWindow.startSec;
-  const totalDurationRef = useRef(totalDurationSec);
-  totalDurationRef.current = totalDurationSec;
   const fetchRangeRef = useRef(fetchRange);
   fetchRangeRef.current = fetchRange;
 
-  // 사용자 줌(드래그/휠/더블클릭)에서만 호출된다 — 보이는 구간이 라이브 윈도우보다 과거로
-  // 내려가면 그 구간만 온디맨드 디코딩해 표시한다(줌 아웃해 전체를 보면 세션 전체 백필).
-  const handleUserZoom = useMemo(() => {
-    return (minSec: number, maxSec: number) => {
-      if (totalDurationRef.current <= 0) return;
-      if (debounceRef.current !== null) window.clearTimeout(debounceRef.current);
-      debounceRef.current = window.setTimeout(() => {
-        const total = totalDurationRef.current;
-        if (minSec < liveStartRef.current - PAST_EPSILON_SEC) {
-          const seq = ++fetchSeqRef.current;
-          fetchRangeRef.current(Math.max(0, minSec), Math.min(total, maxSec)).then((data) => {
-            if (fetchSeqRef.current !== seq) return;
-            setHistorical({ startSec: Math.max(0, minSec), data });
-          });
-        } else {
-          fetchSeqRef.current++;
-          setHistorical(null);
-        }
-      }, FETCH_DEBOUNCE_MS);
-    };
-  }, []);
+  // zoomedDataRef가 바뀐 것을 source 구독자(uPlot)에게 알리기 위한 로컬 알림 채널 —
+  // 스토어 갱신(라이브 청크)과 같은 커밋 경로를 공유한다.
+  const localListeners = useRef(new Set<() => void>());
+  const notifyLocal = useCallback(() => { localListeners.current.forEach((fn) => fn()); }, []);
+
+  useEffect(() => {
+    // 채널이 바뀌면(스토어 교체) 이전 채널의 확대 데이터를 들고 있지 않는다.
+    zoomedDataRef.current = null;
+    fetchSeqRef.current++;
+    notifyLocal();
+  }, [store, notifyLocal]);
 
   useEffect(() => () => {
     if (debounceRef.current !== null) window.clearTimeout(debounceRef.current);
   }, []);
 
-  // options useMemo(아래)는 totalDurationSec을 deps에 넣지 않는다 — 매 캡처 청크마다
-  // 늘어나는 값이라 넣으면 인스턴스가 매번 재생성된다. 대신 안정된 참조의 getter로 감싸
-  // zoomPlugin이 항상 최신 값을 ref로 읽게 한다.
+  const source = useMemo<UPlotDataSource>(() => ({
+    subscribe: (cb: () => void) => {
+      const offStore = store.subscribe(cb);
+      localListeners.current.add(cb);
+      return () => { offStore(); localListeners.current.delete(cb); };
+    },
+    read: () => {
+      const zoomed = zoomedDataRef.current;
+      if (zoomed) return zoomed;
+      const snap = store.snapshot();
+      return {
+        data: store.readAligned() as unknown as uPlot.AlignedData,
+        yRange: symmetricYRange(snap.peak),
+      };
+    },
+  }), [store]);
+
+  // 사용자 줌(드래그/휠/더블클릭)에서만 호출된다 — 충분히 확대했을 때만 그 구간을 원본
+  // 해상도로 받아오고, 다시 넓히면 세션 전체 엔벨로프로 돌아간다.
+  const handleUserZoom = useCallback((minSec: number, maxSec: number, zoomed: boolean) => {
+    if (debounceRef.current !== null) window.clearTimeout(debounceRef.current);
+    debounceRef.current = window.setTimeout(() => {
+      const span = maxSec - minSec;
+      if (!zoomed || !(span > 0) || span > RAW_ZOOM_MAX_SPAN_SEC) {
+        fetchSeqRef.current++;
+        if (zoomedDataRef.current) { zoomedDataRef.current = null; notifyLocal(); }
+        return;
+      }
+      const total = store.snapshot().durationSec;
+      const start = Math.max(0, minSec);
+      const end = Math.min(total > 0 ? total : maxSec, maxSec);
+      if (!(end > start)) return;
+
+      const seq = ++fetchSeqRef.current;
+      fetchRangeRef.current(start, end).then((data) => {
+        if (fetchSeqRef.current !== seq) return;
+        if (data.length === 0) return;
+        zoomedDataRef.current = {
+          data: toAligned(data, sampleRate, start),
+          yRange: symmetricYRange(peakOf(data)),
+        };
+        notifyLocal();
+      }).catch(() => { /* 확대 구간 디코딩 실패 시 엔벨로프를 그대로 유지한다 */ });
+    }, FETCH_DEBOUNCE_MS);
+  }, [store, sampleRate, notifyLocal]);
+
+  // options useMemo는 세션 길이를 의존성에 넣지 않는다 — 매 청크마다 늘어나는 값이라 넣으면
+  // uPlot 인스턴스가 매번 재생성된다. 대신 안정된 참조의 getter로 감싸 스토어에서 직접 읽는다.
   const getFullXRange = useCallback((): [number, number] | null => {
-    const total = totalDurationRef.current;
+    const total = store.snapshot().durationSec;
     return total > 0 ? [0, total] : null;
-  }, []);
-
-  const source = historical ?? liveWindow;
-
-  const data = useMemo(() => {
-    const points = buildLttb(source.data, sampleRate, source.startSec, LTTB_THRESHOLD);
-    const xs = new Float64Array(points.length);
-    const ys = new Float64Array(points.length);
-    for (let i = 0; i < points.length; i++) {
-      xs[i] = points[i][0];
-      ys[i] = points[i][1];
-    }
-    return [xs, ys] as unknown as uPlot.AlignedData;
-  }, [source.data, source.startSec, sampleRate]);
-
-  const { yMin, yMax } = useMemo(
-    () => computeSymmetricYRange(source.data),
-    [source.data],
-  );
+  }, [store]);
 
   const timeDecimals = timeDecimalsForInterval(sampleRate > 0 ? 1 / sampleRate : 0);
 
@@ -170,10 +204,43 @@ export function ChannelWaveformCanvas({
   return (
     <UPlotChart
       options={options}
-      data={data}
-      yRange={[yMin, yMax]}
-      xRange={[0, totalDurationSec > 0 ? totalDurationSec : 0.001]}
+      source={source}
       onUserZoom={handleUserZoom}
     />
+  );
+}
+
+/** 채널 헤더의 peak/rms 배지 — 세션 누적값을 스토어에서 직접 읽어 100ms 주기로만 리렌더한다. */
+const READOUT_INTERVAL_MS = 100;
+
+export function ChannelStatsBadge({ store }: { store: ChannelWaveStore }) {
+  const [stats, setStats] = useState<{ peak: number; rms: number } | null>(null);
+
+  useEffect(() => {
+    let timer: number | null = null;
+    let lastVersion = -1;
+
+    const sync = () => {
+      timer = null;
+      const snap = store.snapshot();
+      if (snap.version === lastVersion) return;
+      lastVersion = snap.version;
+      setStats(snap.sampleCount > 0 ? { peak: snap.peak, rms: snap.rms } : null);
+    };
+    const onUpdate = () => { if (timer === null) timer = window.setTimeout(sync, READOUT_INTERVAL_MS); };
+
+    const off = store.subscribe(onUpdate);
+    sync(); // 늦게 마운트된 배지가 현재 상태를 즉시 반영하도록
+    return () => {
+      off();
+      if (timer !== null) window.clearTimeout(timer);
+    };
+  }, [store]);
+
+  if (!stats) return null;
+  return (
+    <span className="ml-auto text-[10px] font-mono text-iron-400">
+      peak {stats.peak.toFixed(4)} · rms {stats.rms.toFixed(4)}
+    </span>
   );
 }
