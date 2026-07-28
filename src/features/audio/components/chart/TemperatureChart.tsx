@@ -3,18 +3,18 @@
 import { useMemo } from "react";
 import { Maximize2 } from "lucide-react";
 import uPlot from "uplot";
-import { AnalysisFrame } from "@/features/audio/types";
-import UPlotChart, { type UPlotOptions } from "@/shared/components/UPlotChart";
+import UPlotChart, { type UPlotDataSource, type UPlotOptions } from "@/shared/components/UPlotChart";
 import { DEFAULT_TEMP_WARN, DEFAULT_TEMP_DANGER } from "@/features/audio/lib/render/detect-events";
 import { computeTemperatureYRange } from "@/features/audio/lib/render/chart-window";
+import type { ChartStore } from "@/features/audio/lib/render/chart-store";
 import {
-  buildAreaFill, buildTimeAxis, buildValueAxis, resolveTimeDecimals, toAlignedData,
+  buildAreaFill, buildTimeAxis, buildValueAxis,
 } from "@/features/audio/lib/render/uplot-option";
 import { thresholdsPlugin, tooltipPlugin, zoomPlugin } from "@/features/audio/lib/render/uplot-plugins";
 import { useMetricChartRuntime } from "./hooks/useMetricChartRuntime";
 
 interface Props {
-  frames: AnalysisFrame[];
+  store: ChartStore;
   isActive: boolean;
   /** 재생 중일 때만 true — x축을 시계에 맞춰 균일하게 스크롤(60 Hz 버벅임 방지)하는 데 쓴다. */
   streaming?: boolean;
@@ -27,15 +27,15 @@ interface Props {
 
 const TEMP_COLOR = "#0B4171";
 
-export default function TemperatureChart({ frames, isActive, streaming = false, audioDuration, perfTrack = false, onExpand, warnThreshold = DEFAULT_TEMP_WARN, dangerThreshold = DEFAULT_TEMP_DANGER }: Props) {
+export default function TemperatureChart({ store, isActive, streaming = false, audioDuration, perfTrack = false, onExpand, warnThreshold = DEFAULT_TEMP_WARN, dangerThreshold = DEFAULT_TEMP_DANGER }: Props) {
   const {
     current: currentTemp,
-    windowFrames,
+    timeDecimals,
     onRender,
     showChart,
   } = useMetricChartRuntime({
     metric: "temperature",
-    frames,
+    store,
     isActive,
     audioDuration,
     perfTrack,
@@ -49,17 +49,19 @@ export default function TemperatureChart({ frames, isActive, streaming = false, 
     : displayTemp >= warnThreshold   ? "#F59E0B"
     : TEMP_COLOR;
 
-  const { yMin, yMax } = useMemo(
-    () => computeTemperatureYRange(windowFrames),
-    [windowFrames],
-  );
-
-  const data = useMemo(
-    () => toAlignedData(windowFrames, (f) => f.temperature),
-    [windowFrames],
-  );
-
-  const timeDecimals = resolveTimeDecimals(windowFrames);
+  // 데이터/y축은 React 상태를 거치지 않고 스토어에서 직접 읽어 uPlot에 커밋한다.
+  const source = useMemo<UPlotDataSource>(() => ({
+    subscribe: store.subscribe,
+    read: () => {
+      // count가 0이어도 빈 데이터를 그대로 커밋한다 — 세션 리셋 시 캔버스가 비워져야 한다.
+      const snap = store.snapshot();
+      const { yMin, yMax } = computeTemperatureYRange(snap.tempMin, snap.tempMax);
+      return {
+        data: store.readAligned("temperature") as unknown as uPlot.AlignedData,
+        yRange: [yMin, yMax],
+      };
+    },
+  }), [store]);
 
   const options = useMemo<UPlotOptions>(() => ({
     legend: { show: false },
@@ -118,8 +120,7 @@ export default function TemperatureChart({ frames, isActive, streaming = false, 
           <UPlotChart
             key={audioDuration ?? "live"}
             options={options}
-            data={data}
-            yRange={[yMin, yMax]}
+            source={source}
             streamFollow={streaming}
             onRender={onRender}
           />

@@ -20,9 +20,9 @@ export const E2E_NODES: Record<E2ENodeId, E2ENodeMeta> = {
   N6:  { label: "JS 후처리",              desc: "디인터리브/결과 판독/processedPcm 인코딩 등 — processingMs 중 N5를 제외한 나머지" },
   N7:  { label: "워커→메인 반환",          desc: "워커 postMessage → 메인 onmessage 진입 (워커→메인 스레드 경계, 워커 엔진 경로 전용)" },
   N8:  { label: "메인 파싱",              desc: "소켓 onmessage 진입 → JSON.parse 및 frame 핸들러 진입" },
-  N9:  { label: "출력 큐 대기",            desc: "outputQueueRef 적재 → drain() 처리 (설계상 최대 RENDER_INTERVAL=100ms 배치 지연)" },
+  N9:  { label: "출력 큐 대기",            desc: "outputQueueRef 적재 → drain() 처리 (drain은 rAF마다 1회이므로 설계상 최대 한 프레임 배치 지연)" },
   N10: { label: "coalesce/detectEvents",  desc: "버킷 다운샘플링(coalesceFrames) + 이벤트 검출(detectEvents) 연산 시간" },
-  N11: { label: "React 커밋 전파",         desc: "setStreamingFrames 호출 → 차트 useLayoutEffect(frames 변경 감지) 진입" },
+  N11: { label: "차트 커밋 전파",           desc: "ChartStore.flush() → 차트가 uPlot에 setData 커밋 (rAF로 합쳐지므로 최대 한 프레임)" },
   N12: { label: "uPlot 렌더",             desc: "uPlot setData 동기 캔버스 드로우 구간 (paint 전 layout effect에서 측정)" },
 };
 

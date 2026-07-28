@@ -21,6 +21,7 @@ import { clearFrameCache } from "@/features/audio/lib/cache/frame";
 import { formatTime, splitFileName } from "@/shared/lib/utils";
 import { putAudio, clearAudio } from "@/features/audio/lib/cache/audio-blob";
 import { coalesceFrames } from "@/features/audio/lib/render/coalesce";
+import { ChartStore } from "@/features/audio/lib/render/chart-store";
 import { e2e } from "@/features/audio/lib/perf-e2e/collector";
 import { detectEvents, DEFAULT_TEMP_WARN, DEFAULT_TEMP_DANGER, type TempThresholds } from "@/features/audio/lib/render/detect-events";
 import type { QueuedFrame } from "@/features/audio/lib/render/types";
@@ -37,7 +38,23 @@ export default function DashboardPage({ useQueue }: DashboardPageProps) {
   const [realtimeStatus, setRealtimeStatus]   = useState<AppStatus>("idle");
   const [audioFile, setAudioFile]             = useState<File | null>(null);
   const [audioDuration, setAudioDuration]     = useState<number | null>(null);
-  const [streamingFrames, setStreamingFrames] = useState<AnalysisFrame[]>([]);
+  /**
+   * 차트 표시 데이터는 React 상태가 아니라 이 스토어가 소유한다 — 프레임이 도착해도
+   * 리렌더가 일어나지 않고, 차트가 스토어를 구독해 uPlot에 직접 커밋한다. 대시보드가
+   * 상태로 아는 건 "그릴 게 있는가"(hasFrames)뿐이라 세션당 한 번만 바뀐다.
+   */
+  const chartStore = useMemo(() => new ChartStore(), []);
+  const [hasFrames, setHasFrames] = useState(false);
+  const hasFramesRef = useRef(false);
+  const markHasFrames = useCallback(() => {
+    if (hasFramesRef.current) return;
+    hasFramesRef.current = true;
+    setHasFrames(true);
+  }, []);
+  const clearHasFrames = useCallback(() => {
+    hasFramesRef.current = false;
+    setHasFrames(false);
+  }, []);
 
   const { values: calibration } = useCalibration();
   const { saveCurrent, pendingLocalFile, clearPendingLocalFile } = useWorkspace();
@@ -75,8 +92,7 @@ export default function DashboardPage({ useQueue }: DashboardPageProps) {
 
   useCtrlBToggle(() => setSidebarCollapsed((prev) => !prev));
 
-  const streamingFramesRef = useRef<AnalysisFrame[]>([]);
-  // 엔진이 실제로 계산한 프레임 전부(useQueue 코얼레싱과 무관) — 저장/CSV·JSON export 전용.
+  // 엔진이 실제로 계산한 프레임 전부(useQueue 코얼레싱·차트 감량과 무관) — 저장/CSV·JSON export 전용.
   const allFramesRef       = useRef<AnalysisFrame[]>([]);
   const audioDurationRef   = useRef<number | null>(null);
   const fileNameRef        = useRef<string | null>(null);
@@ -102,13 +118,12 @@ export default function DashboardPage({ useQueue }: DashboardPageProps) {
   const prevTempRef          = useRef<number | null>(null);
   const thresholdsRef        = useRef<TempThresholds>({ warn: DEFAULT_TEMP_WARN, danger: DEFAULT_TEMP_DANGER });
 
-  useEffect(() => { streamingFramesRef.current = streamingFrames; }, [streamingFrames]);
   useEffect(() => { audioDurationRef.current    = audioDuration;   }, [audioDuration]);
 
   useFrameCachePersistence({
     audioFile, realtimeStatus,
-    streamingFramesRef, audioDurationRef, fileNameRef,
-    setStreamingFrames, setAudioDuration, setAudioFile,
+    chartStore, audioDurationRef, fileNameRef,
+    onFramesRestored: markHasFrames, setAudioDuration, setAudioFile,
   });
 
   const saveWorkspace = useWorkspaceSave({
@@ -133,10 +148,11 @@ export default function DashboardPage({ useQueue }: DashboardPageProps) {
 
   const resetAnalysisState = useCallback(() => {
     setAudioDuration(null);
-    setStreamingFrames([]);
+    chartStore.reset();
+    clearHasFrames();
     allFramesRef.current = [];
     setRealtimeStatus("idle");
-  }, []);
+  }, [chartStore, clearHasFrames]);
 
   const handleFileSelected = useCallback((file: File) => {
     setAudioFile(file);
@@ -161,11 +177,12 @@ export default function DashboardPage({ useQueue }: DashboardPageProps) {
   }, [resetAnalysisState]);
 
   const handleStreamStart = useCallback(() => {
-    setStreamingFrames([]);
+    chartStore.reset();
+    clearHasFrames();
     allFramesRef.current   = [];
     outputQueueRef.current = [];
     prevTempRef.current    = null;
-  }, []);
+  }, [chartStore, clearHasFrames]);
 
   const isPlaying = realtimeStatus === "playing";
 
@@ -175,9 +192,11 @@ export default function DashboardPage({ useQueue }: DashboardPageProps) {
       outputQueueRef.current.push({ frame, recvAt: performance.now() });
     } else {
       e2e.markCommit();
-      setStreamingFrames((prev) => [...prev, frame]);
+      chartStore.push(frame);
+      chartStore.flush();
+      markHasFrames();
     }
-  }, [useQueue]);
+  }, [useQueue, chartStore, markHasFrames]);
 
   useEffect(() => {
     if (!isPlaying) return;
@@ -214,7 +233,9 @@ export default function DashboardPage({ useQueue }: DashboardPageProps) {
       renderFrames.push(renderFrame);
 
       e2e.markCommit();
-      setStreamingFrames((prev) => [...prev, ...renderFrames]);
+      for (const f of renderFrames) chartStore.push(f);
+      chartStore.flush();
+      markHasFrames();
     };
 
     // 데이터 도착 주기(약 10 ms)나 고정 타이머를 화면 주기와 직접 섞으면 60 Hz에서
@@ -231,14 +252,14 @@ export default function DashboardPage({ useQueue }: DashboardPageProps) {
       cancelAnimationFrame(renderRaf);
       drain();
     };
-  }, [isPlaying, useQueue]);
+  }, [isPlaying, useQueue, chartStore, markHasFrames]);
 
   const handleRealtimeStatus = useCallback((s: AppStatus) => {
     setRealtimeStatus(s);
   }, []);
 
   const isActive = realtimeStatus === "playing" || realtimeStatus === "paused"
-    || streamingFrames.length > 0;
+    || hasFrames;
 
   return (
     <div
@@ -305,7 +326,7 @@ export default function DashboardPage({ useQueue }: DashboardPageProps) {
               <div id="charts-section" className="flex flex-col lg:flex-row gap-4 min-h-0 lg:flex-1">
                 <div className="h-[264px] lg:h-auto lg:min-h-0 lg:flex-1">
                   <ExcursionChart
-                    frames={streamingFrames}
+                    store={chartStore}
                     isActive={isActive}
                     streaming={isPlaying}
                     audioDuration={audioDuration}
@@ -315,7 +336,7 @@ export default function DashboardPage({ useQueue }: DashboardPageProps) {
                 </div>
                 <div className="h-[264px] lg:h-auto lg:min-h-0 lg:flex-1">
                   <TemperatureChart
-                    frames={streamingFrames}
+                    store={chartStore}
                     isActive={isActive}
                     streaming={isPlaying}
                     audioDuration={audioDuration}
@@ -345,7 +366,7 @@ export default function DashboardPage({ useQueue }: DashboardPageProps) {
             inputParams={inputParams}
             onDurationReady={setAudioDuration}
             onSave={handleSaveToWorkspace}
-            canSave={!!audioFile && streamingFrames.length > 0}
+            canSave={!!audioFile && hasFrames}
             onReset={handleReset}
             elevated={detailChart !== null}
           />
@@ -360,7 +381,7 @@ export default function DashboardPage({ useQueue }: DashboardPageProps) {
             inputParams={inputParams}
             onDurationReady={setAudioDuration}
             onSave={handleSaveToWorkspace}
-            canSave={!!audioFile && streamingFrames.length > 0}
+            canSave={!!audioFile && hasFrames}
             onReset={handleReset}
             elevated={detailChart !== null}
           />
@@ -370,7 +391,7 @@ export default function DashboardPage({ useQueue }: DashboardPageProps) {
       {detailChart && (
         <ChartDetailOverlay
           metric={detailChart}
-          frames={streamingFrames}
+          store={chartStore}
           isActive={isActive}
           audioDuration={audioDuration}
           warnThreshold={tempThresholds.warn}

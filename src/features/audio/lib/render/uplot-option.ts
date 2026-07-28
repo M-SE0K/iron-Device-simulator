@@ -1,5 +1,4 @@
 import type uPlot from "uplot";
-import type { AnalysisFrame } from "@/features/audio/types";
 
 // 대시보드 공통 축/그리드 팔레트 — 모든 차트가 같은 값을 쓴다.
 export const AXIS_LABEL_COLOR = "#94A3B8";
@@ -14,15 +13,6 @@ export function timeDecimalsForInterval(intervalSec: number): number {
   if (!isFinite(intervalSec) || intervalSec <= 0) return MAX_TIME_DECIMALS;
   const decimals = Math.ceil(-Math.log10(intervalSec)) + 1;
   return Math.min(MAX_TIME_DECIMALS, Math.max(MIN_TIME_DECIMALS, decimals));
-}
-
-export function resolveTimeDecimals(windowFrames: AnalysisFrame[]): number {
-  let minDelta = Infinity;
-  for (let i = 1; i < windowFrames.length; i++) {
-    const d = windowFrames[i].time - windowFrames[i - 1].time;
-    if (d > 0 && d < minDelta) minDelta = d;
-  }
-  return timeDecimalsForInterval(minDelta);
 }
 
 function decimalsForVisibleSpan(spanSec: number): number {
@@ -74,21 +64,6 @@ export function buildValueAxis(opts: {
       ? { values: (_u: uPlot, splits: number[]) => splits.map(opts.formatter!) }
       : {}),
   };
-}
-
-/** windowFrames → uPlot 컬럼(aligned) 데이터. */
-export function toAlignedData(
-  frames: AnalysisFrame[],
-  pick: (f: AnalysisFrame) => number,
-): uPlot.AlignedData {
-  const n = frames.length;
-  const xs = new Float64Array(n);
-  const ys = new Float64Array(n);
-  for (let i = 0; i < n; i++) {
-    xs[i] = frames[i].time;
-    ys[i] = pick(frames[i]);
-  }
-  return [xs, ys] as unknown as uPlot.AlignedData;
 }
 
 /** 선 아래 면적 그라디언트 fill. */
