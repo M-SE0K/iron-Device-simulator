@@ -8,7 +8,7 @@
 // 항목 목록을, ChannelStackView가 실제 스택 렌더링을 맡는다.
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Activity, Rows3, ShieldAlert, Thermometer, X } from "lucide-react";
-import type { AnalysisFrame } from "@/features/audio/types";
+import type { ChartStore } from "@/features/audio/lib/render/chart-store";
 import { cn } from "@/shared/lib/utils";
 import { useOverlayTransition } from "@/shared/hooks/useOverlayTransition";
 import { useCtrlBToggle } from "@/shared/hooks/useCtrlBToggle";
@@ -47,7 +47,8 @@ export type DetailMetric = "temperature" | "excursion";
 
 interface Props {
   metric: DetailMetric;
-  frames: AnalysisFrame[];
+  /** 대시보드와 같은 표시 데이터 스토어 — 상세 뷰의 차트도 여기에 직접 구독한다. */
+  store: ChartStore;
   isActive: boolean;
   audioDuration?: number | null;
   /** temperature 상세 뷰의 WARN/DANGER 임계선 — Calibration.tempWarn/tempDanger */
@@ -78,7 +79,7 @@ interface Props {
 
 export default function ChartDetailOverlay({
   metric,
-  frames,
+  store,
   isActive,
   audioDuration,
   warnThreshold,
@@ -384,7 +385,7 @@ export default function ChartDetailOverlay({
           ),
           content: isTemp ? (
             <TemperatureChart
-              frames={frames}
+              store={store}
               isActive={isActive}
               audioDuration={audioDuration}
               warnThreshold={warnThreshold}
@@ -392,7 +393,7 @@ export default function ChartDetailOverlay({
             />
           ) : (
             <ExcursionChart
-              frames={frames}
+              store={store}
               isActive={isActive}
               audioDuration={audioDuration}
             />
@@ -443,7 +444,7 @@ export default function ChartDetailOverlay({
     }
     return items;
   }, [
-    orderedEntries, selected, Icon, accent, title, isTemp, frames, isActive,
+    orderedEntries, selected, Icon, accent, title, isTemp, store, isActive,
     audioDuration, warnThreshold, dangerThreshold, windows, header, channelError, fetchRangeFor,
     subscribeChannelStream, getProtectedBlob, getChannelsBlob, sourceFile,
   ]);

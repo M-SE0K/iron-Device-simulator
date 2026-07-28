@@ -9,16 +9,34 @@ import "uplot/dist/uPlot.min.css";
 
 export type UPlotOptions = Omit<uPlot.Options, "width" | "height">;
 
+/**
+ * React 렌더를 거치지 않는 데이터 공급원. 스트리밍 차트처럼 초당 수십~수백 번 갱신되는
+ * 경우에 쓴다 — 갱신 알림이 오면 rAF로 합쳐 최대 화면 주사율(≈60Hz)로만 uPlot에 커밋하므로,
+ * 도착 빈도가 아무리 높아도 그리기 횟수와 리렌더 횟수가 함께 뛰지 않는다.
+ */
+export interface UPlotDataSource {
+  /** 갱신 알림 구독. 이펙트 의존성으로 쓰이므로 반드시 안정된 참조여야 한다. */
+  subscribe: (cb: () => void) => () => void;
+  /** 커밋할 데이터 스냅샷. 그릴 게 없으면 null. 참조는 매 렌더 새로 만들어도 된다. */
+  read: () => { data: uPlot.AlignedData; yRange?: [number, number] } | null;
+}
+
 interface Props {
   /**
    * width/height를 제외한 uPlot 옵션. 참조가 바뀌면 인스턴스를 파괴하고 다시 만드므로
    * 호출부는 반드시 useMemo로 안정화해야 한다 — 매 데이터 틱마다 바뀌면 안 된다.
    */
   options: UPlotOptions;
-  data: uPlot.AlignedData;
+  /** source를 쓰지 않는(React 상태로 데이터를 넘기는) 차트용 데이터. */
+  data?: uPlot.AlignedData;
+  /**
+   * 있으면 data/yRange prop 대신 이쪽에서 데이터를 읽는다 — 갱신이 React 커밋을 거치지 않는다.
+   */
+  source?: UPlotDataSource;
   /**
    * y축 표시 범위. 스트리밍 중 창이 갱신될 때마다 함께 갱신된다 — 옵션 재생성 없이
    * 스케일만 따라가게 하기 위해 옵션이 아니라 별도 prop으로 받는다.
+   * (source를 쓰는 경우엔 source.read()가 돌려주는 yRange가 우선한다.)
    */
   yRange?: [number, number];
   /** x축 전체(줌 아웃) 범위 — 생략하면 데이터 extent. (예: 채널 뷰의 [0, 전체 길이]) */
@@ -60,23 +78,32 @@ function isZoomed(u: uPlot, xRange: [number, number] | null): boolean {
   return Math.abs(min - full[0]) > tol || Math.abs(max - full[1]) > tol;
 }
 
-export default function UPlotChart({ options, data, yRange, xRange, onRender, onUserZoom, seriesShow, className }: Props) {
+/** 시리즈 수에 맞는 빈 데이터 — uPlot은 data 길이가 series 길이와 맞지 않으면 그리지 못한다. */
+function emptyData(options: UPlotOptions): uPlot.AlignedData {
+  return options.series.map(() => []) as unknown as uPlot.AlignedData;
+}
+
+export default function UPlotChart({ options, data, source, yRange, xRange, onRender, onUserZoom, seriesShow, className }: Props) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const chartRef = useRef<uPlot | null>(null);
   const zoomedRef = useRef(false);
   // true인 동안의 setScale은 우리가 유발한 내부 커밋(생성/setData) — 사용자 줌이 아니다.
   const internalCommitRef = useRef(false);
   // 최신 props를 훅/이펙트가 항상 안정된 참조로 읽을 수 있게 미러링한다.
-  const dataRef = useRef(data);
+  const dataRef = useRef<uPlot.AlignedData | null>(data ?? null);
   const yRangeRef = useRef<[number, number] | null>(yRange ?? null);
   const xRangeRef = useRef<[number, number] | null>(xRange ?? null);
   const onRenderRef = useRef(onRender);
   const onUserZoomRef = useRef(onUserZoom);
+  const sourceReadRef = useRef(source?.read);
   // 인스턴스에 이미 반영된 데이터 — 재생성 직후 data effect가 같은 데이터를 중복 커밋하지 않게 한다.
   const appliedDataRef = useRef<uPlot.AlignedData | null>(null);
 
-  dataRef.current = data;
-  yRangeRef.current = yRange ?? null;
+  dataRef.current = data ?? null;
+  sourceReadRef.current = source?.read;
+  // source 모드에서는 y 범위도 커밋 시점에 source.read()가 채운다 — prop으로 덮어쓰면
+  // 커밋 사이에 범위가 null로 되돌아가 y축이 데이터 extent로 튄다.
+  if (!source) yRangeRef.current = yRange ?? null;
   xRangeRef.current = xRange ?? null;
   onRenderRef.current = onRender;
   onUserZoomRef.current = onUserZoom;
@@ -147,11 +174,17 @@ export default function UPlotChart({ options, data, yRange, xRange, onRender, on
       },
     };
 
+    // source 모드면 인스턴스를 만들 때도(옵션 변경으로 재생성될 때 포함) 항상 최신 데이터를
+    // source에서 다시 읽는다 — 재생성과 스트리밍 커밋 사이에 데이터가 되돌아가지 않게 한다.
+    const seed = sourceReadRef.current?.();
+    if (seed?.yRange) yRangeRef.current = seed.yRange;
+    const initialData = seed?.data ?? dataRef.current ?? emptyData(options);
+
     const t0 = performance.now();
     internalCommitRef.current = true;
-    const u = new uPlot(merged, dataRef.current, el);
+    const u = new uPlot(merged, initialData, el);
     chartRef.current = u;
-    appliedDataRef.current = dataRef.current;
+    appliedDataRef.current = initialData;
     zoomedRef.current = false;
     // 생성 직후 uPlot 자체 auto-range는 "지금 들어온 데이터"의 extent를 기준으로 잡는다
     // (예: 채널 파형은 아직 로드 전이라 비어있거나 극히 짧음) — xRange가 있으면(세션 전체
@@ -177,11 +210,13 @@ export default function UPlotChart({ options, data, yRange, xRange, onRender, on
   }, [options]);
 
   // 데이터 커밋 — uPlot은 setData 안에서 동기적으로 다시 그리므로 이 구간이 곧 렌더 시간이다.
-  // passive effect가 아니라 layout effect여야 React 커밋과 같은 프레임(브라우저 paint 전)에 반영된다.
-  useLayoutEffect(() => {
+  // ref로만 상태를 읽으므로 React 커밋(아래 data effect)과 rAF 루프(source effect)가 같은
+  // 경로를 공유한다.
+  const commitRef = useRef<(next: uPlot.AlignedData) => void>(() => {});
+  commitRef.current = (next: uPlot.AlignedData) => {
     const u = chartRef.current;
-    if (!u || appliedDataRef.current === data) return;
-    appliedDataRef.current = data;
+    if (!u) return;
+    appliedDataRef.current = next;
 
     const zoomed = zoomedRef.current;
     const yR = yRangeRef.current;
@@ -190,7 +225,7 @@ export default function UPlotChart({ options, data, yRange, xRange, onRender, on
     internalCommitRef.current = true;
     u.batch(() => {
       // 줌 중이면 x 스케일을 유지한 채 데이터만 갱신하고(줌이 풀리지 않게), y 창만 따라간다.
-      u.setData(data, !zoomed);
+      u.setData(next, !zoomed);
       if (zoomed) {
         if (yR) u.setScale("y", { min: yR[0], max: yR[1] });
       } else if (xR) {
@@ -202,7 +237,43 @@ export default function UPlotChart({ options, data, yRange, xRange, onRender, on
     });
     internalCommitRef.current = false;
     onRenderRef.current?.(performance.now() - t0);
+  };
+
+  // passive effect가 아니라 layout effect여야 React 커밋과 같은 프레임(브라우저 paint 전)에 반영된다.
+  useLayoutEffect(() => {
+    if (source || !data) return;
+    if (!chartRef.current || appliedDataRef.current === data) return;
+    commitRef.current(data);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [data]);
+
+  // source 모드 — 갱신 알림을 rAF 한 프레임으로 합쳐 커밋한다. 알림이 초당 수백 번 와도
+  // 그리기는 화면 주사율을 넘지 않고, 탭이 백그라운드면 rAF가 멈춰 그리기 비용도 0이 된다.
+  const subscribe = source?.subscribe;
+  useLayoutEffect(() => {
+    if (!subscribe) return;
+    let frame: number | null = null;
+
+    const commitFromSource = () => {
+      frame = null;
+      if (!chartRef.current) return;
+      const res = sourceReadRef.current?.();
+      if (!res) return;
+      if (res.yRange) yRangeRef.current = res.yRange;
+      commitRef.current(res.data);
+    };
+
+    const onUpdate = () => {
+      if (frame === null) frame = requestAnimationFrame(commitFromSource);
+    };
+
+    const off = subscribe(onUpdate);
+    onUpdate(); // 구독 직후 현재 상태를 한 번 맞춘다(늦게 마운트된 차트의 백필)
+    return () => {
+      off();
+      if (frame !== null) cancelAnimationFrame(frame);
+    };
+  }, [subscribe]);
 
   // 시리즈 표시 토글 — 재생성 없이 반영한다.
   useLayoutEffect(() => {

@@ -3,18 +3,18 @@
 import { useMemo } from "react";
 import { Maximize2 } from "lucide-react";
 import uPlot from "uplot";
-import { AnalysisFrame } from "@/features/audio/types";
-import UPlotChart, { type UPlotOptions } from "@/shared/components/UPlotChart";
+import UPlotChart, { type UPlotDataSource, type UPlotOptions } from "@/shared/components/UPlotChart";
 import { toMm, MM_DECIMALS } from "@/features/audio/lib/units";
 import { computeExcursionYRange } from "@/features/audio/lib/render/chart-window";
+import type { ChartStore } from "@/features/audio/lib/render/chart-store";
 import {
-  buildAreaFill, buildTimeAxis, buildValueAxis, resolveTimeDecimals, toAlignedData,
+  buildAreaFill, buildTimeAxis, buildValueAxis,
 } from "@/features/audio/lib/render/uplot-option";
 import { tooltipPlugin, zoomPlugin } from "@/features/audio/lib/render/uplot-plugins";
 import { useMetricChartRuntime } from "./hooks/useMetricChartRuntime";
 
 interface Props {
-  frames: AnalysisFrame[];
+  store: ChartStore;
   isActive: boolean;
   audioDuration?: number | null;
   perfTrack?: boolean;
@@ -25,38 +25,46 @@ const SCALE_PADDING = 1.15;
 
 const EXC_COLOR = "#10B981";
 
-export default function ExcursionChart({ frames, isActive, audioDuration, perfTrack = false, onExpand }: Props) {
+export default function ExcursionChart({ store, isActive, audioDuration, perfTrack = false, onExpand }: Props) {
   const {
     current: currentExc,
-    windowFrames,
+    timeDecimals,
     onRender,
     showChart,
   } = useMetricChartRuntime({
     metric: "excursion",
-    frames,
+    store,
     isActive,
     audioDuration,
     perfTrack,
   });
 
-  const { yMin, yMax } = useMemo(
-    () => computeExcursionYRange(windowFrames, toMm, SCALE_PADDING),
-    [windowFrames],
-  );
-
   const displayExc = currentExc;
+
+  // 헤더 색상 판정에만 쓰는 y 상한 — 실제 축 범위는 아래 source.read()가 커밋 시점에 정한다.
+  // snapshot()은 버전별로 캐시된 스칼라라 렌더마다 읽어도 비용이 없다.
+  const { yMax } = computeExcursionYRange(
+    store.snapshot().excMin, store.snapshot().excMax, toMm, SCALE_PADDING,
+  );
 
   const excColor =
     displayExc !== null && Math.abs(toMm(displayExc)) > Math.abs(yMax) * 0.85
       ? "#EF4444"
       : EXC_COLOR;
 
-  const data = useMemo(
-    () => toAlignedData(windowFrames, (f) => toMm(f.excursion)),
-    [windowFrames],
-  );
-
-  const timeDecimals = resolveTimeDecimals(windowFrames);
+  // 데이터/y축은 React 상태를 거치지 않고 스토어에서 직접 읽어 uPlot에 커밋한다.
+  const source = useMemo<UPlotDataSource>(() => ({
+    subscribe: store.subscribe,
+    read: () => {
+      // count가 0이어도 빈 데이터를 그대로 커밋한다 — 세션 리셋 시 캔버스가 비워져야 한다.
+      const snap = store.snapshot();
+      const range = computeExcursionYRange(snap.excMin, snap.excMax, toMm, SCALE_PADDING);
+      return {
+        data: store.readAligned("excursion", toMm) as unknown as uPlot.AlignedData,
+        yRange: [range.yMin, range.yMax],
+      };
+    },
+  }), [store]);
 
   const options = useMemo<UPlotOptions>(() => ({
     legend: { show: false },
@@ -114,8 +122,7 @@ export default function ExcursionChart({ frames, isActive, audioDuration, perfTr
           <UPlotChart
             key={audioDuration ?? "live"}
             options={options}
-            data={data}
-            yRange={[yMin, yMax]}
+            source={source}
             onRender={onRender}
           />
         ) : (
