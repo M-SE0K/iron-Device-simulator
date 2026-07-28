@@ -12,18 +12,6 @@ export function formatTime(seconds: number): string {
   return `${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
 }
 
-/** 현재 재생 시간 이하인 마지막 프레임 인덱스 탐색 (Binary Search) */
-export function findFrameIndex(times: number[], currentTime: number): number {
-  let lo = 0;
-  let hi = times.length - 1;
-  while (lo < hi) {
-    const mid = (lo + hi + 1) >> 1;
-    if (times[mid] <= currentTime) lo = mid;
-    else hi = mid - 1;
-  }
-  return lo;
-}
-
 /** 소수점 3자리로 반올림 (밀리초 계측값처럼 부동소수 꼬리를 잘라내는 용도) */
 export function round3(v: number): number {
   return parseFloat(v.toFixed(3));

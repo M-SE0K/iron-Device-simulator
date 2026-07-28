@@ -3,11 +3,9 @@
 import { useState, useCallback, useRef, useEffect, useMemo } from "react";
 import { Menu, PanelLeftClose, PanelLeftOpen } from "lucide-react";
 import Sidebar from "@/shared/components/Sidebar";
-import SegmentedControl from "@/shared/components/ui/SegmentedControl";
 import SelectedFilePanel from "@/features/audio/components/dashboard/SelectedFilePanel";
 import WaveformPlayer, { WaveformPlayerHandle } from "@/features/audio/components/player/WaveformPlayer";
 import DuplexFilePlayer from "@/features/audio/components/player/DuplexFilePlayer";
-import MicrophonePlayer, { type MicRecordingExport, type MicrophonePlayerHandle } from "@/features/audio/components/player/MicrophonePlayer";
 import type { CaptureStreamListener } from "@/features/audio/components/player/capture/types";
 import TemperatureChart from "@/features/audio/components/chart/TemperatureChart";
 import ExcursionChart from "@/features/audio/components/chart/ExcursionChart";
@@ -40,7 +38,6 @@ const RENDER_INTERVAL = 5;
 export default function DashboardPage({ useQueue }: DashboardPageProps) {
   const [realtimeStatus, setRealtimeStatus]   = useState<AppStatus>("idle");
   const [audioFile, setAudioFile]             = useState<File | null>(null);
-  const [currentTime, setCurrentTime]         = useState(0);
   const [audioDuration, setAudioDuration]     = useState<number | null>(null);
   const [streamingFrames, setStreamingFrames] = useState<AnalysisFrame[]>([]);
 
@@ -66,7 +63,6 @@ export default function DashboardPage({ useQueue }: DashboardPageProps) {
   useEffect(() => {
     thresholdsRef.current = tempThresholds;
   }, [tempThresholds]);
-  const [inputMode, setInputMode] = useState<"file" | "mic">("file");
 
   const [isElectron, setIsElectron] = useState(false);
   useEffect(() => {
@@ -88,23 +84,21 @@ export default function DashboardPage({ useQueue }: DashboardPageProps) {
   const fileNameRef        = useRef<string | null>(null);
 
   const realtimeWaveRef = useRef<WaveformPlayerHandle>(null);
-  const micWaveRef = useRef<MicrophonePlayerHandle>(null);
   const getProtectedBlob = useCallback(
-    () => (inputMode === "file" ? realtimeWaveRef.current?.exportProtectedAudio() : micWaveRef.current?.exportProtectedAudio()) ?? null,
-    [inputMode],
+    () => realtimeWaveRef.current?.exportProtectedAudio() ?? null,
+    [],
   );
 
   const getChannelsBlob = useCallback(
-    () => (inputMode === "file" ? realtimeWaveRef.current?.exportRecordedAudio() : micWaveRef.current?.exportRecordedAudio()) ?? null,
-    [inputMode],
+    () => realtimeWaveRef.current?.exportRecordedAudio() ?? null,
+    [],
   );
+  // isElectron이 바뀌면 파일 플레이어 구현(DuplexFilePlayer ↔ WaveformPlayer)이 통째로
+  // 교체되면서 ref가 새 핸들을 가리키므로, 구독자들이 다시 구독하도록 deps에 남겨둔다.
   const subscribeChannelStream = useCallback(
-    (fn: CaptureStreamListener) => {
-      const handle = inputMode === "file" ? realtimeWaveRef.current : micWaveRef.current;
-      return handle?.subscribeCaptureStream(fn) ?? (() => {});
-    },
+    (fn: CaptureStreamListener) => realtimeWaveRef.current?.subscribeCaptureStream(fn) ?? (() => {}),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [inputMode, isElectron],
+    [isElectron],
   );
   const outputQueueRef       = useRef<QueuedFrame[]>([]);
   const prevTempRef          = useRef<number | null>(null);
@@ -135,28 +129,14 @@ export default function DashboardPage({ useQueue }: DashboardPageProps) {
     await saveWorkspace({
       name,
       audioDuration: audioDurationRef.current,
-      source: { mode: "file", originalFile: audioFile, capturedAudio: recordedAudio },
+      source: { originalFile: audioFile, capturedAudio: recordedAudio },
     });
   }, [audioFile, saveWorkspace]);
-
-  const handleSaveMicRecording = useCallback(async (rec: MicRecordingExport) => {
-    const stamp = new Date();
-    const pad = (n: number) => String(n).padStart(2, "0");
-    const name =
-      `capture-${stamp.getFullYear()}${pad(stamp.getMonth() + 1)}${pad(stamp.getDate())}` +
-      `-${pad(stamp.getHours())}${pad(stamp.getMinutes())}${pad(stamp.getSeconds())}-${rec.channels}ch`;
-    await saveWorkspace({
-      name,
-      audioDuration: rec.durationSec,
-      source: { mode: "mic", capturedAudio: rec.blob },
-    });
-  }, [saveWorkspace]);
 
   const resetAnalysisState = useCallback(() => {
     setAudioDuration(null);
     setStreamingFrames([]);
     allFramesRef.current = [];
-    setCurrentTime(0);
     setRealtimeStatus("idle");
   }, []);
 
@@ -177,13 +157,6 @@ export default function DashboardPage({ useQueue }: DashboardPageProps) {
   const handleReset = useCallback(() => {
     setAudioFile(null);
     fileNameRef.current = null;
-    resetAnalysisState();
-    clearFrameCache();
-    void clearAudio();
-  }, [resetAnalysisState]);
-
-  const handleInputModeChange = useCallback((mode: "file" | "mic") => {
-    setInputMode(mode);
     resetAnalysisState();
     clearFrameCache();
     void clearAudio();
@@ -258,10 +231,6 @@ export default function DashboardPage({ useQueue }: DashboardPageProps) {
     setRealtimeStatus(s);
   }, []);
 
-  const handleRealtimeTime = useCallback((t: number) => {
-    setCurrentTime(t);
-  }, []);
-
   const isActive = realtimeStatus === "playing" || realtimeStatus === "paused"
     || streamingFrames.length > 0;
 
@@ -308,32 +277,16 @@ export default function DashboardPage({ useQueue }: DashboardPageProps) {
                 {sidebarCollapsed ? <PanelLeftOpen className="w-4 h-4" /> : <PanelLeftClose className="w-4 h-4" />}
               </button>
               <div className="mr-auto min-w-0">
-                <h2 className="m-0 text-xl font-bold text-iron-900">
-                  {inputMode === "file" ? "Real-time Tracking" : "Microphone Input"}
-                </h2>
+                <h2 className="m-0 text-xl font-bold text-iron-900">Real-time Tracking</h2>
                 <p className="m-0 mt-1 text-[13px] text-iron-500 truncate">
-                  {inputMode === "file"
-                    ? audioFile
-                      ? `${audioFile.name} · ${formatTime(audioDuration ?? 0)}`
-                      : "Select an audio file from Workspace"
-                    : realtimeStatus === "playing"
-                      ? "Capturing microphone"
-                      : "Mic Standby"}
+                  {audioFile
+                    ? `${audioFile.name} · ${formatTime(audioDuration ?? 0)}`
+                    : "Select an audio file from Workspace"}
                 </p>
               </div>
-              <SegmentedControl
-                value={inputMode}
-                onChange={handleInputModeChange}
-                options={[
-                  { value: "file", label: "File" },
-                  { value: "mic", label: "Microphone" },
-                ]}
-                className="w-[208px]"
-                aria-label="Input Source"
-              />
             </div>
 
-            {inputMode === "file" && !audioFile && <SelectedFilePanel />}
+            {!audioFile && <SelectedFilePanel />}
 
             <div id="dashboard-grid" className="flex flex-col gap-4 lg:flex-1 lg:min-h-[528px]">
               <div id="protected-compare-section" className="h-[280px] shrink-0">
@@ -347,9 +300,7 @@ export default function DashboardPage({ useQueue }: DashboardPageProps) {
                 <div className="h-[264px] lg:h-auto lg:min-h-0 lg:flex-1">
                   <ExcursionChart
                     frames={streamingFrames}
-                    currentTime={currentTime}
                     isActive={isActive}
-                    streaming
                     audioDuration={audioDuration}
                     perfTrack
                     onExpand={() => setDetailChart("excursion")}
@@ -358,9 +309,7 @@ export default function DashboardPage({ useQueue }: DashboardPageProps) {
                 <div className="h-[264px] lg:h-auto lg:min-h-0 lg:flex-1">
                   <TemperatureChart
                     frames={streamingFrames}
-                    currentTime={currentTime}
                     isActive={isActive}
-                    streaming
                     audioDuration={audioDuration}
                     perfTrack
                     onExpand={() => setDetailChart("temperature")}
@@ -377,29 +326,11 @@ export default function DashboardPage({ useQueue }: DashboardPageProps) {
         <RecordsDrawer />
         <CalibrationDrawer />
 
-        {inputMode === "file" ? (
-          isElectron ? (
-            <DuplexFilePlayer
-              ref={realtimeWaveRef}
-              audioFile={audioFile}
-              status={realtimeStatus}
-              onTimeUpdate={handleRealtimeTime}
-              onStatusChange={handleRealtimeStatus}
-              onFrameReceived={handleFrameReceived}
-              onStreamStart={handleStreamStart}
-              inputParams={inputParams}
-              onDurationReady={setAudioDuration}
-              onSave={handleSaveToWorkspace}
-              canSave={!!audioFile && streamingFrames.length > 0}
-              onReset={handleReset}
-              elevated={detailChart !== null}
-            />
-          ) : (
-          <WaveformPlayer
+        {isElectron ? (
+          <DuplexFilePlayer
             ref={realtimeWaveRef}
             audioFile={audioFile}
             status={realtimeStatus}
-            onTimeUpdate={handleRealtimeTime}
             onStatusChange={handleRealtimeStatus}
             onFrameReceived={handleFrameReceived}
             onStreamStart={handleStreamStart}
@@ -410,16 +341,19 @@ export default function DashboardPage({ useQueue }: DashboardPageProps) {
             onReset={handleReset}
             elevated={detailChart !== null}
           />
-          )
         ) : (
-          <MicrophonePlayer
-            ref={micWaveRef}
+          <WaveformPlayer
+            ref={realtimeWaveRef}
+            audioFile={audioFile}
             status={realtimeStatus}
             onStatusChange={handleRealtimeStatus}
             onFrameReceived={handleFrameReceived}
             onStreamStart={handleStreamStart}
-            onSaveRecording={handleSaveMicRecording}
             inputParams={inputParams}
+            onDurationReady={setAudioDuration}
+            onSave={handleSaveToWorkspace}
+            canSave={!!audioFile && streamingFrames.length > 0}
+            onReset={handleReset}
             elevated={detailChart !== null}
           />
         )}
@@ -429,7 +363,6 @@ export default function DashboardPage({ useQueue }: DashboardPageProps) {
         <ChartDetailOverlay
           metric={detailChart}
           frames={streamingFrames}
-          currentTime={currentTime}
           isActive={isActive}
           audioDuration={audioDuration}
           warnThreshold={tempThresholds.warn}

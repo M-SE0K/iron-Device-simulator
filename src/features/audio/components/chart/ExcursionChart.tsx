@@ -15,9 +15,7 @@ import { useMetricChartRuntime } from "./hooks/useMetricChartRuntime";
 
 interface Props {
   frames: AnalysisFrame[];
-  currentTime: number;
   isActive: boolean;
-  streaming?: boolean;
   audioDuration?: number | null;
   perfTrack?: boolean;
   onExpand?: () => void;
@@ -27,7 +25,7 @@ const SCALE_PADDING = 1.15;
 
 const EXC_COLOR = "#10B981";
 
-export default function ExcursionChart({ frames, currentTime, isActive, streaming = false, audioDuration, perfTrack = false, onExpand }: Props) {
+export default function ExcursionChart({ frames, isActive, audioDuration, perfTrack = false, onExpand }: Props) {
   const {
     current: currentExc,
     windowFrames,
@@ -36,9 +34,7 @@ export default function ExcursionChart({ frames, currentTime, isActive, streamin
   } = useMetricChartRuntime({
     metric: "excursion",
     frames,
-    currentTime,
     isActive,
-    streaming,
     audioDuration,
     perfTrack,
   });

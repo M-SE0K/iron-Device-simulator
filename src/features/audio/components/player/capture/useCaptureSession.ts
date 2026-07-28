@@ -8,7 +8,7 @@ import { createAnalysisSocket, type SocketLike } from "@/features/audio/lib/engi
 import { useCalibration } from "@/features/audio/components/calibration/CalibrationContext";
 import { useErrorPopup } from "@/shared/components/error-popup/ErrorPopupContext";
 import { pcmFramesToWavBlob } from "@/features/audio/lib/codec/wav-encoder";
-import { BYTES_PER_SAMPLE, CHANNELS, SAMPLE_RATE, SAMPLES_PER_CH } from "@/features/audio/lib/engine/core";
+import { CHANNELS, SAMPLE_RATE, SAMPLES_PER_CH } from "@/features/audio/lib/engine/core";
 import { decodeProcessedPcmMessage } from "@/features/audio/lib/engine/protocol/analysis";
 import { useNativeCapture, type NativeRawCapture } from "./useNativeCapture";
 import { useWebAudioWorkletCapture } from "./useWebAudioWorkletCapture";
@@ -16,7 +16,6 @@ import { buildInitMessage } from "./build-init-message";
 import type { CaptureStreamEvent, CaptureStreamListener, UseCaptureSessionDeps } from "./types";
 
 export type {
-  CaptureRecordingExport,
   CaptureStreamEvent,
   CaptureStreamListener,
   UseCaptureSessionDeps,
@@ -24,14 +23,13 @@ export type {
 
 export function useCaptureSession(deps: UseCaptureSessionDeps) {
   const {
-    status, onStatusChange, onFrameReceived, onStreamStart,
-    onSaveRecording, inputParams,
+    status, onStatusChange, onFrameReceived, onStreamStart, inputParams,
   } = deps;
   const { values: calibration } = useCalibration();
   const { showError } = useErrorPopup();
 
   const [micError, setMicErrorState] = useState<string | null>(null);
-  // 캡처/재생 세션 에러는 (파일/마이크 공용인) 이 훅 한 곳에서만 세팅되므로, 여기서 전역
+  // 캡처/재생 세션 에러는 이 훅 한 곳에서만 세팅되므로, 여기서 전역
   // 팝업까지 같이 띄우면 useNativeCapture 등 하위 훅과 각 플레이어 컴포넌트가 개별적으로
   // showError를 호출할 필요가 없다 — micError 상태는 PlayerBar 연결 해제 감지 같은 부수
   // 로직에서 계속 참조하므로 그대로 유지한다.
@@ -43,7 +41,6 @@ export function useCaptureSession(deps: UseCaptureSessionDeps) {
   const [actualLatency, setActualLatency] = useState<number | null>(null);
   const [deviceName, setDeviceName] = useState<string | null>(null);
   const [actualBufferSize, setActualBufferSize] = useState<number | null>(null);
-  const [saving, setSaving] = useState(false);
 
   const wsRef          = useRef<SocketLike | null>(null);
   const audioCtxRef    = useRef<AudioContext | null>(null);
@@ -255,28 +252,6 @@ export function useCaptureSession(deps: UseCaptureSessionDeps) {
     }
   }, [calibration, startNativeCapture, startWebCapture, cleanup, setMicError]);
 
-  const saveRecording = useCallback(async () => {
-    const raw = rawCaptureRef.current;
-    if (!raw || raw.frames.length === 0 || !onSaveRecording) return;
-    setSaving(true);
-    try {
-      const blob = pcmFramesToWavBlob(raw.frames, raw.sampleRate, raw.channels);
-      const totalSampleFrames =
-        raw.frames.reduce((sum, f) => sum + f.byteLength, 0) / (raw.channels * BYTES_PER_SAMPLE);
-      await onSaveRecording({
-        blob,
-        channels:    raw.channels,
-        sampleRate:  raw.sampleRate,
-        durationSec: totalSampleFrames / raw.sampleRate,
-      });
-    } finally {
-      setSaving(false);
-    }
-  }, [onSaveRecording]);
-
-  const hasRecording = !isRecording && (rawCaptureRef.current?.frames.length ?? 0) > 0;
-  const recordingChannels = rawCaptureRef.current?.channels ?? null;
-
   const getRecordedBlob = useCallback((): Blob | null => {
     const raw = rawCaptureRef.current;
     if (!raw || raw.frames.length === 0) return null;
@@ -315,7 +290,6 @@ export function useCaptureSession(deps: UseCaptureSessionDeps) {
   return {
     start, stop, cleanup, isRecording,
     micError, sampleRate, deviceName, actualBufferSize, actualLatency,
-    saveRecording, hasRecording, saving, recordingChannels,
     getRecordedBlob, sendMessage, pauseRecording, resumeRecording,
     getProtectedBlob, hasProtectedRecording,
     subscribeCaptureStream,
