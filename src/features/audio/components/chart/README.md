@@ -8,7 +8,7 @@
 
 ## 2. 프로젝트 전반에서의 역할
 
-실시간 데이터 흐름(`오디오 → WASM 엔진 → onFrameReceived → setStreamingFrames → 차트`)의 최종 소비자다. `DashboardClient`가 렌더 경로(출력 큐 + 16ms 스케줄러, `coalesceFrames`)를 거쳐 만든 `chartFrames` 배열을 받아 화면에 그리는 마지막 단계를 담당한다.
+실시간 데이터 흐름(`오디오 → WASM 엔진 → onFrameReceived → setStreamingFrames → 차트`)의 최종 소비자다. `DashboardClient`가 렌더 경로(출력 큐 + `requestAnimationFrame` 스케줄러, `coalesceFrames`)를 거쳐 만든 `chartFrames` 배열을 받아 화면에 그리는 마지막 단계를 담당한다.
 
 - X축은 항상 표시 윈도우(최근 프레임)를 따라간다. 과거의 realtime/batch 이원 모드와 이를 가르던 `followWindow` prop은 제거됐고, `audioDuration`은 X축 범위 계산이 아니라 헤더 표시/차트 노출(showChart) 판단에만 쓴다.
 - Calibration의 `tempWarn`/`tempDanger` 값이 `TemperatureChart`의 임계선(`thresholdsPlugin`)과 헤더 현재값 색상(주황 `#F59E0B`/빨강 `#EF4444`)을 결정한다. 기본값은 `lib/render/detect-events.ts`의 `DEFAULT_TEMP_WARN`(65°C)/`DEFAULT_TEMP_DANGER`(75°C)다. 이벤트 감지(`detectEvents`)와 차트가 같은 상수를 함께 쓴다.

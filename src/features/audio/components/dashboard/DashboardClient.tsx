@@ -33,8 +33,6 @@ interface DashboardPageProps {
   useQueue: boolean;
 }
 
-const RENDER_INTERVAL = 5;
-
 export default function DashboardPage({ useQueue }: DashboardPageProps) {
   const [realtimeStatus, setRealtimeStatus]   = useState<AppStatus>("idle");
   const [audioFile, setAudioFile]             = useState<File | null>(null);
@@ -219,10 +217,18 @@ export default function DashboardPage({ useQueue }: DashboardPageProps) {
       setStreamingFrames((prev) => [...prev, ...renderFrames]);
     };
 
-    const timer = setInterval(drain, RENDER_INTERVAL);
+    // 데이터 도착 주기(약 10 ms)나 고정 타이머를 화면 주기와 직접 섞으면 60 Hz에서
+    // 한 프레임 사이의 커밋 수가 3/3/4처럼 달라진다. 브라우저가 알려주는 실제 표시
+    // 기회에 큐를 한 번만 비워 59.94/60/120 Hz 어느 모드에서도 커밋 cadence를 맞춘다.
+    let renderRaf = 0;
+    const renderTick = () => {
+      drain();
+      renderRaf = requestAnimationFrame(renderTick);
+    };
+    renderRaf = requestAnimationFrame(renderTick);
 
     return () => {
-      clearInterval(timer);
+      cancelAnimationFrame(renderRaf);
       drain();
     };
   }, [isPlaying, useQueue]);
