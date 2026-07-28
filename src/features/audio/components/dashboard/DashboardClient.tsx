@@ -35,7 +35,7 @@ interface DashboardPageProps {
   useQueue: boolean;
 }
 
-const RENDER_INTERVAL = 50;
+const RENDER_INTERVAL = 5;
 
 export default function DashboardPage({ useQueue }: DashboardPageProps) {
   const [realtimeStatus, setRealtimeStatus]   = useState<AppStatus>("idle");
@@ -196,8 +196,6 @@ export default function DashboardPage({ useQueue }: DashboardPageProps) {
     prevTempRef.current    = null;
   }, []);
 
-  const expParams    = typeof window !== "undefined" ? new URLSearchParams(window.location.search) : null;
-  const LTTB_ENABLED  = expParams?.get("lttb") !== "0";
   const isPlaying = realtimeStatus === "playing";
 
   const handleFrameReceived = useCallback((frame: AnalysisFrame) => {
@@ -353,7 +351,6 @@ export default function DashboardPage({ useQueue }: DashboardPageProps) {
                     isActive={isActive}
                     streaming
                     audioDuration={audioDuration}
-                    lttb={LTTB_ENABLED}
                     perfTrack
                     onExpand={() => setDetailChart("excursion")}
                   />
@@ -365,7 +362,6 @@ export default function DashboardPage({ useQueue }: DashboardPageProps) {
                     isActive={isActive}
                     streaming
                     audioDuration={audioDuration}
-                    lttb={LTTB_ENABLED}
                     perfTrack
                     onExpand={() => setDetailChart("temperature")}
                     warnThreshold={tempThresholds.warn}
@@ -436,7 +432,6 @@ export default function DashboardPage({ useQueue }: DashboardPageProps) {
           currentTime={currentTime}
           isActive={isActive}
           audioDuration={audioDuration}
-          lttb={LTTB_ENABLED}
           warnThreshold={tempThresholds.warn}
           dangerThreshold={tempThresholds.danger}
           getChannelsBlob={getChannelsBlob}

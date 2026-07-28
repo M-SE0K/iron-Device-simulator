@@ -1,8 +1,10 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import ReactECharts from "@/shared/components/ReactECharts";
-import { buildDataZoom, buildDynamicTimeFormatter, buildValueTooltip, extractZoomState, timeDecimalsForInterval, SYMBOL_VISIBLE_MAX } from "@/features/audio/lib/render/chart-option";
+import type uPlot from "uplot";
+import UPlotChart, { type UPlotOptions } from "@/shared/components/UPlotChart";
+import { buildTimeAxis, buildValueAxis, timeDecimalsForInterval } from "@/features/audio/lib/render/uplot-option";
+import { tooltipPlugin, zoomPlugin } from "@/features/audio/lib/render/uplot-plugins";
 import type { WaveformWindow } from "@/features/audio/lib/render/waveform";
 
 const LTTB_THRESHOLD = 2000;
@@ -77,73 +79,64 @@ export function ChannelWaveformCanvas({
   liveWindow: WaveformWindow;
   fetchRange: (startSec: number, endSec: number) => Promise<Float32Array>;
 }) {
-  const zoomRef = useRef({ start: 0, end: 100 });
-  const [showSymbols, setShowSymbols] = useState(false);
   const [historical, setHistorical] = useState<WaveformWindow | null>(null);
   const fetchSeqRef = useRef(0);
   const debounceRef = useRef<number | null>(null);
 
-  const resolveZoom = useCallback((startPct: number, endPct: number) => {
-    if (totalDurationSec <= 0) return;
-    const zoomStartSec = (startPct / 100) * totalDurationSec;
-    const zoomEndSec = (endPct / 100) * totalDurationSec;
+  // 사용자 줌 콜백(안정된 참조)이 항상 최신 값을 읽을 수 있게 ref로 미러링한다.
+  const liveStartRef = useRef(liveWindow.startSec);
+  liveStartRef.current = liveWindow.startSec;
+  const totalDurationRef = useRef(totalDurationSec);
+  totalDurationRef.current = totalDurationSec;
+  const fetchRangeRef = useRef(fetchRange);
+  fetchRangeRef.current = fetchRange;
 
-    if (debounceRef.current !== null) window.clearTimeout(debounceRef.current);
-    debounceRef.current = window.setTimeout(() => {
-      if (zoomStartSec < liveWindow.startSec - PAST_EPSILON_SEC) {
-        const seq = ++fetchSeqRef.current;
-        fetchRange(Math.max(0, zoomStartSec), Math.min(totalDurationSec, zoomEndSec)).then((data) => {
-          if (fetchSeqRef.current !== seq) return;
-          setHistorical({ startSec: Math.max(0, zoomStartSec), data });
-        });
-      } else {
-        fetchSeqRef.current++;
-        setHistorical(null);
-      }
-    }, FETCH_DEBOUNCE_MS);
-  }, [totalDurationSec, liveWindow.startSec, fetchRange]);
+  // 사용자 줌(드래그/휠/더블클릭)에서만 호출된다 — 보이는 구간이 라이브 윈도우보다 과거로
+  // 내려가면 그 구간만 온디맨드 디코딩해 표시한다(줌 아웃해 전체를 보면 세션 전체 백필).
+  const handleUserZoom = useMemo(() => {
+    return (minSec: number, maxSec: number) => {
+      if (totalDurationRef.current <= 0) return;
+      if (debounceRef.current !== null) window.clearTimeout(debounceRef.current);
+      debounceRef.current = window.setTimeout(() => {
+        const total = totalDurationRef.current;
+        if (minSec < liveStartRef.current - PAST_EPSILON_SEC) {
+          const seq = ++fetchSeqRef.current;
+          fetchRangeRef.current(Math.max(0, minSec), Math.min(total, maxSec)).then((data) => {
+            if (fetchSeqRef.current !== seq) return;
+            setHistorical({ startSec: Math.max(0, minSec), data });
+          });
+        } else {
+          fetchSeqRef.current++;
+          setHistorical(null);
+        }
+      }, FETCH_DEBOUNCE_MS);
+    };
+  }, []);
 
   useEffect(() => () => {
     if (debounceRef.current !== null) window.clearTimeout(debounceRef.current);
   }, []);
 
-  const pointsRef = useRef<[number, number][]>([]);
-  const totalDurationRef = useRef(totalDurationSec);
-  totalDurationRef.current = totalDurationSec;
-
-  const recomputeSymbols = useCallback(() => {
+  // options useMemo(아래)는 totalDurationSec을 deps에 넣지 않는다 — 매 캡처 청크마다
+  // 늘어나는 값이라 넣으면 인스턴스가 매번 재생성된다. 대신 안정된 참조의 getter로 감싸
+  // zoomPlugin이 항상 최신 값을 ref로 읽게 한다.
+  const getFullXRange = useCallback((): [number, number] | null => {
     const total = totalDurationRef.current;
-    if (total <= 0) { setShowSymbols((prev) => (prev ? false : prev)); return; }
-    const z = zoomRef.current;
-    const startSec = (z.start / 100) * total;
-    const endSec = (z.end / 100) * total;
-    let count = 0;
-    for (const [t] of pointsRef.current) {
-      if (t >= startSec && t <= endSec) { count++; if (count > SYMBOL_VISIBLE_MAX) break; }
-    }
-    const next = count > 0 && count <= SYMBOL_VISIBLE_MAX;
-    setShowSymbols((prev) => (prev === next ? prev : next));
+    return total > 0 ? [0, total] : null;
   }, []);
 
-  const echartsEvents = useRef<Record<string, (...args: unknown[]) => void>>({});
-  echartsEvents.current = {
-    datazoom: useCallback((params: unknown) => {
-      const zoom = extractZoomState(params);
-      if (zoom) {
-        zoomRef.current = zoom;
-        resolveZoom(zoom.start, zoom.end);
-        recomputeSymbols();
-      }
-    }, [resolveZoom, recomputeSymbols]),
-  };
-
   const source = historical ?? liveWindow;
-  const points = useMemo(
-    () => buildLttb(source.data, sampleRate, source.startSec, LTTB_THRESHOLD),
-    [source.data, source.startSec, sampleRate],
-  );
-  pointsRef.current = points;
-  useEffect(() => { recomputeSymbols(); }, [points, totalDurationSec, recomputeSymbols]);
+
+  const data = useMemo(() => {
+    const points = buildLttb(source.data, sampleRate, source.startSec, LTTB_THRESHOLD);
+    const xs = new Float64Array(points.length);
+    const ys = new Float64Array(points.length);
+    for (let i = 0; i < points.length; i++) {
+      xs[i] = points[i][0];
+      ys[i] = points[i][1];
+    }
+    return [xs, ys] as unknown as uPlot.AlignedData;
+  }, [source.data, source.startSec, sampleRate]);
 
   const { yMin, yMax } = useMemo(
     () => computeSymmetricYRange(source.data),
@@ -151,50 +144,36 @@ export function ChannelWaveformCanvas({
   );
 
   const timeDecimals = timeDecimalsForInterval(sampleRate > 0 ? 1 / sampleRate : 0);
-  const timeDomain = { dataMin: 0, dataMax: totalDurationSec > 0 ? totalDurationSec : 0.001, dataDecimals: timeDecimals };
 
-  const option = useMemo(() => ({
-    animation: false,
-    grid: { top: 8, right: 12, bottom: 40, left: 42 },
-    dataZoom: buildDataZoom(zoomRef, { filler: "rgba(148, 163, 184, 0.15)", handle: color }, timeDomain),
-    xAxis: {
-      type: "value" as const,
-      min: 0,
-      max: totalDurationSec > 0 ? totalDurationSec : 0.001,
-      axisLabel: { formatter: buildDynamicTimeFormatter(zoomRef, timeDomain), color: "#94A3B8", fontSize: 9 },
-      axisLine: { lineStyle: { color: "#E2E8F0" } },
-      splitLine: { lineStyle: { color: "#F1F5F9" } },
-    },
-    yAxis: {
-      type: "value" as const,
-      min: yMin,
-      max: yMax,
-      axisLabel: { formatter: (v: number) => v.toFixed(3), color: "#94A3B8", fontSize: 9 },
-      axisLine: { show: false },
-      splitLine: { lineStyle: { color: "#F1F5F9" } },
-    },
+  const options = useMemo<UPlotOptions>(() => ({
+    legend: { show: false },
+    cursor: { drag: { x: true, y: false } },
     series: [
+      {},
       {
-        name: "wave",
-        type: "line" as const,
-        data: points,
-        symbol: showSymbols ? "circle" : "none",
-        showSymbol: showSymbols,
-        symbolSize: 4,
-        itemStyle: { color },
-        ...(showSymbols ? {} : { sampling: "lttb" as const, large: true, largeThreshold: 2000 }),
-        lineStyle: { color, width: 1 },
+        label: "wave",
+        stroke: color,
+        width: 1,
+        points: { size: 4, fill: color },
       },
     ],
-    tooltip: buildValueTooltip({ unit: "", decimals: 4, timeDecimals }),
-  }), [points, totalDurationSec, color, yMin, yMax, timeDecimals, showSymbols]);
+    axes: [
+      buildTimeAxis(timeDecimals),
+      buildValueAxis({ size: 42, formatter: (v: number) => v.toFixed(3) }),
+    ],
+    plugins: [
+      zoomPlugin({ getFullXRange }),
+      tooltipPlugin({ unit: "", decimals: 4, timeDecimals }),
+    ],
+  }), [color, timeDecimals, getFullXRange]);
 
   return (
-    <ReactECharts
-      option={option}
-      style={{ height: "100%", width: "100%" }}
-      notMerge={false}
-      onEvents={echartsEvents.current}
+    <UPlotChart
+      options={options}
+      data={data}
+      yRange={[yMin, yMax]}
+      xRange={[0, totalDurationSec > 0 ? totalDurationSec : 0.001]}
+      onUserZoom={handleUserZoom}
     />
   );
 }

@@ -39,13 +39,29 @@ export class BucketEnvelope {
   }
 }
 
-export function envelopeToSeries(env: BucketEnvelope, durationSec: number): [number, number][] {
-  const dt = durationSec / env.buckets;
-  const out: [number, number][] = [];
-  for (let b = 0; b <= env.filledUpTo; b++) {
-    if (env.seen[b] === 0) continue;
-    const t = b * dt;
-    out.push([t, env.min[b]], [t + dt * 0.5, env.max[b]]);
+/**
+ * 같은 버킷 수/길이를 공유하는 엔벨로프들을 uPlot 컬럼(aligned) 데이터로 만든다 —
+ * x는 버킷당 2점(min이 t, max가 t+dt/2)의 공통 격자, 아직 채워지지 않은 버킷은 null.
+ */
+export function envelopesToAligned(
+  envs: BucketEnvelope[],
+  durationSec: number,
+): [Float64Array, ...(number | null)[][]] {
+  const buckets = envs[0]?.buckets ?? 0;
+  const dt = durationSec / buckets;
+  const xs = new Float64Array(buckets * 2);
+  for (let b = 0; b < buckets; b++) {
+    xs[b * 2] = b * dt;
+    xs[b * 2 + 1] = b * dt + dt * 0.5;
   }
-  return out;
+  const cols = envs.map((env) => {
+    const ys: (number | null)[] = new Array(buckets * 2).fill(null);
+    for (let b = 0; b <= env.filledUpTo; b++) {
+      if (env.seen[b] === 0) continue;
+      ys[b * 2] = env.min[b];
+      ys[b * 2 + 1] = env.max[b];
+    }
+    return ys;
+  });
+  return [xs, ...cols];
 }

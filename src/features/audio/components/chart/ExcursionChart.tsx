@@ -2,14 +2,15 @@
 
 import { useMemo } from "react";
 import { Maximize2 } from "lucide-react";
+import uPlot from "uplot";
 import { AnalysisFrame } from "@/features/audio/types";
-import ReactECharts from "@/shared/components/ReactECharts";
+import UPlotChart, { type UPlotOptions } from "@/shared/components/UPlotChart";
 import { toMm, MM_DECIMALS } from "@/features/audio/lib/units";
 import { computeExcursionYRange } from "@/features/audio/lib/render/chart-window";
 import {
-  buildValueTooltip, resolveTimeDecimals,
-  buildAreaGradient, buildValueYAxis, buildLineSeries, buildBaseChartOption,
-} from "@/features/audio/lib/render/chart-option";
+  buildAreaFill, buildTimeAxis, buildValueAxis, resolveTimeDecimals, toAlignedData,
+} from "@/features/audio/lib/render/uplot-option";
+import { tooltipPlugin, zoomPlugin } from "@/features/audio/lib/render/uplot-plugins";
 import { useMetricChartRuntime } from "./hooks/useMetricChartRuntime";
 
 interface Props {
@@ -18,7 +19,6 @@ interface Props {
   isActive: boolean;
   streaming?: boolean;
   audioDuration?: number | null;
-  lttb?: boolean;
   perfTrack?: boolean;
   onExpand?: () => void;
 }
@@ -27,13 +27,11 @@ const SCALE_PADDING = 1.15;
 
 const EXC_COLOR = "#10B981";
 
-export default function ExcursionChart({ frames, currentTime, isActive, streaming = false, audioDuration, lttb = true, perfTrack = false, onExpand }: Props) {
+export default function ExcursionChart({ frames, currentTime, isActive, streaming = false, audioDuration, perfTrack = false, onExpand }: Props) {
   const {
     current: currentExc,
     windowFrames,
-    zoomRef,
-    showSymbols,
-    echartsEvents,
+    onRender,
     showChart,
   } = useMetricChartRuntime({
     metric: "excursion",
@@ -57,27 +55,36 @@ export default function ExcursionChart({ frames, currentTime, isActive, streamin
       ? "#EF4444"
       : EXC_COLOR;
 
-  const option = useMemo(() => {
-    const samplingOpts = lttb ? { sampling: "lttb" as const, large: true, largeThreshold: 2000 } : {};
-    const timeDecimals = resolveTimeDecimals(windowFrames);
+  const data = useMemo(
+    () => toAlignedData(windowFrames, (f) => toMm(f.excursion)),
+    [windowFrames],
+  );
 
-    const series = buildLineSeries({
-      name: "Excursion",
-      data: windowFrames.map((f) => [f.time, toMm(f.excursion)]),
-      color: EXC_COLOR, smooth: 0.3, width: 1.5, sampling: samplingOpts,
-      area: buildAreaGradient("rgba(16,185,129,0.15)", "rgba(16,185,129,0)"),
-      showSymbol: showSymbols, symbolSize: 4,
-    });
+  const timeDecimals = resolveTimeDecimals(windowFrames);
 
-    return buildBaseChartOption({
-      windowFrames, zoomRef, gridLeft: 60,
-      zoomColors: { filler: "rgba(16,185,129,0.12)", handle: "#10B981" },
-      timeDecimals,
-      yAxis: buildValueYAxis({ name: "mm", min: yMin, max: yMax, labelFormatter: (v: number) => v.toFixed(MM_DECIMALS) }),
-      series: [series],
-      tooltip: buildValueTooltip({ unit: "mm", decimals: MM_DECIMALS, timeDecimals }),
-    });
-  }, [windowFrames, zoomRef, yMin, yMax, lttb, showSymbols]);
+  const options = useMemo<UPlotOptions>(() => ({
+    legend: { show: false },
+    cursor: { drag: { x: true, y: false } },
+    series: [
+      {},
+      {
+        label: "Excursion",
+        stroke: EXC_COLOR,
+        width: 1.5,
+        fill: buildAreaFill("rgba(16,185,129,0.15)", "rgba(16,185,129,0)"),
+        paths: uPlot.paths.spline!(),
+        points: { size: 4, fill: EXC_COLOR },
+      },
+    ],
+    axes: [
+      buildTimeAxis(timeDecimals),
+      buildValueAxis({ size: 60, formatter: (v: number) => v.toFixed(MM_DECIMALS) }),
+    ],
+    plugins: [
+      zoomPlugin(),
+      tooltipPlugin({ unit: "mm", decimals: MM_DECIMALS, timeDecimals }),
+    ],
+  }), [timeDecimals]);
 
   return (
     <div id="excursion-chart" className="card flex flex-col h-full">
@@ -108,7 +115,13 @@ export default function ExcursionChart({ frames, currentTime, isActive, streamin
 
       <div className="chart-body flex-1 p-2 min-h-[160px]">
         {showChart ? (
-          <ReactECharts option={option} style={{ height: "100%", width: "100%" }} notMerge={false} onEvents={echartsEvents} />
+          <UPlotChart
+            key={audioDuration ?? "live"}
+            options={options}
+            data={data}
+            yRange={[yMin, yMax]}
+            onRender={onRender}
+          />
         ) : (
           <div className="chart-empty-state h-full flex items-center justify-center text-xs text-iron-300">
             Data will appear here in real time during playback

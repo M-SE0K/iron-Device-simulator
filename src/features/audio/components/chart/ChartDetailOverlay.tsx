@@ -51,8 +51,7 @@ interface Props {
   currentTime: number;
   isActive: boolean;
   audioDuration?: number | null;
-  lttb?: boolean;
-  /** temperature 상세 뷰의 WARN/DANGER markLine — Calibration.tempWarn/tempDanger */
+  /** temperature 상세 뷰의 WARN/DANGER 임계선 — Calibration.tempWarn/tempDanger */
   warnThreshold?: number;
   dangerThreshold?: number;
   /**
@@ -85,7 +84,6 @@ export default function ChartDetailOverlay({
   currentTime,
   isActive,
   audioDuration,
-  lttb,
   warnThreshold,
   dangerThreshold,
   getChannelsBlob,
@@ -394,7 +392,6 @@ export default function ChartDetailOverlay({
               isActive={isActive}
               streaming
               audioDuration={audioDuration}
-              lttb={lttb}
               warnThreshold={warnThreshold}
               dangerThreshold={dangerThreshold}
             />
@@ -405,7 +402,6 @@ export default function ChartDetailOverlay({
               isActive={isActive}
               streaming
               audioDuration={audioDuration}
-              lttb={lttb}
             />
           ),
           defaultHeight: 360,
@@ -455,7 +451,7 @@ export default function ChartDetailOverlay({
     return items;
   }, [
     orderedEntries, selected, Icon, accent, title, isTemp, frames, currentTime, isActive,
-    audioDuration, lttb, warnThreshold, dangerThreshold, windows, header, channelError, fetchRangeFor,
+    audioDuration, warnThreshold, dangerThreshold, windows, header, channelError, fetchRangeFor,
     subscribeChannelStream, getProtectedBlob, getChannelsBlob, sourceFile,
   ]);
 

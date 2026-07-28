@@ -2,14 +2,15 @@
 
 import { useMemo } from "react";
 import { Maximize2 } from "lucide-react";
+import uPlot from "uplot";
 import { AnalysisFrame } from "@/features/audio/types";
-import ReactECharts from "@/shared/components/ReactECharts";
+import UPlotChart, { type UPlotOptions } from "@/shared/components/UPlotChart";
 import { DEFAULT_TEMP_WARN, DEFAULT_TEMP_DANGER } from "@/features/audio/lib/render/detect-events";
 import { computeTemperatureYRange } from "@/features/audio/lib/render/chart-window";
 import {
-  buildValueTooltip, resolveTimeDecimals,
-  buildAreaGradient, buildValueYAxis, buildLineSeries, buildBaseChartOption,
-} from "@/features/audio/lib/render/chart-option";
+  buildAreaFill, buildTimeAxis, buildValueAxis, resolveTimeDecimals, toAlignedData,
+} from "@/features/audio/lib/render/uplot-option";
+import { thresholdsPlugin, tooltipPlugin, zoomPlugin } from "@/features/audio/lib/render/uplot-plugins";
 import { useMetricChartRuntime } from "./hooks/useMetricChartRuntime";
 
 interface Props {
@@ -18,7 +19,6 @@ interface Props {
   isActive: boolean;
   streaming?: boolean;
   audioDuration?: number | null;
-  lttb?: boolean;
   perfTrack?: boolean;
   onExpand?: () => void;
   warnThreshold?: number;
@@ -27,13 +27,11 @@ interface Props {
 
 const TEMP_COLOR = "#0B4171";
 
-export default function TemperatureChart({ frames, currentTime, isActive, streaming = false, audioDuration, lttb = true, perfTrack = false, onExpand, warnThreshold = DEFAULT_TEMP_WARN, dangerThreshold = DEFAULT_TEMP_DANGER }: Props) {
+export default function TemperatureChart({ frames, currentTime, isActive, streaming = false, audioDuration, perfTrack = false, onExpand, warnThreshold = DEFAULT_TEMP_WARN, dangerThreshold = DEFAULT_TEMP_DANGER }: Props) {
   const {
     current: currentTemp,
     windowFrames,
-    zoomRef,
-    showSymbols,
-    echartsEvents,
+    onRender,
     showChart,
   } = useMetricChartRuntime({
     metric: "temperature",
@@ -58,36 +56,37 @@ export default function TemperatureChart({ frames, currentTime, isActive, stream
     [windowFrames],
   );
 
-  const option = useMemo(() => {
-    const samplingOpts = lttb ? { sampling: "lttb", large: true, largeThreshold: 2000 } : {};
-    const timeDecimals = resolveTimeDecimals(windowFrames);
+  const data = useMemo(
+    () => toAlignedData(windowFrames, (f) => f.temperature),
+    [windowFrames],
+  );
 
-    const markLine = {
-      silent: true,
-      symbol: "none",
-      data: [
-        { yAxis: warnThreshold,   lineStyle: { color: "#F59E0B", type: "dashed", width: 1 }, label: { formatter: "WARN",   color: "#F59E0B", fontSize: 9 } },
-        { yAxis: dangerThreshold, lineStyle: { color: "#EF4444", type: "dashed", width: 1 }, label: { formatter: "DANGER", color: "#EF4444", fontSize: 9 } },
-      ],
-    };
+  const timeDecimals = resolveTimeDecimals(windowFrames);
 
-    const series = buildLineSeries({
-      name: "Temperature",
-      data: windowFrames.map((f) => [f.time, f.temperature]),
-      color: TEMP_COLOR, smooth: true, width: 2, sampling: samplingOpts,
-      area: buildAreaGradient("rgba(11,65,113,0.18)", "rgba(11,65,113,0)"),
-      markLine, showSymbol: showSymbols, symbolSize: 5,
-    });
-
-    return buildBaseChartOption({
-      windowFrames, zoomRef, gridLeft: 52,
-      zoomColors: { filler: "rgba(11,65,113,0.12)", handle: "#0B4171" },
-      timeDecimals,
-      yAxis: buildValueYAxis({ name: "°C", min: yMin, max: yMax }),
-      series: [series],
-      tooltip: buildValueTooltip({ unit: "°C", decimals: 1, timeDecimals }),
-    });
-  }, [windowFrames, zoomRef, yMin, yMax, lttb, warnThreshold, dangerThreshold, showSymbols]);
+  const options = useMemo<UPlotOptions>(() => ({
+    legend: { show: false },
+    cursor: { drag: { x: true, y: false } },
+    series: [
+      {},
+      {
+        label: "Temperature",
+        stroke: TEMP_COLOR,
+        width: 2,
+        fill: buildAreaFill("rgba(11,65,113,0.18)", "rgba(11,65,113,0)"),
+        paths: uPlot.paths.spline!(),
+        points: { size: 5, fill: TEMP_COLOR },
+      },
+    ],
+    axes: [buildTimeAxis(timeDecimals), buildValueAxis({ size: 52 })],
+    plugins: [
+      zoomPlugin(),
+      tooltipPlugin({ unit: "°C", decimals: 1, timeDecimals }),
+      thresholdsPlugin([
+        { y: warnThreshold,   color: "#F59E0B", label: "WARN" },
+        { y: dangerThreshold, color: "#EF4444", label: "DANGER" },
+      ]),
+    ],
+  }), [timeDecimals, warnThreshold, dangerThreshold]);
 
   return (
     <div id="temperature-chart" className="card flex flex-col h-full">
@@ -118,11 +117,12 @@ export default function TemperatureChart({ frames, currentTime, isActive, stream
 
       <div className="chart-body flex-1 p-2 min-h-[160px]">
         {showChart ? (
-          <ReactECharts
-            option={option}
-            style={{ height: "100%", width: "100%" }}
-            notMerge={false}
-            onEvents={echartsEvents}
+          <UPlotChart
+            key={audioDuration ?? "live"}
+            options={options}
+            data={data}
+            yRange={[yMin, yMax]}
+            onRender={onRender}
           />
         ) : (
           <div className="chart-empty-state h-full flex items-center justify-center text-xs text-iron-300">

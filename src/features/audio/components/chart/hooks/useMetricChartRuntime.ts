@@ -1,11 +1,4 @@
-import {
-  useCallback,
-  useEffect,
-  useLayoutEffect,
-  useMemo,
-  useRef,
-  useState,
-} from "react";
+import { useCallback, useLayoutEffect, useMemo, useRef } from "react";
 import type { AnalysisFrame } from "@/features/audio/types";
 import { perf } from "@/features/audio/lib/perf/collector";
 import { e2e } from "@/features/audio/lib/perf-e2e/collector";
@@ -13,10 +6,6 @@ import {
   computeStreamWindow,
   WINDOW_SIZE,
 } from "@/features/audio/lib/render/chart-window";
-import {
-  extractZoomState,
-  shouldShowFrameSymbols,
-} from "@/features/audio/lib/render/chart-option";
 
 type Metric = "temperature" | "excursion";
 
@@ -39,23 +28,12 @@ export function useMetricChartRuntime({
   audioDuration,
   perfTrack,
 }: MetricChartRuntimeOptions) {
-  const zoomRef = useRef({ start: 0, end: 100 });
-  const [showSymbols, setShowSymbols] = useState(false);
-  const pointCountRef = useRef(0);
-  useEffect(() => {
-    zoomRef.current = { start: 0, end: 100 };
-    setShowSymbols(false);
-  }, [audioDuration]);
-
   const prevFrameLenRef = useRef(0);
-  const renderStartAtRef = useRef(0);
+  const pendingRenderSampleRef = useRef(false);
   const pendingCommitSampleRef = useRef(false);
   if (perfTrack && streaming && frames.length !== prevFrameLenRef.current) {
     prevFrameLenRef.current = frames.length;
-    // N12 시작점은 렌더 단계(커밋 전)에서 찍어야 한다 — useLayoutEffect에서 찍으면 자식
-    // ReactECharts의 componentDidUpdate(자식이 부모보다 먼저 커밋됨)가 이미 setOption을
-    // 호출한 뒤라 늦어서, 이번 렌더가 아니라 다음 drain 사이클의 rendered 이벤트를 붙잡는다.
-    renderStartAtRef.current = performance.now();
+    pendingRenderSampleRef.current = true;
     pendingCommitSampleRef.current = true;
   }
   useLayoutEffect(() => {
@@ -65,24 +43,15 @@ export function useMetricChartRuntime({
     }
   });
 
-  const rendered = useCallback(() => {
-    if (perfTrack && renderStartAtRef.current > 0) {
-      const renderMs = performance.now() - renderStartAtRef.current;
-      perf.recordRender(metric, renderMs);
-      e2e.sample("N12", renderMs, metric);
-      renderStartAtRef.current = 0;
-    }
-  }, [metric, perfTrack]);
-
-  const datazoom = useCallback((params: unknown) => {
-    const zoom = extractZoomState(params);
-    if (zoom) zoomRef.current = zoom;
-    const next = shouldShowFrameSymbols(pointCountRef.current, zoomRef.current);
-    setShowSymbols((prev) => (prev === next ? prev : next));
-  }, []);
-
-  const echartsEvents = useRef<Record<string, (...args: unknown[]) => void>>({});
-  echartsEvents.current = { rendered, datazoom };
+  // uPlot은 setData 안에서 동기적으로 캔버스를 다시 그린다 — UPlotChart가 그 구간을
+  // 직접 측정해 ms로 보고하므로 그대로 기록한다. 스트리밍 프레임 커밋이 아닌 드로우
+  // (줌 조작, 인스턴스 재생성 등)는 샘플에서 제외한다.
+  const onRender = useCallback((ms: number) => {
+    if (!pendingRenderSampleRef.current) return;
+    pendingRenderSampleRef.current = false;
+    perf.recordRender(metric, ms);
+    e2e.sample("N12", ms, metric);
+  }, [metric]);
 
   const { current, windowFrames } = useMemo(
     () => computeStreamWindow(
@@ -96,14 +65,11 @@ export function useMetricChartRuntime({
     ),
     [frames, currentTime, isActive, streaming, audioDuration, metric],
   );
-  pointCountRef.current = windowFrames.length;
 
   return {
     current,
     windowFrames,
-    zoomRef,
-    showSymbols,
-    echartsEvents: echartsEvents.current,
+    onRender,
     showChart: audioDuration != null || frames.length > 0,
   };
 }
