@@ -1,6 +1,6 @@
 "use client";
 
-// 슬라이딩 필 인디케이터 세그먼트 토글 — 상단 파일/마이크 토글, 차트 L/R/Both 채널 토글이 공유한다.
+// 슬라이딩 필 인디케이터 세그먼트 토글 — 차트 L/R/Both 채널 토글 등이 공유한다.
 // 항상 네이비 활성 배경("Split Studio" 목업의 톤) — 채널별 색으로 물들이지 않는다.
 interface SegmentedControlOption<T extends string> {
   value: T;

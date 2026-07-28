@@ -2,19 +2,14 @@ import { useCallback, useLayoutEffect, useMemo, useRef } from "react";
 import type { AnalysisFrame } from "@/features/audio/types";
 import { perf } from "@/features/audio/lib/perf/collector";
 import { e2e } from "@/features/audio/lib/perf-e2e/collector";
-import {
-  computeStreamWindow,
-  WINDOW_SIZE,
-} from "@/features/audio/lib/render/chart-window";
+import { computeStreamWindow } from "@/features/audio/lib/render/chart-window";
 
 type Metric = "temperature" | "excursion";
 
 interface MetricChartRuntimeOptions {
   metric: Metric;
   frames: AnalysisFrame[];
-  currentTime: number;
   isActive: boolean;
-  streaming: boolean;
   audioDuration?: number | null;
   perfTrack: boolean;
 }
@@ -22,16 +17,14 @@ interface MetricChartRuntimeOptions {
 export function useMetricChartRuntime({
   metric,
   frames,
-  currentTime,
   isActive,
-  streaming,
   audioDuration,
   perfTrack,
 }: MetricChartRuntimeOptions) {
   const prevFrameLenRef = useRef(0);
   const pendingRenderSampleRef = useRef(false);
   const pendingCommitSampleRef = useRef(false);
-  if (perfTrack && streaming && frames.length !== prevFrameLenRef.current) {
+  if (perfTrack && frames.length !== prevFrameLenRef.current) {
     prevFrameLenRef.current = frames.length;
     pendingRenderSampleRef.current = true;
     pendingCommitSampleRef.current = true;
@@ -56,14 +49,10 @@ export function useMetricChartRuntime({
   const { current, windowFrames } = useMemo(
     () => computeStreamWindow(
       frames,
-      currentTime,
       isActive,
-      streaming,
-      audioDuration,
-      WINDOW_SIZE,
       metric === "temperature" ? (frame) => frame.temperature : (frame) => frame.excursion,
     ),
-    [frames, currentTime, isActive, streaming, audioDuration, metric],
+    [frames, isActive, metric],
   );
 
   return {

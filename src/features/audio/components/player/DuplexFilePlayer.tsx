@@ -13,7 +13,6 @@ import PlayerBar from "./PlayerBar";
 interface Props {
   audioFile: File | null;
   status: AppStatus;
-  onTimeUpdate: (currentTime: number) => void;
   onStatusChange: (status: AppStatus) => void;
   onFrameReceived: (frame: AnalysisFrame) => void;
   onStreamStart: () => void;
@@ -28,7 +27,6 @@ interface Props {
 const DuplexFilePlayer = forwardRef<WaveformPlayerHandle, Props>(function DuplexFilePlayer({
   audioFile,
   status,
-  onTimeUpdate,
   onStatusChange,
   onFrameReceived,
   onStreamStart,
@@ -115,11 +113,10 @@ const DuplexFilePlayer = forwardRef<WaveformPlayerHandle, Props>(function Duplex
       if (now - lastUiUpdateRef.current >= 100) {
         lastUiUpdateRef.current = now;
         setCurrentTime(pos);
-        onTimeUpdate(pos);
       }
     });
     return off;
-  }, [captureSession.subscribeCaptureStream, onTimeUpdate]);
+  }, [captureSession.subscribeCaptureStream]);
 
   const handlePlaybackEnded = useCallback(() => {
     captureSession.cleanup();

@@ -6,9 +6,11 @@ import type {
 } from "@/features/audio/lib/cache/workspace";
 import type { TempThresholds } from "@/features/audio/lib/render/detect-events";
 
-type WorkspaceSaveSource =
-  | { mode: "file"; originalFile: File; capturedAudio: Blob | null }
-  | { mode: "mic"; capturedAudio: Blob };
+interface WorkspaceSaveSource {
+  originalFile: File;
+  /** 세션이 실제로 캡처한 ch0(V)/ch1(I) WAV — 없으면(캡처 이력 없음) 업로드 원본으로 대체한다. */
+  capturedAudio: Blob | null;
+}
 
 interface WorkspaceSaveRequest {
   name: string;
@@ -51,16 +53,9 @@ export function useWorkspaceSave({
     const { peakTemp, peakExcursion, status } = computeMeasurementSummary(frames, thresholds);
 
     const capturedAudio = source.capturedAudio;
-    const hasCapturedFileAudio = source.mode === "file" && capturedAudio !== null;
-    const audioBlob = source.mode === "mic"
-      ? capturedAudio
-      : capturedAudio ?? source.originalFile;
-    const audioFileName = source.mode === "mic" || hasCapturedFileAudio
-      ? `${name}.wav`
-      : source.originalFile.name;
-    const audioType = source.mode === "mic" || hasCapturedFileAudio
-      ? "audio/wav"
-      : source.originalFile.type;
+    const audioBlob     = capturedAudio ?? source.originalFile;
+    const audioFileName = capturedAudio ? `${name}.wav` : source.originalFile.name;
+    const audioType     = capturedAudio ? "audio/wav" : source.originalFile.type;
 
     await saveCurrent({
       name,

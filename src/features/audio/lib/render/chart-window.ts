@@ -1,35 +1,28 @@
 import type { AnalysisFrame } from "@/features/audio/types";
-import { findFrameIndex } from "@/shared/lib/utils";
-
-export const WINDOW_SIZE = 1000;
 
 export interface StreamWindowResult {
   current: number | null;
   windowFrames: AnalysisFrame[];
 }
 
+/**
+ * 차트가 그릴 프레임 창 + 현재값. 대시보드/상세 뷰 모두 라이브 캡처 스트림만 그리므로
+ * 창은 언제나 누적된 프레임 전체이고, 현재값은 마지막 프레임이다.
+ *
+ * 예전엔 여기에 "재생 위치(currentTime) 기준으로 과거 N개만 잘라 보는" 비스트리밍 분기가
+ * 같이 있었지만, 파일 재생이 하드웨어 캡처 스트림을 그대로 그리게 되면서 그 경로로
+ * 들어오는 호출자가 없어졌다 — frames 참조를 그대로 돌려주므로 매 렌더 새 배열을 만들지
+ * 않는다(차트의 data useMemo가 프레임이 실제로 늘었을 때만 다시 계산된다).
+ */
 export function computeStreamWindow(
   frames: AnalysisFrame[],
-  currentTime: number,
   isActive: boolean,
-  streaming: boolean,
-  audioDuration: number | null | undefined,
-  windowSize: number,
   pick: (f: AnalysisFrame) => number,
 ): StreamWindowResult {
-  if (!isActive || frames.length === 0) {
-    return { current: null, windowFrames: frames.slice(0, windowSize) };
-  }
+  if (!isActive || frames.length === 0) return { current: null, windowFrames: frames };
 
-  if (streaming) {
-    const lastFrame = frames[frames.length - 1];
-    return { current: lastFrame ? pick(lastFrame) : null, windowFrames: frames };
-  }
-
-  const frameIdx = findFrameIndex(frames.map((f) => f.time), currentTime);
-  const current   = frameIdx >= 0 && frames[frameIdx] ? pick(frames[frameIdx]) : null;
-  const start     = Math.max(0, frameIdx - (windowSize - 1));
-  return { current, windowFrames: frames.slice(start, frameIdx + 1) };
+  const lastFrame = frames[frames.length - 1];
+  return { current: lastFrame ? pick(lastFrame) : null, windowFrames: frames };
 }
 
 export function computeExcursionYRange(

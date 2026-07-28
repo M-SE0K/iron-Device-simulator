@@ -15,8 +15,8 @@ import { useMetricChartRuntime } from "./hooks/useMetricChartRuntime";
 
 interface Props {
   frames: AnalysisFrame[];
-  currentTime: number;
   isActive: boolean;
+  /** 재생 중일 때만 true — x축을 시계에 맞춰 균일하게 스크롤(60 Hz 버벅임 방지)하는 데 쓴다. */
   streaming?: boolean;
   audioDuration?: number | null;
   perfTrack?: boolean;
@@ -27,7 +27,7 @@ const SCALE_PADDING = 1.15;
 
 const EXC_COLOR = "#10B981";
 
-export default function ExcursionChart({ frames, currentTime, isActive, streaming = false, audioDuration, perfTrack = false, onExpand }: Props) {
+export default function ExcursionChart({ frames, isActive, streaming = false, audioDuration, perfTrack = false, onExpand }: Props) {
   const {
     current: currentExc,
     windowFrames,
@@ -36,9 +36,7 @@ export default function ExcursionChart({ frames, currentTime, isActive, streamin
   } = useMetricChartRuntime({
     metric: "excursion",
     frames,
-    currentTime,
     isActive,
-    streaming,
     audioDuration,
     perfTrack,
   });
@@ -120,6 +118,7 @@ export default function ExcursionChart({ frames, currentTime, isActive, streamin
             options={options}
             data={data}
             yRange={[yMin, yMax]}
+            streamFollow={streaming}
             onRender={onRender}
           />
         ) : (

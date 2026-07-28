@@ -13,7 +13,6 @@ const WAVEFORM_CANVAS_HEIGHT: number | "auto" = "auto";
 interface Props {
   audioFile: File | null;
   status: AppStatus;
-  onTimeUpdate: (currentTime: number) => void;
   onStatusChange: (status: AppStatus) => void;
   onFrameReceived: (frame: AnalysisFrame) => void;
   onStreamStart: () => void;
@@ -36,7 +35,6 @@ export interface WaveformPlayerHandle {
 const WaveformPlayer = forwardRef<WaveformPlayerHandle, Props>(function WaveformPlayer({
   audioFile,
   status,
-  onTimeUpdate,
   onStatusChange,
   onFrameReceived,
   onStreamStart,
@@ -107,7 +105,6 @@ const WaveformPlayer = forwardRef<WaveformPlayerHandle, Props>(function Waveform
       ws.on("timeupdate", (time) => {
         if (destroyed) return;
         setCurrentTime(time);
-        onTimeUpdate(time);
       });
 
       ws.on("finish", () => {

@@ -48,21 +48,19 @@ export type DetailMetric = "temperature" | "excursion";
 interface Props {
   metric: DetailMetric;
   frames: AnalysisFrame[];
-  currentTime: number;
   isActive: boolean;
   audioDuration?: number | null;
   /** temperature 상세 뷰의 WARN/DANGER 임계선 — Calibration.tempWarn/tempDanger */
   warnThreshold?: number;
   dangerThreshold?: number;
   /**
-   * 현재 캡처 세션의 전 채널 원본 PCM을 WAV Blob으로 스냅샷 반환 (WaveformPlayer/MicrophonePlayer
-   * 핸들의 exportRecordedAudio). 채널을 새로 선택했을 때의 1회 백필과, 과거 구간 온디맨드
+   * 현재 캡처 세션의 전 채널 원본 PCM을 WAV Blob으로 스냅샷 반환 (파일 플레이어 핸들의
+   * exportRecordedAudio). 채널을 새로 선택했을 때의 1회 백필과, 과거 구간 온디맨드
    * 조회에만 쓰인다 — 없으면(캡처 이력 없음) 드로어에 메인 차트 항목만 나열된다.
    */
   getChannelsBlob?: () => Blob | null;
   /**
-   * 원본 캡처 청크 실시간 스트림 구독(WaveformPlayer/MicrophonePlayer 핸들의
-   * subscribeCaptureStream) — 채널 뷰가 폴링 없이 청크 도착 즉시 갱신되는 핵심 경로.
+   * 원본 캡처 청크 실시간 스트림 구독(파일 플레이어 핸들의 subscribeCaptureStream) — 채널 뷰가 폴링 없이 청크 도착 즉시 갱신되는 핵심 경로.
    */
   subscribeChannelStream?: (fn: CaptureStreamListener) => () => void;
   /**
@@ -81,7 +79,6 @@ interface Props {
 export default function ChartDetailOverlay({
   metric,
   frames,
-  currentTime,
   isActive,
   audioDuration,
   warnThreshold,
@@ -388,9 +385,7 @@ export default function ChartDetailOverlay({
           content: isTemp ? (
             <TemperatureChart
               frames={frames}
-              currentTime={currentTime}
               isActive={isActive}
-              streaming
               audioDuration={audioDuration}
               warnThreshold={warnThreshold}
               dangerThreshold={dangerThreshold}
@@ -398,9 +393,7 @@ export default function ChartDetailOverlay({
           ) : (
             <ExcursionChart
               frames={frames}
-              currentTime={currentTime}
               isActive={isActive}
-              streaming
               audioDuration={audioDuration}
             />
           ),
@@ -450,7 +443,7 @@ export default function ChartDetailOverlay({
     }
     return items;
   }, [
-    orderedEntries, selected, Icon, accent, title, isTemp, frames, currentTime, isActive,
+    orderedEntries, selected, Icon, accent, title, isTemp, frames, isActive,
     audioDuration, warnThreshold, dangerThreshold, windows, header, channelError, fetchRangeFor,
     subscribeChannelStream, getProtectedBlob, getChannelsBlob, sourceFile,
   ]);

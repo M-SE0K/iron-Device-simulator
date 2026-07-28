@@ -6,7 +6,7 @@
 
 ## 2. 프로젝트 전반에서의 역할
 
-`features/audio` 전역에서 스타일 병합(`cn`)·시간/용량 포맷·프레임 인덱스 탐색 같은 공통 유틸을 이 폴더에서 가져다 쓴다. `Sidebar.tsx`는 좌측 고정 네이비 사이드바로 `DashboardClient.tsx`가 마운트하고, 내비 항목이 `useActiveDrawer()`로 우측 드로어(Workspace/측정 기록/Calibration)를 배타적으로 여닫는다. `SegmentedControl.tsx`는 슬라이딩 필 토글로 대시보드 상단 입력 소스(파일/마이크) 토글과 차트 채널(L/R/Both) 토글이 공유한다. `AnimatedSelect.tsx`는 Calibration 드로어의 모든 드롭다운(`CalibrationDrawer.tsx`, `DeviceSelectField.tsx`)을 담당한다. `electron-bridge.d.ts`는 `declare global`로 `Window` 타입을 확장해 `window.audioDevice` / `window.audioCapture` / `window.audioPlayCapture` / `window.localFolder`를 쓰는 파일들(`useNativeCapture.ts`, `useNativeAudioDevice.ts`, `useCalibrationApply.ts`, `useCaptureSession.ts`, `useLocalFolderConnection.ts`, `WorkspaceFolderSection.tsx`, `lib/local-folder.ts` 등)에 타입 안전을 제공한다.
+`features/audio` 전역에서 스타일 병합(`cn`)·시간/용량 포맷 같은 공통 유틸을 이 폴더에서 가져다 쓴다. `Sidebar.tsx`는 좌측 고정 네이비 사이드바로 `DashboardClient.tsx`가 마운트하고, 내비 항목이 `useActiveDrawer()`로 우측 드로어(Workspace/측정 기록/Calibration)를 배타적으로 여닫는다. `SegmentedControl.tsx`는 슬라이딩 필 토글로, 현재는 보호 감쇠 비교 패널의 채널(L/R/Both) 토글이 쓴다. `AnimatedSelect.tsx`는 Calibration 드로어의 모든 드롭다운(`CalibrationDrawer.tsx`, `DeviceSelectField.tsx`)을 담당한다. `electron-bridge.d.ts`는 `declare global`로 `Window` 타입을 확장해 `window.audioDevice` / `window.audioCapture` / `window.audioPlayCapture` / `window.localFolder`를 쓰는 파일들(`useNativeCapture.ts`, `useNativeAudioDevice.ts`, `useCalibrationApply.ts`, `useCaptureSession.ts`, `useLocalFolderConnection.ts`, `WorkspaceFolderSection.tsx`, `lib/local-folder.ts` 등)에 타입 안전을 제공한다.
 
 네 브리지는 Electron 데스크톱 빌드(`build:electron`)에서만 `electron/preload.js`가 `contextBridge`로 노출하며 **브라우저/모바일 빌드에서는 전부 `undefined`다**. 그래서 타입도 전부 옵셔널(`audioDevice?:` 등)로 선언했고 사용하는 쪽은 반드시 feature-detect(`typeof window.audioDevice !== "undefined"` 류) 후 호출해야 한다.
 
@@ -22,7 +22,7 @@
 | `components/overlay/FullscreenOverlay.tsx` | 전체화면 오버레이 공용 루트 셸(`fixed inset-0 z-[60]` + safe-area + 진입/이탈 트랜지션). `useOverlayTransition`의 `show`를 받아 트랜지션 클래스만 그리고 헤더/본문은 children으로 받는다. `ChartDetailOverlay`/`ChannelViewerOverlay`가 공유. |
 | `hooks/useEscapeKey.ts` | `useEscapeKey(handler, enabled?)` — ESC 키로 `handler` 호출. `enabled`가 false면 리스너 미등록. `handler`는 ref로 참조해 매 렌더 새 함수를 넘겨도 재구독하지 않는다. 4개 드로어 공유. |
 | `hooks/useOverlayTransition.ts` | `useOverlayTransition(onClose, durationMs=250)` → `{ show, close }`. 마운트 직후 rAF로 `show=true`(진입), `close()`는 `show=false` 후 `durationMs` 뒤 `onClose` 호출(이탈). ESC 닫기 포함(`useEscapeKey` 조합). 두 전체화면 오버레이 공유. |
-| `lib/utils.ts` | 순수 유틸 5종: `cn()`(clsx+tailwind-merge 클래스 병합), `formatTime()`(초 → "MM:SS"), `findFrameIndex()`(재생 시간 → 프레임 인덱스, 이진 탐색), `formatFileSize()`(바이트 → "N.N MB"), `downloadBlob()`(임시 `<a>` 클릭으로 Blob 다운로드) |
+| `lib/utils.ts` | 순수 유틸 4종: `cn()`(clsx+tailwind-merge 클래스 병합), `formatTime()`(초 → "MM:SS"), `formatFileSize()`(바이트 → "N.N MB"), `downloadBlob()`(임시 `<a>` 클릭으로 Blob 다운로드) |
 | `types/electron-bridge.d.ts` | `electron/preload.js`가 노출하는 3개 브리지의 전역 `Window` 타입 선언과 결과 타입들(`AudioDeviceListResult`, `AudioDeviceQueryResult`, `AudioCaptureStartResult`, `LocalFolderSelectResult` 등). `AudioInputDevice`, `LocalAudioFileEntry` 2개는 named export로 외부에서 직접 import한다 |
 
 ## 4. 의존성 및 흐름
@@ -36,7 +36,6 @@
 
 - `cn(...inputs: ClassValue[])` — Tailwind 클래스 조건부 병합. 프로젝트 표준.
 - `formatTime(seconds: number): string` / `formatFileSize(bytes: number): string` / `downloadBlob(blob: Blob, filename: string): void`
-- `findFrameIndex(times: number[], currentTime: number): number` — `ChartDetailOverlay`와 `lib/render/chart-window.ts`가 재생 위치 → 차트 프레임 매핑에 쓴다.
 - `<Sidebar mobileOpen? onMobileClose? />` — `DashboardClient.tsx`가 유일한 사용처. 내비 항목이 `useActiveDrawer()`로 드로어를 여닫는다.
 - `<SegmentedControl<T> value options onChange size? className? aria-label? />` — 슬라이딩 필 토글. 옵션 타입 `SegmentedControlOption`은 컴포넌트 내부 전용.
 - `<AnimatedSelect value options onChange placeholder? unit? disabled? />` + `SelectOption` 타입.
@@ -52,3 +51,4 @@
 - 2026-07-09: 최초 작성 (기준 커밋: 1fbbf44, 커밋되지 않은 워크트리 변경 반영)
 - 2026-07-09: Split Studio/Navy Shell 디자인 시스템 마이그레이션 반영 — `Header.tsx`(상단 헤더) 삭제, `Sidebar.tsx`(좌측 네이비 내비, `ActiveDrawerContext`로 드로어 트리거) 신규, `SegmentedControl.tsx`(파일/마이크·차트 채널 토글 공용) 신규. 섹션 1·2·3·4·5 갱신 (커밋 범위: e0add14..HEAD, 워크트리 포함)
 - 2026-07-10: 공용 부품 확충 + 구조 재편 반영 — 리팩터로 중복 제거한 공용 컴포넌트/훅 신설: `overlay/SideDrawer`·`overlay/FullscreenOverlay`(드로어·오버레이 셸), `ui/LabeledField`·`ui/CountBadge`(폼 레이아웃·카운트 배지), `hooks/useEscapeKey`·`hooks/useOverlayTransition`(ESC 닫기·오버레이 전환). `components/`를 성격별로 `ui/`(프리미티브)·`overlay/`(셸)로 그룹핑하고(`AnimatedSelect`/`SegmentedControl` 경로 이동), 공용 훅 카테고리 `hooks/` 신설. `Sidebar.tsx`는 앱 네비 셸이라 root 유지. 섹션 1·3·4·5 갱신 (커밋 범위: e2cc41a..HEAD, 워크트리 포함)
+- 2026-07-28: `findFrameIndex()` 삭제 반영 — 유일한 소비자였던 `lib/render/chart-window.ts`의 비스트리밍 창 분기가 없어지면서 이 함수도 함께 제거했다(`lib/utils.ts`는 유틸 4종). `SegmentedControl.tsx` 설명에서 대시보드 입력 소스(파일/마이크) 토글을 뺐다 — 마이크 패널 제거로 그 소비자가 사라져 지금은 채널(L/R/Both) 토글만 쓴다. 이번 변경과 무관한 선행 드리프트는 손대지 않았다. 섹션 1·3·5 부분 갱신 (커밋 범위: 3124dd9..HEAD — 이번 변경분만, 8727e29 이후 선행 드리프트는 미반영)

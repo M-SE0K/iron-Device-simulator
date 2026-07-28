@@ -35,6 +35,15 @@ interface Props {
    * setSeries로 토글한다 — 채널 L/R/Both 전환처럼 시리즈 구성이 고정된 경우용.
    */
   seriesShow?: boolean[];
+  /**
+   * 라이브 스트리밍 중 x축 오른쪽 끝을 "마지막 데이터 점의 시간"이 아니라 벽시계로 추정한
+   * 재생 시각에 맞춰 매 애니메이션 프레임 균일하게 전진시킨다. 데이터 도착 개수가 화면
+   * 주사율의 정수배가 아닐 때(예: ~100 fps 데이터 vs 60 Hz 화면) 매 paint마다 오른쪽 끝이
+   * 1칸/2칸씩 들쭉날쭉 밀려 생기던 60 Hz 버벅임(x-step aliasing)을 없앤다. 데이터 점은
+   * 여전히 도착 즉시 커밋되므로(버퍼링 없음) 지연은 추가되지 않는다 — 창(뷰포트)만 시계를
+   * 따라 흐른다. xRange와는 배타적이며(둘 다 있으면 streamFollow 우선), 재생 중일 때만 켠다.
+   */
+  streamFollow?: boolean;
   className?: string;
 }
 
@@ -60,7 +69,27 @@ function isZoomed(u: uPlot, xRange: [number, number] | null): boolean {
   return Math.abs(min - full[0]) > tol || Math.abs(max - full[1]) > tol;
 }
 
-export default function UPlotChart({ options, data, yRange, xRange, onRender, onUserZoom, seriesShow, className }: Props) {
+/**
+ * streamFollow 전용 줌 판정. isZoomed()의 1e-6 상대오차는 "고정 전체범위 vs 정적 데이터
+ * extent" 비교용으론 적절하지만, streamFollow의 "전체 범위"는 매 프레임 시계로 다시 계산한
+ * 목표값이라 호출 시점의 수 ms 지터만으로도 그 극히 촘촘한 오차범위를 넘어버려 정상 스트리밍을
+ * "줌"으로 오판한다(리사이즈 등 사소한 계기로 한 번 setScale 훅이 이 경로를 타면 창이 그
+ * 자리에 얼어붙는 버그의 원인이었다). 실제 사용자 줌(휠 25%/드래그 임의 구간)은 폭이나 왼쪽
+ * 경계를 항상 시계 지터보다 훨씬 크게(%) 바꾸므로, 그 둘을 가르기에 충분히 관대한 임계값을 쓴다.
+ */
+function isZoomedFollow(u: uPlot, anchorT: number, anchorWall: number): boolean {
+  const xs = u.data[0];
+  if (!xs || xs.length < 2) return false;
+  const elapsed = Math.max(0, (performance.now() - anchorWall) / 1000);
+  const expectedMax = anchorT + elapsed;
+  if (!(expectedMax > 0)) return false;
+  const min = u.scales.x.min ?? 0;
+  const max = u.scales.x.max ?? expectedMax;
+  const tol = Math.max(expectedMax * 0.02, 0.2);
+  return Math.abs(min - 0) > tol || Math.abs(max - expectedMax) > tol;
+}
+
+export default function UPlotChart({ options, data, yRange, xRange, onRender, onUserZoom, seriesShow, streamFollow, className }: Props) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const chartRef = useRef<uPlot | null>(null);
   const zoomedRef = useRef(false);
@@ -82,6 +111,22 @@ export default function UPlotChart({ options, data, yRange, xRange, onRender, on
   onUserZoomRef.current = onUserZoom;
   const seriesShowRef = useRef(seriesShow);
   seriesShowRef.current = seriesShow;
+  const streamFollowRef = useRef(streamFollow);
+  streamFollowRef.current = streamFollow;
+
+  // streamFollow 앵커: 마지막으로 커밋된 데이터의 x(오디오 시각)와 그 순간의 벽시계.
+  // 매 프레임 xmax = anchorTime + (now - anchorWall) 로 오른쪽 끝을 균일하게 흐르게 한다.
+  const streamAnchorTimeRef = useRef<number | null>(null);
+  const streamAnchorWallRef = useRef(0);
+
+  // 현재 앵커 기준으로 x 스케일을 [0, 시계 추정 시각]으로 맞춘다. 데이터가 안 들어온
+  // 프레임에도 호출돼 창이 계속 흐르게 하므로 60/120 Hz 어디서든 전진량이 일정하다.
+  const applyStreamScale = (u: uPlot) => {
+    const anchorT = streamAnchorTimeRef.current;
+    if (anchorT == null) return;
+    const elapsed = Math.max(0, (performance.now() - streamAnchorWallRef.current) / 1000);
+    u.setScale("x", { min: 0, max: anchorT + elapsed });
+  };
 
   const applySeriesShow = (u: uPlot) => {
     const show = seriesShowRef.current;
@@ -136,12 +181,18 @@ export default function UPlotChart({ options, data, yRange, xRange, onRender, on
           ...(options.hooks?.setScale ?? []),
           (u, key) => {
             if (key !== "x") return;
-            zoomedRef.current = isZoomed(u, xRangeRef.current);
-            if (!internalCommitRef.current) {
-              const min = u.scales.x.min;
-              const max = u.scales.x.max;
-              if (min != null && max != null) onUserZoomRef.current?.(min, max, zoomedRef.current);
-            }
+            // 줌 상태는 사용자 조작(드래그/휠/더블클릭)으로 바뀐 스케일에서만 다시 판정한다.
+            // 우리가 유발한 내부 커밋(생성/setData/streamFollow)은 스케일을 데이터 extent가
+            // 아닌 값([0, 시계])으로 세팅할 수 있어, 이때 isZoomed를 돌리면 정상 스트리밍을
+            // "사용자 줌"으로 오판해 창이 그 자리에 얼어붙는다.
+            if (internalCommitRef.current) return;
+            const anchorT = streamAnchorTimeRef.current;
+            zoomedRef.current = streamFollowRef.current && anchorT != null
+              ? isZoomedFollow(u, anchorT, streamAnchorWallRef.current)
+              : isZoomed(u, xRangeRef.current);
+            const min = u.scales.x.min;
+            const max = u.scales.x.max;
+            if (min != null && max != null) onUserZoomRef.current?.(min, max, zoomedRef.current);
           },
         ],
       },
@@ -163,7 +214,14 @@ export default function UPlotChart({ options, data, yRange, xRange, onRender, on
     onRenderRef.current?.(performance.now() - t0);
 
     const ro = new ResizeObserver(() => {
-      if (chartRef.current) sizeToContainer(chartRef.current, el);
+      const chart = chartRef.current;
+      if (!chart) return;
+      // setSize()가 유발하는 내부 재계산(있다면)이 "사용자 줌"으로 오판되지 않게 감싼다 —
+      // 감싸지 않으면 사이드바 접기/펼치기나 창 크기 변경만으로 스트리밍 차트(streamFollow)가
+      // 줌 상태로 오판돼 멈춰버리는 버그가 있었다.
+      internalCommitRef.current = true;
+      sizeToContainer(chart, el);
+      internalCommitRef.current = false;
     });
     ro.observe(el);
 
@@ -186,13 +244,29 @@ export default function UPlotChart({ options, data, yRange, xRange, onRender, on
     const zoomed = zoomedRef.current;
     const yR = yRangeRef.current;
     const xR = xRangeRef.current;
+    const follow = streamFollowRef.current;
     const t0 = performance.now();
+    // streamFollow: 방금 커밋된 최신 데이터 시각에 벽시계 앵커를 재설정한다 — 이후 rAF가
+    // 이 앵커에서 흐른 실제 시간만큼만 오른쪽 끝을 민다.
+    if (follow) {
+      const xs = data[0];
+      if (xs && xs.length) {
+        streamAnchorTimeRef.current = xs[xs.length - 1];
+        streamAnchorWallRef.current = t0;
+      }
+    }
     internalCommitRef.current = true;
     u.batch(() => {
       // 줌 중이면 x 스케일을 유지한 채 데이터만 갱신하고(줌이 풀리지 않게), y 창만 따라간다.
       u.setData(data, !zoomed);
       if (zoomed) {
         if (yR) u.setScale("y", { min: yR[0], max: yR[1] });
+      } else if (follow) {
+        // x는 시계가 소유한다 — setData(data, true)가 잠깐 데이터 extent로 잡아둔 x를
+        // 같은 batch 안에서 [0, 시계]로 덮어써(단일 redraw라 깜빡임 없음) 오른쪽 끝이
+        // 데이터 도착 개수가 아니라 실제 흐른 시간에 비례해 균일하게 흐르게 한다. y는
+        // 위 setData(data, true)의 auto-range(y.range 콜백 → yRange)가 그대로 따라간다.
+        applyStreamScale(u);
       } else if (xR) {
         // setData(data, true)의 자체 auto-range는 방금 갱신된 데이터 자체의 extent로
         // 잡히는데(예: 최근 30초만 로드된 라이브 윈도우), xRange가 있는 차트는 로드된
@@ -203,6 +277,29 @@ export default function UPlotChart({ options, data, yRange, xRange, onRender, on
     internalCommitRef.current = false;
     onRenderRef.current?.(performance.now() - t0);
   }, [data]);
+
+  // streamFollow: 화면 표시 기회(rAF)마다 오른쪽 끝을 시계 추정 시각으로 밀어 창을 균일하게
+  // 스크롤한다. 데이터가 안 들어온 프레임에도 전진하므로 도착 지터가 화면에 나타나지 않는다.
+  // 사용자 줌 중(zoomedRef)에는 손대지 않아 확대 상태를 보존한다.
+  useLayoutEffect(() => {
+    if (!streamFollow) return;
+    // (재)시작 시 경과 기준을 now로 리베이스한다 — 일시정지 뒤 재개 때 정지 동안 흐른
+    // 벽시계가 elapsed에 잡혀 오른쪽 끝이 훌쩍 튀는 것을 막는다.
+    streamAnchorWallRef.current = performance.now();
+    let raf = 0;
+    const tick = () => {
+      const u = chartRef.current;
+      if (u && !zoomedRef.current && streamAnchorTimeRef.current != null) {
+        internalCommitRef.current = true;
+        applyStreamScale(u);
+        internalCommitRef.current = false;
+      }
+      raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [streamFollow]);
 
   // 시리즈 표시 토글 — 재생성 없이 반영한다.
   useLayoutEffect(() => {

@@ -15,8 +15,8 @@ import { useMetricChartRuntime } from "./hooks/useMetricChartRuntime";
 
 interface Props {
   frames: AnalysisFrame[];
-  currentTime: number;
   isActive: boolean;
+  /** 재생 중일 때만 true — x축을 시계에 맞춰 균일하게 스크롤(60 Hz 버벅임 방지)하는 데 쓴다. */
   streaming?: boolean;
   audioDuration?: number | null;
   perfTrack?: boolean;
@@ -27,7 +27,7 @@ interface Props {
 
 const TEMP_COLOR = "#0B4171";
 
-export default function TemperatureChart({ frames, currentTime, isActive, streaming = false, audioDuration, perfTrack = false, onExpand, warnThreshold = DEFAULT_TEMP_WARN, dangerThreshold = DEFAULT_TEMP_DANGER }: Props) {
+export default function TemperatureChart({ frames, isActive, streaming = false, audioDuration, perfTrack = false, onExpand, warnThreshold = DEFAULT_TEMP_WARN, dangerThreshold = DEFAULT_TEMP_DANGER }: Props) {
   const {
     current: currentTemp,
     windowFrames,
@@ -36,9 +36,7 @@ export default function TemperatureChart({ frames, currentTime, isActive, stream
   } = useMetricChartRuntime({
     metric: "temperature",
     frames,
-    currentTime,
     isActive,
-    streaming,
     audioDuration,
     perfTrack,
   });
@@ -122,6 +120,7 @@ export default function TemperatureChart({ frames, currentTime, isActive, stream
             options={options}
             data={data}
             yRange={[yMin, yMax]}
+            streamFollow={streaming}
             onRender={onRender}
           />
         ) : (
