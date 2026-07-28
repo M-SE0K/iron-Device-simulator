@@ -13,10 +13,9 @@ import { cn } from "@/shared/lib/utils";
 import { useOverlayTransition } from "@/shared/hooks/useOverlayTransition";
 import { useCtrlBToggle } from "@/shared/hooks/useCtrlBToggle";
 import FullscreenOverlay from "@/shared/components/overlay/FullscreenOverlay";
-import { useErrorPopup } from "@/shared/components/error-popup/ErrorPopupContext";
 import { BYTES_PER_SAMPLE, INT16_SCALE } from "@/features/audio/lib/engine/core";
-import { decodeWavRange, peekWavHeader } from "@/features/audio/lib/codec/wav-incremental";
-import type { CaptureStreamEvent, CaptureStreamListener } from "@/features/audio/components/player/capture/types";
+import { readChannelSegment } from "@/features/audio/lib/render/capture-reader";
+import type { CaptureSnapshot, CaptureStreamEvent, CaptureStreamListener } from "@/features/audio/components/player/capture/types";
 import { channelLabel, channelColor } from "@/features/audio/lib/render/channel-meta";
 import TemperatureChart from "./TemperatureChart";
 import ExcursionChart from "./ExcursionChart";
@@ -61,11 +60,11 @@ interface Props {
   warnThreshold?: number;
   dangerThreshold?: number;
   /**
-   * 현재 캡처 세션의 전 채널 원본 PCM을 WAV Blob으로 스냅샷 반환 (파일 플레이어 핸들의
-   * exportRecordedAudio). 채널을 새로 선택했을 때의 1회 백필과, 과거 구간 온디맨드
+   * 현재 캡처 세션의 전 채널 원본 PCM을 복사 없이 들여다보는 스냅샷(파일 플레이어 핸들의
+   * getCaptureSnapshot). 채널을 새로 선택했을 때의 1회 백필과, 과거 구간 온디맨드
    * 조회에만 쓰인다 — 없으면(캡처 이력 없음) 드로어에 메인 차트 항목만 나열된다.
    */
-  getChannelsBlob?: () => Blob | null;
+  getChannelsSnapshot?: () => CaptureSnapshot | null;
   /**
    * 원본 캡처 청크 실시간 스트림 구독(파일 플레이어 핸들의 subscribeCaptureStream) — 채널 뷰가 폴링 없이 청크 도착 즉시 갱신되는 핵심 경로.
    */
@@ -90,7 +89,7 @@ export default function ChartDetailOverlay({
   audioDuration,
   warnThreshold,
   dangerThreshold,
-  getChannelsBlob,
+  getChannelsSnapshot,
   subscribeChannelStream,
   getProtectedBlob,
   sourceFile,
@@ -103,7 +102,6 @@ export default function ChartDetailOverlay({
 
   // 진입/이탈 애니메이션 + ESC 닫기 — FullscreenOverlay 공용 셸과 함께 사용한다.
   const { show, close } = useOverlayTransition(onClose);
-  const { showError } = useErrorPopup();
 
   // ── 표시 항목 드로어 — 메인 차트(metric) + 캡처 버퍼의 채널들을 같은 방식으로 체크/해제한다.
   // 기본값은 메인 차트만 선택된 상태(기존 동작과 동일하게 열자마자 차트가 보인다).
@@ -122,7 +120,6 @@ export default function ChartDetailOverlay({
   // ── 채널 헤더 + 채널별 파형 스토어(세션 전체 엔벨로프) — 전부 push로 갱신된다 ──────────
   const [header, setHeader] = useState<ChannelHeader | null>(null);
   const [channelError, setChannelError] = useState<string | null>(null);
-  const [headerLoading, setHeaderLoading] = useState(false);
 
   // 채널별 표시 스토어. 메인 차트의 ChartStore와 같은 역할이라 React 상태가 아니라 ref다 —
   // 청크가 도착해도 setState 없이 스토어가 직접 구독자(차트)에게 알린다.
@@ -217,34 +214,20 @@ export default function ChartDetailOverlay({
   }, [subscribeChannelStream, drawerOpen, hasSelectedChannel, handleStreamEvent]);
 
   // 드로어를 열었을 때 채널 목록/길이를 즉시 보여주기 위한 1회성 헤더 확인 — 그 뒤로는
-  // 위 구독이 청크가 들어올 때마다 header를 계속 최신으로 유지한다.
+  // 위 구독이 청크가 들어올 때마다 header를 계속 최신으로 유지한다. 스냅샷은 복사 없이
+  // ref를 그대로 읽으므로(useCaptureSession.getCaptureSnapshot) 동기로 끝난다 — 더 이상
+  // Blob을 만들고 WAV 헤더를 비동기로 파싱할 필요가 없다.
   useEffect(() => {
-    if (!drawerOpen || !getChannelsBlob) return;
-    let cancelled = false;
-    setHeaderLoading(true);
-    (async () => {
-      try {
-        const blob = getChannelsBlob();
-        if (!blob) return;
-        const h = await peekWavHeader(blob);
-        if (!h || cancelled) return;
-        if (totalFramesRef.current === 0) totalFramesRef.current = Math.round(h.durationSec * h.sampleRate);
-        setHeader((prev) => (
-          prev && prev.channels === h.channels && prev.sampleRate === h.sampleRate
-            ? prev
-            : { channels: h.channels, sampleRate: h.sampleRate }
-        ));
-      } catch {
-        if (!cancelled) {
-          setChannelError("Failed to read channel header.");
-          showError("Failed to read channel header.");
-        }
-      } finally {
-        if (!cancelled) setHeaderLoading(false);
-      }
-    })();
-    return () => { cancelled = true; };
-  }, [drawerOpen, getChannelsBlob, showError]);
+    if (!drawerOpen || !getChannelsSnapshot) return;
+    const snap = getChannelsSnapshot();
+    if (!snap) return;
+    if (totalFramesRef.current === 0) totalFramesRef.current = snap.totalFrames;
+    setHeader((prev) => (
+      prev && prev.channels === snap.channels && prev.sampleRate === snap.sampleRate
+        ? prev
+        : { channels: snap.channels, sampleRate: snap.sampleRate }
+    ));
+  }, [drawerOpen, getChannelsSnapshot]);
 
   // 채널을 새로 선택한 순간 — 청크 스트림에는 "지금부터"만 쌓이므로, 세션 시작부터 지금까지를
   // getChannelsBlob()에서 딱 한 번 백필한다. 스토어는 버킷을 절대 시각으로 찾으므로 백필이
@@ -256,7 +239,7 @@ export default function ChartDetailOverlay({
   // 리셋됐거나(토큰 변경).
   useEffect(() => {
     const toSeed = wantedChannels.filter((ch) => !seededRef.current.has(ch));
-    if (toSeed.length === 0 || !getChannelsBlob) return;
+    if (toSeed.length === 0 || !getChannelsSnapshot) return;
     toSeed.forEach((ch) => seededRef.current.add(ch)); // 재진입 방지 — 실패해도 라이브로는 계속 그린다
 
     const token = sessionTokenRef.current;
@@ -266,42 +249,51 @@ export default function ChartDetailOverlay({
       sessionTokenRef.current !== token || storesRef.current.get(ch) !== s;
 
     (async () => {
-      const blob = getChannelsBlob();
-      if (!blob) return;
-      const h = await peekWavHeader(blob);
-      if (!h) return;
-      // 채널 × 구간을 순차로 처리한다 — 한 번에 들고 있는 원본은 항상 SEED_SEGMENT_SEC 하나뿐.
+      // 스냅샷은 복사 없이 rawCaptureRef.frames를 그대로 참조한다 — frames.length는
+      // 이후에도 라이브 청크로 계속 자라지만, totalFrames는 지금 이 호출 시점의 값으로
+      // 고정해 둔다. 백필은 "지금까지"만 채우고, 그 이후 도착분은 라이브 청크 경로
+      // (handleChunk)가 이어받으므로 이중 반영이나 누락이 없다.
+      const snap = getChannelsSnapshot();
+      if (!snap) return;
+      const { channels, sampleRate, totalFrames } = snap;
+      const segmentFrames = Math.max(1, Math.round(SEED_SEGMENT_SEC * sampleRate));
+      // 채널 × 구간을 순차로 처리한다. readChannelSegment는 이제 완전 동기(Blob 슬라이스/
+      // WAV 파싱 없이 인터리브 int16 프레임 배열을 직접 인덱싱)라, 예전에 decodeWavRange의
+      // blob.arrayBuffer()가 실제 비동기 I/O로 공짜로 주던 "세그먼트 사이 메인 스레드 양보"가
+      // 사라졌다 — 세그먼트 경계마다 명시적으로 한 번씩 양보해 그 자리를 대신 채운다.
+      // (더 촘촘한 시간 예산 기반 슬라이싱은 별도 후속 작업.)
       for (const ch of toSeed) {
-        if (ch >= h.channels) continue;
+        if (ch >= channels) continue;
         const waveStore = getStore(ch);
-        for (let start = 0; start < h.durationSec; start += SEED_SEGMENT_SEC) {
+        for (let start = 0; start < totalFrames; start += segmentFrames) {
           if (stale(ch, waveStore)) break;
-          const end = Math.min(h.durationSec, start + SEED_SEGMENT_SEC);
-          const data = await decodeWavRange(blob, h, ch, start, end);
+          const end = Math.min(totalFrames, start + segmentFrames);
+          const data = readChannelSegment(snap, ch, start, end);
           if (stale(ch, waveStore)) break;
-          waveStore.addBlock(data, start, h.sampleRate);
+          waveStore.addBlock(data, start / sampleRate, sampleRate);
           waveStore.flush();
+          await new Promise<void>((resolve) => setTimeout(resolve, 0));
         }
       }
       if (sessionTokenRef.current !== token) return;
       setHeader((prev) => (
-        prev && prev.channels === h.channels && prev.sampleRate === h.sampleRate
+        prev && prev.channels === channels && prev.sampleRate === sampleRate
           ? prev
-          : { channels: h.channels, sampleRate: h.sampleRate }
+          : { channels, sampleRate }
       ));
     })();
-  }, [wantedChannels, getChannelsBlob, getStore]);
+  }, [wantedChannels, getChannelsSnapshot, getStore]);
 
-  // 과거 구간(라이브 윈도우 밖)을 사용자가 확대했을 때만 호출되는 온디맨드 디코딩 — 요청한
-  // 구간 길이에만 비용이 비례한다. header를 캐시하지 않고 그때그때 새로 peek해 최신 길이를 쓴다.
+  // 과거 구간(라이브 윈도우 밖)을 사용자가 확대했을 때만 호출되는 온디맨드 읽기 — 요청한
+  // 구간 길이에만 비용이 비례한다. 스냅샷은 매 호출 새로 받아 최신 길이를 반영한다.
   const fetchRangeFor = useCallback(async (ch: number, startSec: number, endSec: number): Promise<Float32Array> => {
-    if (!getChannelsBlob) return new Float32Array(0);
-    const blob = getChannelsBlob();
-    if (!blob) return new Float32Array(0);
-    const h = await peekWavHeader(blob);
-    if (!h) return new Float32Array(0);
-    return decodeWavRange(blob, h, ch, startSec, endSec);
-  }, [getChannelsBlob]);
+    if (!getChannelsSnapshot) return new Float32Array(0);
+    const snap = getChannelsSnapshot();
+    if (!snap) return new Float32Array(0);
+    const startFrame = Math.max(0, Math.round(startSec * snap.sampleRate));
+    const endFrame = Math.max(startFrame, Math.round(endSec * snap.sampleRate));
+    return readChannelSegment(snap, ch, startFrame, endFrame);
+  }, [getChannelsSnapshot]);
 
   const toggle = useCallback((id: string) => {
     setSelected((prev) => {
@@ -528,7 +520,6 @@ export default function ChartDetailOverlay({
         entries={orderedEntries}
         selected={selected}
         onToggle={toggle}
-        loading={headerLoading && !header}
         error={channelError}
       />
     </FullscreenOverlay>

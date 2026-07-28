@@ -103,8 +103,8 @@ export default function DashboardPage({ useQueue }: DashboardPageProps) {
     [],
   );
 
-  const getChannelsBlob = useCallback(
-    () => realtimeWaveRef.current?.exportRecordedAudio() ?? null,
+  const getChannelsSnapshot = useCallback(
+    () => realtimeWaveRef.current?.getCaptureSnapshot() ?? null,
     [],
   );
   // isElectron이 바뀌면 파일 플레이어 구현(DuplexFilePlayer ↔ WaveformPlayer)이 통째로
@@ -396,7 +396,7 @@ export default function DashboardPage({ useQueue }: DashboardPageProps) {
           audioDuration={audioDuration}
           warnThreshold={tempThresholds.warn}
           dangerThreshold={tempThresholds.danger}
-          getChannelsBlob={getChannelsBlob}
+          getChannelsSnapshot={getChannelsSnapshot}
           getProtectedBlob={getProtectedBlob}
           subscribeChannelStream={subscribeChannelStream}
           sourceFile={audioFile}

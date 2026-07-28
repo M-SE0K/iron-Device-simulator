@@ -5,7 +5,7 @@ import { cn } from "@/shared/lib/utils";
 import { AppStatus, AnalysisFrame, InputParameterValues } from "@/features/audio/types";
 import { useCalibration } from "@/features/audio/components/calibration/CalibrationContext";
 import { useCaptureSession } from "./capture/useCaptureSession";
-import type { CaptureStreamListener } from "./capture/types";
+import type { CaptureSnapshot, CaptureStreamListener } from "./capture/types";
 import PlayerBar from "./PlayerBar";
 
 const WAVEFORM_CANVAS_HEIGHT: number | "auto" = "auto";
@@ -29,6 +29,7 @@ export interface WaveformPlayerHandle {
   pause: () => void;
   exportRecordedAudio: () => Blob | null;
   exportProtectedAudio: () => Blob | null;
+  getCaptureSnapshot: () => CaptureSnapshot | null;
   subscribeCaptureStream: (fn: CaptureStreamListener) => () => void;
 }
 
@@ -178,8 +179,12 @@ const WaveformPlayer = forwardRef<WaveformPlayerHandle, Props>(function Waveform
     pause: pausePlayback,
     exportRecordedAudio: captureSession.getRecordedBlob,
     exportProtectedAudio: captureSession.getProtectedBlob,
+    getCaptureSnapshot: captureSession.getCaptureSnapshot,
     subscribeCaptureStream: captureSession.subscribeCaptureStream,
-  }), [captureSession.sendMessage, pausePlayback, captureSession.getRecordedBlob, captureSession.getProtectedBlob, captureSession.subscribeCaptureStream]);
+  }), [
+    captureSession.sendMessage, pausePlayback, captureSession.getRecordedBlob,
+    captureSession.getProtectedBlob, captureSession.getCaptureSnapshot, captureSession.subscribeCaptureStream,
+  ]);
 
   const isPlaying = status === "playing";
 

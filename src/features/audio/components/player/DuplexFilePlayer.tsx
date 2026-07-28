@@ -185,8 +185,12 @@ const DuplexFilePlayer = forwardRef<WaveformPlayerHandle, Props>(function Duplex
     pause: pausePlayback,
     exportRecordedAudio: captureSession.getRecordedBlob,
     exportProtectedAudio: captureSession.getProtectedBlob,
+    getCaptureSnapshot: captureSession.getCaptureSnapshot,
     subscribeCaptureStream: captureSession.subscribeCaptureStream,
-  }), [captureSession.sendMessage, pausePlayback, captureSession.getRecordedBlob, captureSession.getProtectedBlob, captureSession.subscribeCaptureStream]);
+  }), [
+    captureSession.sendMessage, pausePlayback, captureSession.getRecordedBlob,
+    captureSession.getProtectedBlob, captureSession.getCaptureSnapshot, captureSession.subscribeCaptureStream,
+  ]);
 
   const isPlaying = status === "playing";
   const progressPct = duration > 0 ? Math.min(100, (currentTime / duration) * 100) : 0;

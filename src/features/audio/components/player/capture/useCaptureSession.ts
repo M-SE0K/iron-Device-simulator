@@ -8,14 +8,15 @@ import { createAnalysisSocket, type SocketLike } from "@/features/audio/lib/engi
 import { useCalibration } from "@/features/audio/components/calibration/CalibrationContext";
 import { useErrorPopup } from "@/shared/components/error-popup/ErrorPopupContext";
 import { pcmFramesToWavBlob } from "@/features/audio/lib/codec/wav-encoder";
-import { CHANNELS, SAMPLE_RATE, SAMPLES_PER_CH } from "@/features/audio/lib/engine/core";
+import { CHANNELS, SAMPLE_RATE, SAMPLES_PER_CH, BYTES_PER_SAMPLE } from "@/features/audio/lib/engine/core";
 import { decodeProcessedPcmMessage } from "@/features/audio/lib/engine/protocol/analysis";
 import { useNativeCapture, type NativeRawCapture } from "./useNativeCapture";
 import { useWebAudioWorkletCapture } from "./useWebAudioWorkletCapture";
 import { buildInitMessage } from "./build-init-message";
-import type { CaptureStreamEvent, CaptureStreamListener, UseCaptureSessionDeps } from "./types";
+import type { CaptureSnapshot, CaptureStreamEvent, CaptureStreamListener, UseCaptureSessionDeps } from "./types";
 
 export type {
+  CaptureSnapshot,
   CaptureStreamEvent,
   CaptureStreamListener,
   UseCaptureSessionDeps,
@@ -264,6 +265,21 @@ export function useCaptureSession(deps: UseCaptureSessionDeps) {
     return pcmFramesToWavBlob(buf.frames, buf.sampleRate, buf.channels);
   }, []);
 
+  // getRecordedBlob()과 달리 복사가 없다 — rawCaptureRef.frames를 그대로 참조로 돌려준다.
+  // 채널 뷰 백필/온디맨드 확대처럼 세션이 길어져도 호출 비용이 늘면 안 되는 읽기 경로용.
+  const getCaptureSnapshot = useCallback((): CaptureSnapshot | null => {
+    const raw = rawCaptureRef.current;
+    if (!raw || raw.frames.length === 0) return null;
+    const samplesPerFrame = raw.frames[0].byteLength / (raw.channels * BYTES_PER_SAMPLE);
+    return {
+      channels: raw.channels,
+      sampleRate: raw.sampleRate,
+      frames: raw.frames,
+      samplesPerFrame,
+      totalFrames: raw.frames.length * samplesPerFrame,
+    };
+  }, []);
+
   const hasProtectedRecording =
     !isRecording && (protectedCaptureRef.current?.frames.length ?? 0) > 0;
 
@@ -290,7 +306,7 @@ export function useCaptureSession(deps: UseCaptureSessionDeps) {
   return {
     start, stop, cleanup, isRecording,
     micError, sampleRate, deviceName, actualBufferSize, actualLatency,
-    getRecordedBlob, sendMessage, pauseRecording, resumeRecording,
+    getRecordedBlob, getCaptureSnapshot, sendMessage, pauseRecording, resumeRecording,
     getProtectedBlob, hasProtectedRecording,
     subscribeCaptureStream,
     frameCountRef, framesRcvdRef,
