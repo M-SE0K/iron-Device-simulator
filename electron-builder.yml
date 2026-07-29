@@ -27,7 +27,7 @@ files:
   - package.json
   # electron-dist/main.js(웹팩 번들)는 Node 내장 모듈만 쓰고 node_modules 의존성이
   # 없다(위 주석 참고). electron-builder는 기본적으로 package.json의 dependencies
-  # (next/react/echarts/wavesurfer.js 등 — 전부 빌드 타임에 out/ 정적 번들로 이미
+  # (next/react/uplot 등 — 전부 빌드 타임에 out/ 정적 번들로 이미
   # 컴파일된 것들)를 보고 node_modules 전체를 asar에 자동 포함시키므로, 명시적으로
   # 제외해야 한다.
   - "!node_modules/**/*"
@@ -49,8 +49,8 @@ mac:
   extendInfo:
     NSMicrophoneUsageDescription: 실시간 오디오 분석을 위해 마이크 입력을 사용합니다.
   # CoreAudio HAL 헬퍼(native/macos/audio-device-helper/build-mac.sh 산출물, arm64+x64
-  # universal binary) — mac 타깃에만 번들링. win/linux는 아직 해당 헬퍼가 없다
-  # (계획: native/windows/audio-device-helper/, docs/windows-plan.md).
+  # universal binary) — mac 타깃에만 번들링.
+  # Windows는 ASIO 헬퍼를 빌드해 포함하며 Linux만 아직 네이티브 헬퍼가 없다.
   extraResources:
     - from: native/macos/audio-device-helper/dist/audio-device-helper
       to: audio-device-helper

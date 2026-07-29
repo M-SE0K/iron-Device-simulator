@@ -165,7 +165,7 @@ function ProtectedComparePanelImpl({
   }, [flush]);
 
   // 원본 디코드가 끝나면(= x축 durationSec 확보) 지금까지 캡처된 보호 감쇠 PCM을 한 번
-  // 백필한다 — getChannelsBlob 백필(ChartDetailOverlay)과 동일한 idiom. 백필이 끝나기
+  // 백필한다 — ChartDetailOverlay의 getChannelsSnapshot() 백필과 같은 목적. 백필이 끝나기
   // 전에 들어온 라이브 프레임은 pendingProtectedRef에 쌓아뒀다가 이어서 적용한다.
   useEffect(() => {
     if (!original) return;

@@ -1,10 +1,7 @@
 // electron/ipc/audio-device.js — audio-device-helper: OS 기본 입력 장치(MCHStreamer 등)의
 // SampleRate/BufferFrameSize를 조회·설정하는 컴파일된 바이너리. macOS는 native/macos/
 // audio-device-helper/ (Swift/CoreAudio), Windows는 native/windows/audio-device-helper/
-// (RtAudio, 소스 미작성 — 계획만 있는 상태)로 각자 소스가 갈리지만 CLI 계약(list/get/query/
-// set/capture/play-capture, 동일 JSON stdout)은 동일하다. 실제 win32 바이너리가 아직 없어
-// SUPPORTED_PLATFORMS에 넣어도 지금은 spawn 시 ENOENT로 실패한다 — 헬퍼가 만들어지면
-// 별도 코드 변경 없이 그대로 동작한다.
+// ASIO/C++ 구현이며 build-win.sh로 audio-device-helper.exe를 생성한다; 빌드 전에는 dev 실행이 ENOENT로 실패한다.
 const { app, ipcMain } = require("electron");
 const path = require("path");
 const { execFile } = require("child_process");

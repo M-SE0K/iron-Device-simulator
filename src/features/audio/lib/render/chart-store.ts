@@ -18,7 +18,7 @@ import type { AnalysisFrame } from "@/features/audio/types";
  */
 
 /** 차트 하나가 화면에 유지하는 최대 점 개수. */
-export const MAX_CHART_POINTS = 5000;
+const MAX_CHART_POINTS = 5000;
 
 export type ChartMetric = "temperature" | "excursion";
 

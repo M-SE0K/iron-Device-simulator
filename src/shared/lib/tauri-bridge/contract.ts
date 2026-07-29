@@ -1,9 +1,6 @@
 // contract.ts — Rust 커맨드 이름 + invoke 인자 키의 단일 소스.
 //
-// src-tauri(Rust 셸)는 별도 에이전트가 이 shim과 동시에 작성 중이라 서로의 최종 코드를 볼 수
-// 없다. 이름이 어긋나면(예: camelCase/snake_case 불일치, 인자 키 오타) 여기 이 파일부터
-// 조율자가 Rust `#[tauri::command]` 시그니처와 diff해서 어느 한쪽을 고친다 — 두 곳에 흩어진
-// 문자열 리터럴을 각각 찾아 고치지 않아도 되게 하는 것이 이 파일의 유일한 목적이다.
+// src-tauri와 이 shim은 이 계약을 공유하므로 변경 시 현재 Rust command 시그니처와 함께 검증한다.
 //
 // Tauri v2는 JS camelCase 인자를 Rust 함수의 snake_case 파라미터로 자동 변환한다
 // (`deviceUid` JS → `device_uid: Option<String>` Rust). 그래서 커맨드 이름은 snake_case,
@@ -92,27 +89,3 @@ export const EVENTS = {
  * - `audio_playcapture_write_chunk`: JSON 인자 없음 — raw body(Uint8Array) +
  *   `HEADERS.writeId` 헤더로만 전달.
  */
-export const COMMAND_ARGS: Record<string, readonly string[]> = {
-  [COMMANDS.audioDeviceList]: [],
-  [COMMANDS.audioDeviceGetConfig]: [ARG_KEYS.opts], // opts: { deviceUID? }
-  [COMMANDS.audioDeviceSetConfig]: [ARG_KEYS.opts], // opts: { sampleRate, bufferSize, deviceUID? }
-  [COMMANDS.audioDeviceQuery]: [ARG_KEYS.opts], // opts: { deviceUID? }
-
-  // opts: { sampleRate, bufferSize, channels?, deviceUID?, e2e? }
-  [COMMANDS.audioCaptureStart]: [ARG_KEYS.opts, ARG_KEYS.data, ARG_KEYS.mark],
-  [COMMANDS.audioCaptureStop]: [],
-
-  [COMMANDS.audioPlayCaptureStartWrite]: [ARG_KEYS.totalBytes], // Rust는 무시 (Electron 원본도 무시)
-  [COMMANDS.audioPlayCaptureWriteChunk]: [], // raw body + HEADERS.writeId
-  [COMMANDS.audioPlayCaptureFinalizeWrite]: [ARG_KEYS.writeId],
-  [COMMANDS.audioPlayCaptureCancelWrite]: [ARG_KEYS.writeId],
-  // opts: { sampleRate, bufferSize, channels?, deviceUID?, refWriteId, refChannels?,
-  //         outputChannel?, outputChannelR?, e2e? }
-  [COMMANDS.audioPlayCaptureStart]: [ARG_KEYS.opts, ARG_KEYS.data, ARG_KEYS.mark],
-  [COMMANDS.audioPlayCaptureControl]: [ARG_KEYS.action],
-  [COMMANDS.audioPlayCaptureStop]: [],
-
-  [COMMANDS.localFolderSelect]: [],
-  [COMMANDS.localFolderUnwatch]: [],
-  [COMMANDS.localFolderReadFile]: [ARG_KEYS.path],
-};

@@ -11,10 +11,7 @@ import { humanizeIpcError } from "@/shared/lib/ipc-error";
 import type { CaptureStreamEvent } from "./types";
 import { createNativeFrameReframer } from "./reframeNativeChunk";
 
-// buf(분석 엔진의 In/Out PCM)에 넣을 "음원 신호" 프레임을 만든다 — v_sensing/i_sensing이
-// 이미 실측 V/I를 따로 전달하므로 buf는 더 이상 V/I를 중복으로 들고 있지 않는다. 재생 중인
-// 파일이 있으면(Electron 파일 모드) 그 오디오(인터리브 스테레오 [L0,R0,L1,R1,...])를 캡처
-// 프레임 위치에 맞춰 슬라이스해 실제 L/R로 쓰고, 없으면(mic 모드) 무음을 채운다.
+// playback PCM이 있으면 파일 오디오를 프레임 위치에 맞춰 쓰고, 없으면 무음을 채운다.
 function buildAudioBufFrame(
   playbackPcmInterleaved: Float32Array | null,
   frameIndex: number,

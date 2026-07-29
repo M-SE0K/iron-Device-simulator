@@ -24,7 +24,7 @@
 | `uplot-option.ts` | 두 차트가 공유하는 uPlot 옵션 조각 빌더. 시간축 `buildTimeAxis()`(눈금 소수점을 현재 보이는 스팬에 맞춰 동적 조절, `floorFixed()` 내림 처리로 진행바 `formatTime()`과 초 경계 표시 일치)·값축 `buildValueAxis()`, 컬럼 변환 `toAlignedData()`(windowFrames → `Float64Array` x/y), 면적 그라디언트 `buildAreaFill()`, 시간 소수점 헬퍼 `timeDecimalsForInterval`/`resolveTimeDecimals`, 공용 축·그리드 색 상수의 정의처 |
 | `uplot-plugins.ts` | uPlot 플러그인 3종. `zoomPlugin()`(커서 중심 휠 줌, 전체 범위의 99.5% 이상으로 줌 아웃하면 전체 범위 스냅 + `getFullXRange` 옵션이 있으면 더블클릭 리셋도 그 고정 도메인으로 보정), `tooltipPlugin()`(다크 스타일 커서 추적 툴팁), `thresholdsPlugin()`(y=임계값 점선+라벨을 캔버스에 직접 드로잉). 드래그 영역 선택 줌은 uPlot 내장 동작이라 여기 없다 |
 | `envelope.ts` | 버킷 단위 min/max 엔벨로프 누적 클래스 `BucketEnvelope`(add/clear/peak). 같은 버킷 격자를 공유하는 엔벨로프들은 `envelopesToAligned()`가 공유 x축 uPlot aligned 데이터로 만든다(버킷당 2점: min이 t, max가 t+dt/2, 미충전 버킷은 null). `ProtectedComparePanel` 전용 |
-| `waveform.ts` | 채널 파형 실시간 윈도우 타입 `WaveformWindow`(`{ startSec, data: Float32Array }`)와 peak/RMS 계산 `channelStats()` |
+| `waveform.ts` | 채널 버퍼의 peak/RMS 계산 `channelStats()` |
 | `channel-meta.ts` | 채널 라벨/색 단일 소스 `channelLabel()`(ch0=V/ch1=I/ch2+=확장)·`channelColor()` |
 
 ## 4. 의존성 및 흐름
@@ -40,7 +40,7 @@
 - `components/dashboard/DashboardClient.tsx` → `coalesceFrames`, `detectEvents`, `DEFAULT_TEMP_WARN`/`DEFAULT_TEMP_DANGER`, `TempThresholds`, `QueuedFrame`
 - `components/chart/TemperatureChart.tsx` → `chart-window.ts`(`computeStreamWindow`/`computeTemperatureYRange`), `uplot-option.ts`(`buildTimeAxis`/`buildValueAxis`/`toAlignedData`/`buildAreaFill`/`resolveTimeDecimals`), `uplot-plugins.ts` 3종, `DEFAULT_TEMP_WARN`/`DEFAULT_TEMP_DANGER`(임계선)
 - `components/chart/ExcursionChart.tsx` → 위와 동일 구성에서 `thresholdsPlugin` 제외
-- `components/channel/ChannelWaveformCanvas.tsx` → `uplot-option.ts`(`buildTimeAxis`/`buildValueAxis`/`timeDecimalsForInterval`), `uplot-plugins.ts`(`zoomPlugin`(`getFullXRange` 전달)/`tooltipPlugin`), `waveform.ts`(`WaveformWindow`)
+- `components/channel/ChannelWaveformCanvas.tsx` → `uplot-option.ts`(`buildTimeAxis`/`buildValueAxis`/`timeDecimalsForInterval`), `uplot-plugins.ts`(`zoomPlugin`(`getFullXRange` 전달)/`tooltipPlugin`)
 - `components/channel/ProtectedComparePanel.tsx` → `uplot-option.ts`/`uplot-plugins.ts`(`zoomPlugin`에 `getFullXRange` 전달) + `envelope.ts`(`BucketEnvelope`/`envelopesToAligned`)
 - `components/chart/ChartDetailOverlay.tsx` → `channel-meta.ts`(`channelLabel`/`channelColor`), `waveform.ts`(`channelStats`)
 - `components/calibration/CalibrationContext.tsx` → `DEFAULT_TEMP_WARN`/`DEFAULT_TEMP_DANGER`(calibration 기본값)
@@ -78,7 +78,7 @@
 - `thresholdsPlugin(lines: { y, color, label }[]): uPlot.Plugin` — y=임계값 점선+라벨을 캔버스에 직접 그린다. 현재 y 스케일 밖의 임계값은 건너뛴다.
 - `BucketEnvelope(buckets)` — 버킷 단위 min/max 누적 클래스. `add(bucket, v)`/`clear()`/`peak()`. 상태를 누적하므로 세션 리셋 시 `clear()`가 필요하다.
 - `envelopesToAligned(envs, durationSec)` — 같은 버킷 수/길이의 엔벨로프들을 공유 x축 aligned 데이터로 변환(버킷당 2점, 미충전 버킷 null).
-- `channelStats(data: Float32Array): { peak, rms }` / `WaveformWindow` — 채널 버퍼 통계와 실시간 윈도우 타입.
+- `channelStats(data: Float32Array): { peak, rms }` — 채널 버퍼 통계.
 - `channelLabel(ch)` / `channelColor(ch)` — 채널 의미(ch0=V/ch1=I/ch2+=확장)·색의 단일 소스.
 - 타입: `QueuedFrame`, `TempThresholds`, `StreamWindowResult`.
 

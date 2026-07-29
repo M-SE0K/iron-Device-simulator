@@ -8,7 +8,7 @@ import type { TempThresholds } from "@/features/audio/lib/render/detect-events";
 
 interface WorkspaceSaveSource {
   originalFile: File;
-  /** 세션이 실제로 캡처한 ch0(V)/ch1(I) WAV — 없으면(캡처 이력 없음) 업로드 원본으로 대체한다. */
+  /** 전 채널 WAV(ch0=V, ch1=I, ch2+ 확장 채널 포함) — 없으면(캡처 이력 없음) 업로드 원본으로 대체한다. */
   capturedAudio: Blob | null;
 }
 

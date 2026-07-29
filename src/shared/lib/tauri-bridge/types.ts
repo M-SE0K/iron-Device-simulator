@@ -7,7 +7,7 @@
 // electron-bridge.d.ts와 어긋나면 index.ts의 대입문에서 타입 에러로 드러난다(그래서 안전).
 import type { AudioInputDevice, LocalAudioFileEntry } from "@/shared/types/electron-bridge";
 
-export interface AudioDeviceActual {
+interface AudioDeviceActual {
   sampleRate: number | null;
   bufferSize: number | null;
 }

@@ -1,9 +1,9 @@
 import type uPlot from "uplot";
 
 // 대시보드 공통 축/그리드 팔레트 — 모든 차트가 같은 값을 쓴다.
-export const AXIS_LABEL_COLOR = "#94A3B8";
-export const AXIS_LINE_COLOR = "#E2E8F0";
-export const GRID_COLOR = "#F1F5F9";
+const AXIS_LABEL_COLOR = "#94A3B8";
+const AXIS_LINE_COLOR = "#E2E8F0";
+const GRID_COLOR = "#F1F5F9";
 const AXIS_FONT = "10px system-ui, -apple-system, sans-serif";
 
 const MAX_TIME_DECIMALS = 3;

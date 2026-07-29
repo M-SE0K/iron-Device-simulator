@@ -7,9 +7,7 @@
 // 먼저" 실행되기만 하면 되고, src/app/TauriBridgeInit.tsx가 모듈 스코프(컴포넌트 렌더 이전,
 // import 시점)에서 동기 호출한다.
 //
-// `'__TAURI_INTERNALS__' in window` 가드로 일반 브라우저/정적 export 프리뷰(`npx serve out`)
-// 에서는 아무 것도 하지 않는다 — 그 경우 기존 브라우저 폴백 UI(getUserMedia,
-// webkitdirectory)가 그대로 동작해야 한다(계획서 2번, 리스크 9).
+// 일반 브라우저/정적 프리뷰에서는 브리지를 설치하지 않으며 네이티브 캡처·폴더 기능은 사용할 수 없다.
 import { createAudioDeviceBridge } from "./audio-device";
 import { createAudioCaptureBridge } from "./audio-capture";
 import { createAudioPlayCaptureBridge } from "./audio-playcapture";

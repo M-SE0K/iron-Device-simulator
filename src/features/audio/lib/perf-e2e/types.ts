@@ -31,7 +31,7 @@ export interface E2ESample {
   tag?: string;
 }
 
-export type E2EStatBlock = StatBlock;
+type E2EStatBlock = StatBlock;
 
 export interface E2ESessionMeta {
   mode: "native" | "web";

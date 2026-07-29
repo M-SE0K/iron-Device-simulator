@@ -86,7 +86,7 @@ class E2ELatencyCollector {
     return out;
   }
 
-  // N11(React 커밋 전파) 측정용 — setState 직전에 호출해 기준 시각을 남긴다.
+  // N11 기준 시각 저장용 — ChartStore.push/flush 직전에 호출한다. 현재 sampleSinceCommit 호출부는 없다.
   markCommit(): void {
     if (!this.active) return;
     this.commitAt = performance.now();

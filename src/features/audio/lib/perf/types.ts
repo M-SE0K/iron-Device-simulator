@@ -13,7 +13,7 @@ export interface PerfRenderSample {
   renderMs: number;
 }
 
-export type PerfStageStats = StatBlock;
+type PerfStageStats = StatBlock;
 
 export interface PerfSessionMeta {
   mode: "native" | "web";
