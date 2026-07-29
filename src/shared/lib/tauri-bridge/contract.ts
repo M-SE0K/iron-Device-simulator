@@ -27,6 +27,15 @@ export const COMMANDS = {
   localFolderSelect: "local_folder_select",
   localFolderUnwatch: "local_folder_unwatch",
   localFolderReadFile: "local_folder_read_file",
+
+  // Electron에는 대응 IPC가 없다 — Tauri 네이티브 웹뷰(특히 macOS WKWebView)에서 blob +
+  // `<a download>` 앵커 다운로드가 저장 다이얼로그를 띄우지 못해 Tauri 전용으로 추가됨
+  // (shared/lib/utils.ts의 downloadBlob() 참조). 두 커맨드로 나뉘어 있다 — write_temp(sync,
+  // raw body)로 바이트를 임시 파일에 쓰고, save(**async fn**)가 저장 다이얼로그를 열어 그
+  // 임시 파일을 최종 위치로 옮긴다. save가 async여야 하는 이유는 file_export.rs 참고
+  // (sync 커맨드에서 그대로 부르면 메인 스레드 데드락 — 실측 확인됨).
+  fileExportWriteTemp: "file_export_write_temp",
+  fileExportSave: "file_export_save",
 } as const;
 
 /**
@@ -63,6 +72,8 @@ export const ARG_KEYS = {
   action: "action",
   path: "path",
   totalBytes: "totalBytes",
+  tempPath: "tempPath",
+  filename: "filename",
 } as const;
 
 /** raw invoke body(writeChunk)에 딸린 write-id는 인자가 아니라 HTTP 유사 헤더로 보낸다. */

@@ -10,6 +10,7 @@
 mod audio_capture;
 mod audio_device;
 mod audio_playcapture;
+mod file_export;
 mod helper;
 mod local_folder;
 mod streaming;
@@ -57,6 +58,8 @@ fn main() {
             local_folder::local_folder_select,
             local_folder::local_folder_unwatch,
             local_folder::local_folder_read_file,
+            file_export::file_export_write_temp,
+            file_export::file_export_save,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
