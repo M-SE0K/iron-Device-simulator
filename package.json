@@ -50,8 +50,7 @@
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "tailwind-merge": "^3.2.0",
-    "uplot": "^1.6.32",
-    "wavesurfer.js": "^7.9.5"
+    "uplot": "^1.6.32"
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2.11.4",

@@ -1,6 +1,5 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
 import { Folder, FileText, FolderOpen } from "lucide-react";
 import { useWorkspace } from "./WorkspaceContext";
 import { cn, formatFileSize, splitPath } from "@/shared/lib/utils";
@@ -83,21 +82,8 @@ export default function WorkspaceFolderSection() {
   const {
     localFolderPath, localFolderFiles, localFolderConnecting,
     connectLocalFolder, disconnectLocalFolder, loadLocalFile,
-    browserFolderName, browserFolderFiles, selectBrowserFolder, disconnectBrowserFolder,
-    loadBrowserFile, activeFileName,
+    activeFileName,
   } = useWorkspace();
-  const [isElectron, setIsElectron] = useState(false);
-
-  useEffect(() => {
-    setIsElectron(typeof window !== "undefined" && !!window.localFolder);
-  }, []);
-
-  const setDirInput = useCallback((el: HTMLInputElement | null) => {
-    if (el) {
-      el.setAttribute("webkitdirectory", "");
-      el.setAttribute("directory", "");
-    }
-  }, []);
 
   const header = (connected: boolean, count: number, onDisconnect: () => void) => (
     <div className="flex items-center justify-between px-1 pb-2">
@@ -117,73 +103,30 @@ export default function WorkspaceFolderSection() {
     </div>
   );
 
-  if (isElectron) {
-    const connected = !!localFolderPath;
-    const { name, parent } = connected ? splitPath(localFolderPath!) : { name: "", parent: "" };
-    return (
-      <div>
-        {header(connected, localFolderFiles.length, disconnectLocalFolder)}
-        {!connected ? (
-          <button
-            type="button"
-            onClick={() => void connectLocalFolder()}
-            disabled={localFolderConnecting}
-            className="flex w-full items-center justify-center gap-1.5 rounded-xl border border-dashed border-iron-200 px-3 py-3 text-xs text-iron-500 transition hover:border-brand-blue hover:text-brand-blue disabled:opacity-50"
-          >
-            <FolderOpen className="w-3.5 h-3.5" />
-            {localFolderConnecting ? "Connecting..." : "Connect Folder"}
-          </button>
-        ) : (
-          <FolderTree
-            folderName={name}
-            folderPath={parent}
-            files={localFolderFiles.map((f) => ({ key: f.path, name: f.name, size: f.size }))}
-            activeName={activeFileName}
-            onSelect={(key) => {
-              const entry = localFolderFiles.find((f) => f.path === key);
-              if (entry) void loadLocalFile(entry);
-            }}
-          />
-        )}
-      </div>
-    );
-  }
-
-  const connected = !!browserFolderName;
+  const connected = !!localFolderPath;
+  const { name, parent } = connected ? splitPath(localFolderPath!) : { name: "", parent: "" };
   return (
     <div>
-      {header(connected, browserFolderFiles.length, disconnectBrowserFolder)}
-      <input
-        ref={setDirInput}
-        type="file"
-        multiple
-        accept="audio/*"
-        className="hidden"
-        id="workspace-folder-input"
-        onChange={(e) => {
-          if (e.target.files && e.target.files.length > 0) selectBrowserFolder(e.target.files);
-          e.target.value = "";
-        }}
-      />
+      {header(connected, localFolderFiles.length, disconnectLocalFolder)}
       {!connected ? (
-        <label
-          htmlFor="workspace-folder-input"
-          className="flex w-full cursor-pointer items-center justify-center gap-1.5 rounded-xl border border-dashed border-iron-200 px-3 py-3 text-xs text-iron-500 transition hover:border-brand-blue hover:text-brand-blue"
+        <button
+          type="button"
+          onClick={() => void connectLocalFolder()}
+          disabled={localFolderConnecting}
+          className="flex w-full items-center justify-center gap-1.5 rounded-xl border border-dashed border-iron-200 px-3 py-3 text-xs text-iron-500 transition hover:border-brand-blue hover:text-brand-blue disabled:opacity-50"
         >
           <FolderOpen className="w-3.5 h-3.5" />
-          Upload Folder
-        </label>
+          {localFolderConnecting ? "Connecting..." : "Connect Folder"}
+        </button>
       ) : (
         <FolderTree
-          folderName={browserFolderName!}
-          folderPath=""
-          files={browserFolderFiles.map((f) => ({
-            key: f.webkitRelativePath || f.name, name: f.name, size: f.size,
-          }))}
+          folderName={name}
+          folderPath={parent}
+          files={localFolderFiles.map((f) => ({ key: f.path, name: f.name, size: f.size }))}
           activeName={activeFileName}
           onSelect={(key) => {
-            const file = browserFolderFiles.find((f) => (f.webkitRelativePath || f.name) === key);
-            if (file) loadBrowserFile(file);
+            const entry = localFolderFiles.find((f) => f.path === key);
+            if (entry) void loadLocalFile(entry);
           }}
         />
       )}

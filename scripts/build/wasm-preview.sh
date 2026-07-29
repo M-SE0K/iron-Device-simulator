@@ -9,7 +9,7 @@
 # WASM_MODE=debug|dummy 를 주면 wasm:build:debug/:dummy 와 같은 산출물(public/wasm-debug,
 # public/wasm-dummy)을 만들어 out/의 같은 이름 폴더에 덮어쓴다 — 단, out/이 애초에 그 모드로
 # 빌드되어 있어야 한다(NEXT_PUBLIC_WASM_DIR가 빌드 시점에 JS 번들에 박히기 때문에, 모드를
-# 바꾸는 최초 1회는 build:desktop:debug/:dummy 같은 전체 빌드가 필요).
+# 바꾸는 최초 1회는 build:electron:mac:debug/:dummy 같은 전체 빌드가 필요).
 #
 # SKIP_WASM_BUILD=1 이면 emcc 컴파일 자체를 건너뛰고(build-static-local.sh와 동일한 플래그),
 # public/$WASM_DIR_NAME/ 에 이미 놓아둔 ff_prot.{js,wasm}를 그대로 out/ 에 복사한다 — 다른
@@ -33,14 +33,14 @@ case "$WASM_MODE" in
 esac
 
 if [ ! -d out ]; then
-  echo "out/ 이 없습니다 — 최초 1회는 npm run build:desktop (또는 build:electron:*) 으로 만들어야 합니다." >&2
+  echo "out/ 이 없습니다 — 최초 1회는 npm run build:electron:* 으로 만들어야 합니다." >&2
   exit 1
 fi
 
 OUT_WASM_DIR="out/$WASM_DIR_NAME"
 if [ ! -d "$OUT_WASM_DIR" ]; then
   echo "$OUT_WASM_DIR 가 없습니다 — out/ 이 WASM_MODE=$WASM_MODE 로 빌드된 적이 없는 것 같습니다." >&2
-  echo "최초 1회는 WASM_MODE=$WASM_MODE npm run build:desktop 같은 전체 빌드가 필요합니다." >&2
+  echo "최초 1회는 WASM_MODE=$WASM_MODE npm run build:electron:mac 같은 전체 빌드가 필요합니다." >&2
   exit 1
 fi
 

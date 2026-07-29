@@ -4,7 +4,7 @@
 #   wsl bash scripts/setup-wsl.sh     # Windows PowerShell에서 WSL2로 위임할 때
 #   bash scripts/setup-wsl.sh         # WSL2/Linux 셸 안에서 직접 실행할 때
 #
-# 이 리포의 빌드 스크립트(wasm:build, build:desktop 등)는 전부 bash라 WSL2/Linux에서는
+# 이 리포의 빌드 스크립트(wasm:build, build:electron 등)는 전부 bash라 WSL2/Linux에서는
 # 별도 변환 없이 그대로 동작한다 — 이 스크립트는 그 전제조건(Node/emcc/빌드 도구)만 갖춘다.
 set -euo pipefail
 cd "$(dirname "$0")/../.."
@@ -128,13 +128,12 @@ cat <<EOF
 ✓ 셋업 완료: $ROOT
 
 다음 단계:
-  npm run dev              # http://localhost:3000 (브라우저 WASM 엔진)
-  npm run build:desktop    # 정적 번들 (out/)
+  npm run dev              # http://localhost:3000 (UI 확인 전용 — 오디오 캡처/재생은 Electron 브리지가 없어 동작하지 않음)
   npm run build:electron   # Electron 패키징 (dist-electron/) — WSL2에서는 GUI 실행에 WSLg(Win11) 필요
 
 참고:
   - Electron 창을 WSL2 안에서 직접 띄우려면(electron:preview 등) Windows 11 + WSLg가 필요합니다.
-    안 되면 build:desktop 산출물(out/)을 Windows 쪽에서 npx serve out 으로 띄워 브라우저로 확인하세요.
-  - macOS 전용 네이티브 오디오 캡처(window.audioDevice/audioCapture)는 WSL2/Linux에서 동작하지 않습니다
-    (docs/windows-plan.md 참고, 아직 미구현) — 파일 업로드 분석과 getUserMedia 기반 마이크는 정상 동작합니다.
+  - 이 앱은 Electron 전용입니다 — 웹 전용 캡처 폴백(getUserMedia)은 제거됐습니다. Linux용 네이티브
+    오디오 헬퍼(window.audioDevice/audioCapture)가 아직 없어서(docs/windows-plan.md 참고) WSL2/Linux에서는
+    오디오 캡처/재생 자체를 테스트할 수 없고, WSLg로 띄운 Electron 창의 UI만 확인할 수 있습니다.
 EOF

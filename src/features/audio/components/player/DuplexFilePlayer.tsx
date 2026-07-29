@@ -7,7 +7,7 @@ import { useErrorPopup } from "@/shared/components/error-popup/ErrorPopupContext
 import { SAMPLE_RATE } from "@/features/audio/lib/engine/core";
 import { decodeFileToStereo, type DecodedPlayback } from "@/features/audio/lib/codec/playback-decode";
 import { useCaptureSession } from "./capture/useCaptureSession";
-import type { WaveformPlayerHandle } from "./WaveformPlayer";
+import type { WaveformPlayerHandle } from "./capture/types";
 import PlayerBar from "./PlayerBar";
 
 interface Props {
@@ -185,8 +185,12 @@ const DuplexFilePlayer = forwardRef<WaveformPlayerHandle, Props>(function Duplex
     pause: pausePlayback,
     exportRecordedAudio: captureSession.getRecordedBlob,
     exportProtectedAudio: captureSession.getProtectedBlob,
+    getCaptureSnapshot: captureSession.getCaptureSnapshot,
     subscribeCaptureStream: captureSession.subscribeCaptureStream,
-  }), [captureSession.sendMessage, pausePlayback, captureSession.getRecordedBlob, captureSession.getProtectedBlob, captureSession.subscribeCaptureStream]);
+  }), [
+    captureSession.sendMessage, pausePlayback, captureSession.getRecordedBlob,
+    captureSession.getProtectedBlob, captureSession.getCaptureSnapshot, captureSession.subscribeCaptureStream,
+  ]);
 
   const isPlaying = status === "playing";
   const progressPct = duration > 0 ? Math.min(100, (currentTime / duration) * 100) : 0;

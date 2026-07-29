@@ -3,7 +3,7 @@
 #
 #   bash scripts/setup-macos.sh
 #
-# 이 리포의 빌드 스크립트(wasm:build, build:desktop, build:electron ...)는 전부 bash라
+# 이 리포의 빌드 스크립트(wasm:build, build:electron ...)는 전부 bash라
 # macOS 기본 터미널(zsh/bash)에서 별도 변환 없이 그대로 동작한다 — 이 스크립트는 그
 # 전제조건(Xcode CLT/Node/emcc)만 갖추고, 선택적으로 macOS 전용 CoreAudio 캡처 헬퍼까지
 # 미리 빌드해둔다.
@@ -125,14 +125,13 @@ cat <<EOF
 ✓ 셋업 완료: $ROOT
 
 다음 단계:
-  npm run dev                # http://localhost:3000 (브라우저 WASM 엔진)
-  npm run build:desktop      # 정적 번들 (out/)
+  npm run dev                # http://localhost:3000 (UI 확인 전용 — 오디오 캡처/재생은 Electron 브리지가 없어 동작하지 않음)
   npm run build:electron:mac # Electron 패키징, macOS 전용 (dist-electron/, 네이티브 CoreAudio 헬퍼 포함)
   npm run electron:preview   # electron . — 패키징 없이 out/ 기준으로 실행
 
 참고:
-  - 네이티브 오디오 캡처(window.audioDevice/audioCapture)는 macOS에서만 동작합니다 — Electron
-    패키징/미리보기에서만 쓰이고, npm run dev(웹)에서는 getUserMedia 폴백이 항상 동작합니다.
+  - 이 앱은 Electron 전용입니다 — 웹 전용 캡처 폴백(getUserMedia)은 제거됐습니다. 오디오 캡처/재생을
+    테스트하려면 반드시 electron:preview 또는 패키징된 앱으로 실행해야 합니다.
   - 방금 빌드한 audio-device-helper는 소스(mac.swift)가 바뀔 때마다 다시 빌드해야 합니다
     (npm run build:electron / build:electron:mac 이 자동으로 다시 빌드합니다).
 EOF
