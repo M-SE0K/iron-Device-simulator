@@ -1,11 +1,12 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { ArrowLeft, AudioLines, X } from "lucide-react";
 import { getWorkspacePayload, type WorkspaceItemMeta } from "@/features/audio/lib/cache/workspace";
 import { decodeAudioChannels, type DecodedChannels } from "@/features/audio/lib/codec/wav-decoder";
 import { channelLabel, channelColor } from "@/features/audio/lib/render/channel-meta";
 import { ChannelWaveformCanvas } from "@/features/audio/components/channel/ChannelWaveformCanvas";
+import { ChannelWaveStore } from "@/features/audio/lib/render/wave-store";
 import { channelStats } from "@/features/audio/lib/render/waveform";
 import ChannelRowHeader from "@/features/audio/components/channel/ChannelRowHeader";
 import { formatTime } from "@/shared/lib/utils";
@@ -16,6 +17,34 @@ import { useErrorPopup } from "@/shared/components/error-popup/ErrorPopupContext
 interface Props {
   item: WorkspaceItemMeta;
   onClose: () => void;
+}
+
+/**
+ * 저장된(정지된) 채널 하나의 파형 — 라이브 채널 뷰와 같은 표현을 쓰기 위해 디코딩된 전체
+ * 샘플을 스토어에 한 번에 넣는다. 기본 화면은 파일 전체 엔벨로프이고, 확대하면 그 구간만
+ * 원본 배열에서 잘라 원본 해상도로 보여준다.
+ */
+function StaticChannelWave({ color, data, sampleRate }: { color: string; data: Float32Array; sampleRate: number }) {
+  const store = useMemo(() => {
+    const next = new ChannelWaveStore();
+    next.addBlock(data, 0, sampleRate);
+    next.flush();
+    return next;
+  }, [data, sampleRate]);
+
+  return (
+    <ChannelWaveformCanvas
+      color={color}
+      sampleRate={sampleRate}
+      store={store}
+      fetchRange={async (s, e) =>
+        data.subarray(
+          Math.max(0, Math.round(s * sampleRate)),
+          Math.min(data.length, Math.round(e * sampleRate)),
+        )
+      }
+    />
+  );
 }
 
 export default function ChannelViewerOverlay({ item, onClose }: Props) {
@@ -99,18 +128,7 @@ export default function ChannelViewerOverlay({ item, onClose }: Props) {
                     <ChannelRowHeader color={color} name={name} role={role} stats={{ peak, rms }} />
                   </div>
                   <div className="h-40 sm:h-44">
-                    <ChannelWaveformCanvas
-                      color={color}
-                      sampleRate={decoded.sampleRate}
-                      totalDurationSec={decoded.durationSec}
-                      liveWindow={{ data, startSec: 0 }}
-                      fetchRange={async (s, e) =>
-                        data.subarray(
-                          Math.max(0, Math.round(s * decoded.sampleRate)),
-                          Math.min(data.length, Math.round(e * decoded.sampleRate)),
-                        )
-                      }
-                    />
+                    <StaticChannelWave color={color} data={data} sampleRate={decoded.sampleRate} />
                   </div>
                 </div>
               );

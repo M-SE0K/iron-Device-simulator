@@ -189,7 +189,11 @@ export class ChannelWaveStore {
         lastMax = this.maxs[b];
       }
       xs[b * 2] = t;
-      xs[b * 2 + 1] = t + half;
+      // 마지막 버킷은 대개 절반만 찬 상태라 t+폭/2가 실제 세션 끝을 넘어설 수 있다 —
+      // 넘어가면 x축 도메인([0, durationSec]) 밖으로 삐져나가므로 끝에 맞춰 잘라 준다.
+      // (버킷이 존재한다는 건 t 시각의 샘플이 들어왔다는 뜻이므로 t < durationSec은 보장된다.)
+      const half2 = t + half;
+      xs[b * 2 + 1] = half2 > this.durationSec ? this.durationSec : half2;
       ys[b * 2] = lastMin;
       ys[b * 2 + 1] = lastMax;
     }

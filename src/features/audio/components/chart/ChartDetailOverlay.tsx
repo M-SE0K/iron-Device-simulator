@@ -128,12 +128,12 @@ export default function ChartDetailOverlay({
   // 청크가 도착해도 setState 없이 스토어가 직접 구독자(차트)에게 알린다.
   const storesRef = useRef<Map<number, ChannelWaveStore>>(new Map());
   const getStore = useCallback((ch: number): ChannelWaveStore => {
-    let store = storesRef.current.get(ch);
-    if (!store) {
-      store = new ChannelWaveStore();
-      storesRef.current.set(ch, store);
+    let waveStore = storesRef.current.get(ch);
+    if (!waveStore) {
+      waveStore = new ChannelWaveStore();
+      storesRef.current.set(ch, waveStore);
     }
-    return store;
+    return waveStore;
   }, []);
 
   // 현재 렌더의 wantedChannels를 청크 콜백(안정된 참조로 한 번만 구독)이 항상 최신으로
@@ -145,6 +145,9 @@ export default function ChartDetailOverlay({
   // 이미 세션 시작~현재를 백필(seed)한 채널 집합 — 한 번만 백필하고, 그 뒤로는 청크 push로만
   // 이어붙인다.
   const seededRef = useRef<Set<number>>(new Set());
+  // 세션 세대 토큰 — 리셋 때 올려서, 진행 중이던 백필이 새 세션 스토어에 옛 데이터를 흘려
+  // 넣지 못하게 한다.
+  const sessionTokenRef = useRef(0);
 
   // 선택 해제된 채널은 스토어/시드 여부를 지워 메모리를 되돌린다 — 나중에 다시 선택되면
   // 처음 선택했을 때와 동일하게 세션 전체를 다시 백필한다.
@@ -180,21 +183,22 @@ export default function ChartDetailOverlay({
     const view = new DataView(chunk);
     for (const ch of wanted) {
       if (ch >= channels) continue;
-      const store = getStore(ch);
+      const waveStore = getStore(ch);
       const samples = new Float32Array(frameCount);
       for (let i = 0; i < frameCount; i++) {
         samples[i] = view.getInt16(i * bytesPerFrame + ch * BYTES_PER_SAMPLE, true) / INT16_SCALE;
       }
-      store.addBlock(samples, startSec, sampleRate);
-      store.flush();
+      waveStore.addBlock(samples, startSec, sampleRate);
+      waveStore.flush();
     }
   }, [getStore]);
 
   const handleStreamEvent = useCallback((ev: CaptureStreamEvent) => {
     if (ev.type === "reset") {
+      sessionTokenRef.current += 1; // 진행 중이던 백필 무효화 — 새 세션은 0부터 라이브로만 채운다
       totalFramesRef.current = 0;
       seededRef.current.clear();
-      storesRef.current.forEach((store) => store.reset());
+      storesRef.current.forEach((waveStore) => waveStore.reset());
       setChannelError(null);
       setHeader({ channels: ev.channels, sampleRate: ev.sampleRate });
       return;
@@ -245,36 +249,47 @@ export default function ChartDetailOverlay({
   // 채널을 새로 선택한 순간 — 청크 스트림에는 "지금부터"만 쌓이므로, 세션 시작부터 지금까지를
   // getChannelsBlob()에서 딱 한 번 백필한다. 스토어는 버킷을 절대 시각으로 찾으므로 백필이
   // 진행되는 동안 도착한 라이브 청크(항상 백필 구간보다 뒤의 시각)와 섞여도 서로 덮어쓰지 않는다.
+  //
+  // 백필은 이펙트가 아니라 **채널 단위**로 살아 있다 — 다른 채널을 추가로 선택했다고 진행 중인
+  // 백필을 취소해버리면 그 채널의 앞부분이 영영 비게 된다(이미 seed 완료로 표시된 뒤라 재시도도
+  // 안 된다). 중단 조건은 두 가지뿐: 해당 채널이 선택 해제됐거나(스토어가 지워짐), 세션이
+  // 리셋됐거나(토큰 변경).
   useEffect(() => {
     const toSeed = wantedChannels.filter((ch) => !seededRef.current.has(ch));
     if (toSeed.length === 0 || !getChannelsBlob) return;
-    toSeed.forEach((ch) => seededRef.current.add(ch)); // 재진입 방지 — 실패해도 라이브로 계속 그린다
-    let cancelled = false;
+    toSeed.forEach((ch) => seededRef.current.add(ch)); // 재진입 방지 — 실패해도 라이브로는 계속 그린다
+
+    const token = sessionTokenRef.current;
+    // 스토어 인스턴스까지 비교한다 — 백필 중 해제했다가 다시 선택하면 새 스토어 + 새 백필이
+    // 뜨므로, 옛 백필은 자기 스토어가 더 이상 현역이 아님을 보고 조용히 물러난다.
+    const stale = (ch: number, s: ChannelWaveStore) =>
+      sessionTokenRef.current !== token || storesRef.current.get(ch) !== s;
+
     (async () => {
       const blob = getChannelsBlob();
       if (!blob) return;
       const h = await peekWavHeader(blob);
-      if (!h || cancelled) return;
+      if (!h) return;
       // 채널 × 구간을 순차로 처리한다 — 한 번에 들고 있는 원본은 항상 SEED_SEGMENT_SEC 하나뿐.
       for (const ch of toSeed) {
         if (ch >= h.channels) continue;
-        const store = getStore(ch);
+        const waveStore = getStore(ch);
         for (let start = 0; start < h.durationSec; start += SEED_SEGMENT_SEC) {
-          if (cancelled) return;
+          if (stale(ch, waveStore)) break;
           const end = Math.min(h.durationSec, start + SEED_SEGMENT_SEC);
           const data = await decodeWavRange(blob, h, ch, start, end);
-          if (cancelled) return;
-          store.addBlock(data, start, h.sampleRate);
-          store.flush();
+          if (stale(ch, waveStore)) break;
+          waveStore.addBlock(data, start, h.sampleRate);
+          waveStore.flush();
         }
       }
+      if (sessionTokenRef.current !== token) return;
       setHeader((prev) => (
         prev && prev.channels === h.channels && prev.sampleRate === h.sampleRate
           ? prev
           : { channels: h.channels, sampleRate: h.sampleRate }
       ));
     })();
-    return () => { cancelled = true; };
   }, [wantedChannels, getChannelsBlob, getStore]);
 
   // 과거 구간(라이브 윈도우 밖)을 사용자가 확대했을 때만 호출되는 온디맨드 디코딩 — 요청한
@@ -422,7 +437,7 @@ export default function ChartDetailOverlay({
       }
 
       const ch = parseChannelId(entry.id);
-      const store = getStore(ch);
+      const waveStore = getStore(ch);
       items.push({
         id: entry.id,
         header: (
@@ -430,14 +445,14 @@ export default function ChartDetailOverlay({
             <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: entry.color }} />
             <span className="text-xs font-semibold text-iron-800 font-mono">{entry.name}</span>
             <span className="text-[11px] text-iron-400">{entry.role}</span>
-            <ChannelStatsBadge store={store} />
+            <ChannelStatsBadge store={waveStore} />
           </>
         ),
         content: header ? (
           <ChannelWaveformCanvas
             color={entry.color}
             sampleRate={header.sampleRate}
-            store={store}
+            store={waveStore}
             fetchRange={(s, e) => fetchRangeFor(ch, s, e)}
           />
         ) : (
@@ -454,7 +469,7 @@ export default function ChartDetailOverlay({
   }, [
     orderedEntries, selected, Icon, accent, title, isTemp, store, isActive,
     audioDuration, warnThreshold, dangerThreshold, header, channelError, fetchRangeFor, getStore,
-    subscribeChannelStream, getProtectedBlob, getChannelsBlob, sourceFile,
+    subscribeChannelStream, getProtectedBlob, sourceFile,
   ]);
 
   return (

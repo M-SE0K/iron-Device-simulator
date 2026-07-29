@@ -89,6 +89,40 @@ function toAligned(data: Float32Array, sampleRate: number, startSec: number): uP
   return [xs, ys] as unknown as uPlot.AlignedData;
 }
 
+/**
+ * 스토어에서 "React 상태로 들고 있어야 하는 값"만 낮은 빈도로 읽어온다 — 파형 자체는
+ * source 경로로 React를 거치지 않고 커밋되므로, 리렌더가 필요한 건 x축 전체 도메인(세션
+ * 길이)과 헤더 숫자뿐이다. 메인 차트의 useMetricChartRuntime과 같은 주기/이유다.
+ */
+const READOUT_INTERVAL_MS = 100;
+
+function useWaveReadout(store: ChannelWaveStore) {
+  const [snap, setSnap] = useState(() => store.snapshot());
+
+  useEffect(() => {
+    let timer: number | null = null;
+    let lastVersion = -1;
+
+    const sync = () => {
+      timer = null;
+      const next = store.snapshot();
+      if (next.version === lastVersion) return;
+      lastVersion = next.version;
+      setSnap(next);
+    };
+    const onUpdate = () => { if (timer === null) timer = window.setTimeout(sync, READOUT_INTERVAL_MS); };
+
+    const off = store.subscribe(onUpdate);
+    sync(); // 늦게 마운트된 뷰가 현재 상태를 즉시 반영하도록
+    return () => {
+      off();
+      if (timer !== null) window.clearTimeout(timer);
+    };
+  }, [store]);
+
+  return snap;
+}
+
 export function ChannelWaveformCanvas({
   color,
   sampleRate,
@@ -144,14 +178,19 @@ export function ChannelWaveformCanvas({
   // 사용자 줌(드래그/휠/더블클릭)에서만 호출된다 — 충분히 확대했을 때만 그 구간을 원본
   // 해상도로 받아오고, 다시 넓히면 세션 전체 엔벨로프로 돌아간다.
   const handleUserZoom = useCallback((minSec: number, maxSec: number, zoomed: boolean) => {
+    const span = maxSec - minSec;
+    // 되돌아가는 방향(줌 아웃)은 디바운스하지 않는다 — 기다릴 데이터가 없고, 확대 구간이
+    // 남아 있는 채로 200ms를 끌면 더블클릭 리셋이 눈에 띄게 늦게 반영된다.
+    if (!zoomed || !(span > 0) || span > RAW_ZOOM_MAX_SPAN_SEC) {
+      if (debounceRef.current !== null) window.clearTimeout(debounceRef.current);
+      debounceRef.current = null;
+      fetchSeqRef.current++;
+      if (zoomedDataRef.current) { zoomedDataRef.current = null; notifyLocal(); }
+      return;
+    }
+
     if (debounceRef.current !== null) window.clearTimeout(debounceRef.current);
     debounceRef.current = window.setTimeout(() => {
-      const span = maxSec - minSec;
-      if (!zoomed || !(span > 0) || span > RAW_ZOOM_MAX_SPAN_SEC) {
-        fetchSeqRef.current++;
-        if (zoomedDataRef.current) { zoomedDataRef.current = null; notifyLocal(); }
-        return;
-      }
       const total = store.snapshot().durationSec;
       const start = Math.max(0, minSec);
       const end = Math.min(total > 0 ? total : maxSec, maxSec);
@@ -179,6 +218,15 @@ export function ChannelWaveformCanvas({
 
   const timeDecimals = timeDecimalsForInterval(sampleRate > 0 ? 1 / sampleRate : 0);
 
+  // x축 전체 도메인은 항상 [0, 세션 길이]다 — 지금 화면에 어떤 데이터(전체 엔벨로프 /
+  // 확대 구간 원본)가 올라가 있든 무관하게. UPlotChart는 이 값으로 "사용자가 줌한 상태인가"를
+  // 판정하고, 줌이 아니면 커밋마다 x를 여기에 맞춰 세션이 길어지는 대로 따라간다.
+  const { durationSec } = useWaveReadout(store);
+  const xRange = useMemo<[number, number] | undefined>(
+    () => (durationSec > 0 ? [0, durationSec] : undefined),
+    [durationSec],
+  );
+
   const options = useMemo<UPlotOptions>(() => ({
     legend: { show: false },
     cursor: { drag: { x: true, y: false } },
@@ -205,42 +253,22 @@ export function ChannelWaveformCanvas({
     <UPlotChart
       options={options}
       source={source}
+      xRange={xRange}
       onUserZoom={handleUserZoom}
     />
   );
 }
 
-/** 채널 헤더의 peak/rms 배지 — 세션 누적값을 스토어에서 직접 읽어 100ms 주기로만 리렌더한다. */
-const READOUT_INTERVAL_MS = 100;
-
+/**
+ * 채널 헤더의 peak/rms 배지. 최근 구간이 아니라 **세션 누적값**이다 — 스토어가 압축과
+ * 무관하게 원본 샘플 기준으로 들고 있는 값을 그대로 보여준다.
+ */
 export function ChannelStatsBadge({ store }: { store: ChannelWaveStore }) {
-  const [stats, setStats] = useState<{ peak: number; rms: number } | null>(null);
-
-  useEffect(() => {
-    let timer: number | null = null;
-    let lastVersion = -1;
-
-    const sync = () => {
-      timer = null;
-      const snap = store.snapshot();
-      if (snap.version === lastVersion) return;
-      lastVersion = snap.version;
-      setStats(snap.sampleCount > 0 ? { peak: snap.peak, rms: snap.rms } : null);
-    };
-    const onUpdate = () => { if (timer === null) timer = window.setTimeout(sync, READOUT_INTERVAL_MS); };
-
-    const off = store.subscribe(onUpdate);
-    sync(); // 늦게 마운트된 배지가 현재 상태를 즉시 반영하도록
-    return () => {
-      off();
-      if (timer !== null) window.clearTimeout(timer);
-    };
-  }, [store]);
-
-  if (!stats) return null;
+  const { peak, rms, sampleCount } = useWaveReadout(store);
+  if (sampleCount === 0) return null;
   return (
     <span className="ml-auto text-[10px] font-mono text-iron-400">
-      peak {stats.peak.toFixed(4)} · rms {stats.rms.toFixed(4)}
+      peak {peak.toFixed(4)} · rms {rms.toFixed(4)}
     </span>
   );
 }
