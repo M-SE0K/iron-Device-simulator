@@ -103,10 +103,20 @@ ok "WASM 빌드 완료"
 
 # ---------------------------------------------------------------------------
 log "6/6 (선택) macOS CoreAudio 캡처 헬퍼 빌드 — Electron 네이티브 마이크/장치 제어에만 필요"
-if ./electron/native/macos/audio-device-helper/build-mac.sh; then
-  ok "audio-device-helper 빌드 완료 (electron/native/macos/audio-device-helper/dist/)"
+if ./native/macos/audio-device-helper/build-mac.sh; then
+  ok "audio-device-helper 빌드 완료 (native/macos/audio-device-helper/dist/)"
 else
   warn "audio-device-helper 빌드 실패 — npm run dev(브라우저 getUserMedia 폴백)는 영향 없습니다. 필요 시 나중에 다시 실행하세요."
+fi
+
+# ---------------------------------------------------------------------------
+# (선택, 비차단) Rust 툴체인 확인 — Tauri 데스크톱 셸(build:tauri*, tauri:preview)
+# 빌드에만 필요하다. Electron 전용으로만 쓸 팀원은 아래가 없어도 이 셋업은 그대로
+# 성공한다 — 안내만 하고 절대 실패시키지 않는다.
+if ! command -v cargo >/dev/null 2>&1; then
+  warn "Rust 툴체인(cargo) 없음 — Electron 전용 워크플로는 무관합니다. Tauri 빌드까지 쓰려면 https://rustup.rs 참고 (macOS는 Xcode Command Line Tools 외 추가 시스템 패키지 불필요)."
+else
+  ok "$(cargo --version)"
 fi
 
 # ---------------------------------------------------------------------------

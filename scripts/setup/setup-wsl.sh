@@ -99,6 +99,30 @@ npm run wasm:build
 ok "WASM 빌드 완료"
 
 # ---------------------------------------------------------------------------
+# (선택, 비차단) Rust 툴체인 확인 — Tauri 데스크톱 셸(build:tauri*, tauri:preview)
+# 빌드에만 필요하다. Electron 전용으로만 쓸 팀원은 아래가 없어도 이 셋업은 그대로
+# 성공한다 — 안내만 하고 절대 실패시키지 않는다.
+if ! command -v cargo >/dev/null 2>&1; then
+  warn "Rust 툴체인(cargo) 없음 — Electron 전용 워크플로는 무관합니다. Tauri 빌드까지 쓰려면:"
+  echo "      - Rust: https://rustup.rs"
+  echo "      - WSL/Linux 추가 패키지 (Tauri v2 WebKitGTK 의존):"
+  echo "          sudo apt install libwebkit2gtk-4.1-dev pkg-config libssl-dev \\"
+  echo "            librsvg2-dev libxdo-dev libayatana-appindicator3-dev"
+else
+  ok "$(cargo --version)"
+fi
+
+# (선택, 비차단) Windows 크로스 빌드 도구 안내 — 이 WSL/Linux 머신에서
+# `npm run build:tauri:windows`를 실기 Windows 없이 바로 돌리고 싶을 때만 필요하다
+# (cargo-xwin + NSIS를 쓰는 Tauri의 실험적 크로스 컴파일 경로, README 참고). 없어도
+# 다른 워크플로에는 전혀 영향이 없다 — 그 명령을 실제로 실행할 때 각 도구의 부재를
+# 에러로 알려주므로, 여기서는 미리 안내만 한다.
+echo "      (선택) Windows 크로스 빌드(build:tauri:windows, cargo-xwin 경로, 실험적)까지 쓰려면:"
+echo "          rustup target add x86_64-pc-windows-msvc"
+echo "          cargo install cargo-xwin"
+echo "          sudo apt install nsis clang lld llvm"
+
+# ---------------------------------------------------------------------------
 cat <<EOF
 
 ✓ 셋업 완료: $ROOT

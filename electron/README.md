@@ -6,6 +6,8 @@
 
 분석 엔진(WASM)은 여전히 렌더러 안에서만 돈다 — 이 도메인은 그 렌더러를 담을 창을 만들고(`main.js`), `out/`을 로컬에서 서빙하고(`server.js`), `sandbox: true`인 렌더러에 오디오 장치·캡처·로컬 폴더 IPC를 최소한으로 노출하는 다리(`preload.js`)만 놓는다. 실제 IPC 채널 등록과 네이티브 헬퍼 실행은 `ipc/`가, macOS CoreAudio 헬퍼 자체는 `native/macos/`가 각각 별도 도메인으로 담당한다.
 
+`src-tauri/`(루트)는 이 도메인과 병행 존재하는 두 번째 데스크톱 셸이다 — 같은 `out/`(정적 렌더러 산출물)과 같은 `native/` 헬퍼(macOS/Windows 오디오)를 공유하고, `preload.js`가 여기서 노출하는 4개 브리지 계약을 Rust 커맨드 + TS shim(`src/shared/lib/tauri-bridge/`)으로 동일하게 재현한다. 어느 쪽으로 패키징할지는 `build:electron*` vs `build:tauri*` 빌드 옵션이 결정할 뿐, 이 디렉터리의 코드는 Tauri 추가로 인해 전혀 바뀌지 않았다.
+
 ## 2. 프로젝트 전반에서의 역할
 
 `npm run build:electron`/`build:electron:mac`이 만드는 `dist-electron/` 패키지의 실행 진입점이자, `npm run electron:preview`(`electron .`)로 로컬 `out/`을 그대로 띄울 때도 거치는 경로다.

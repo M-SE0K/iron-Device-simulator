@@ -1,37 +1,38 @@
 #!/usr/bin/env bash
 # build-wasm.sh — ff_prot.c 를 브라우저 타깃 WASM으로 컴파일한다.
 #
-#   ./build-wasm.sh      # ../../../public/wasm/ff_prot.{js,wasm} 생성 (repo root 기준 public/wasm/)
+#   ./build-wasm.sh      # ../../public/wasm/ff_prot.{js,wasm} 생성 (repo root 기준 public/wasm/)
 #
 # 요구: emcc(Emscripten) — 없으면 Docker(emscripten/emsdk 이미지)로 자동 폴백 (아래 참고).
 #   src/features/audio/lib/engine/adapters/wasm-client.ts 가 브라우저/Electron 렌더러
 #   안에서 fetch 로 로드해 서버 없이 직접 호출한다.
 # libirontune.so(koffi FFI, ELF x86-64 전용)와 달리 아키텍처 무관 — QEMU 불필요.
 #
-# 이 폴더(electron/native/wasm-engine/)는 electron/ 밑에 있지만 Electron 전용이 아니다 —
-# 산출물(public/wasm/ff_prot.{js,wasm})은 웹 전용 빌드(build:desktop)에도 그대로 쓰인다.
+# 이 폴더(native/wasm-engine/)는 프로젝트 최상위 native/ 밑에 있고 Electron/Tauri
+# 어느 쪽에도 종속되지 않는다 — 산출물(public/wasm/ff_prot.{js,wasm})은 웹 전용
+# 빌드(build:desktop)에도 그대로 쓰인다.
 #
 # 실험(debug) 빌드 — ff_prot.c의 FF_PROT_DEBUG_VI 가드 블록(V/I 값 printf 덤프)을 켠다.
 # 이 덤프는 프레임마다 대량 console 출력을 일으켜 N1(네이티브 IPC 릴레이) 등 E2E 지연
 # 측정을 오염시키므로, 클린 빌드(public/wasm/, 기본)와 물리적으로 분리된 출력 경로에 둔다:
-#   npm run wasm:build:debug   # FF_PROT_DEBUG_VI=1 WASM_OUT_DIR=../../../public/wasm-debug
+#   npm run wasm:build:debug   # FF_PROT_DEBUG_VI=1 WASM_OUT_DIR=../../public/wasm-debug
 set -euo pipefail
 cd "$(dirname "$0")"
 
-WASM_OUT_DIR="${WASM_OUT_DIR:-../../../public/wasm}"
+WASM_OUT_DIR="${WASM_OUT_DIR:-../../public/wasm}"
 mkdir -p "$WASM_OUT_DIR"
 
 # ── emcc 확인 — 로컬에 없으면 Docker(emscripten/emsdk) 폴백 ─────────────────
 # 알고리즘만 갈아끼우려는 사용자가 Emscripten SDK를 설치하지 않고도 빌드할 수 있게,
 # 로컬 emcc 부재 시 공식 emscripten/emsdk 이미지로 같은 커맨드를 실행한다.
-# (repo 루트를 /src로 마운트 — 산출물 경로(../../../public/wasm)가 컨테이너 안에서도 유효)
+# (repo 루트를 /src로 마운트 — 산출물 경로(../../public/wasm)가 컨테이너 안에서도 유효)
 if command -v emcc >/dev/null 2>&1; then
   EMCC=(emcc)
 elif command -v docker >/dev/null 2>&1; then
-  REPO_ROOT="$(cd ../../.. && pwd)"
+  REPO_ROOT="$(cd ../.. && pwd)"
   echo "→ 로컬 emcc 없음 — Docker(emscripten/emsdk)로 폴백 (최초 1회는 이미지 다운로드로 오래 걸릴 수 있음)"
   EMCC=(docker run --rm -u "$(id -u):$(id -g)" \
-    -v "$REPO_ROOT":/src -w /src/electron/native/wasm-engine \
+    -v "$REPO_ROOT":/src -w /src/native/wasm-engine \
     emscripten/emsdk emcc)
 else
   echo "✗ emcc(Emscripten)도 docker도 없습니다. 둘 중 하나를 준비하세요:" >&2
@@ -80,7 +81,7 @@ else
 fi
 shopt -u nullglob
 if [[ ${#SRCS[@]} -eq 0 ]]; then
-  echo "✗ 컴파일할 .c 소스가 없습니다 (electron/native/wasm-engine/)." >&2
+  echo "✗ 컴파일할 .c 소스가 없습니다 (native/wasm-engine/)." >&2
   exit 1
 fi
 echo "→ 컴파일 대상: ${SRCS[*]}"

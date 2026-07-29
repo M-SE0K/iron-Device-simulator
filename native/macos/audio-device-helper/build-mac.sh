@@ -14,10 +14,10 @@ lipo -create -output dist/audio-device-helper dist/audio-device-helper-arm64 dis
 rm dist/audio-device-helper-arm64 dist/audio-device-helper-x64
 chmod +x dist/audio-device-helper
 
-echo "✓ audio-device-helper (universal): electron/native/macos/audio-device-helper/dist/audio-device-helper"
+echo "✓ audio-device-helper (universal): native/macos/audio-device-helper/dist/audio-device-helper"
 
 # query-device: CoreAudio 장치 조회 진단 도구 — 앱에 번들되지 않는 개발용 CLI라 호스트 아키텍처로만 빌드한다.
 cc -O2 -o dist/query-device src/query-device.c -framework CoreAudio -framework CoreFoundation
 chmod +x dist/query-device
 
-echo "✓ query-device (host arch, dev-only): electron/native/macos/audio-device-helper/dist/query-device"
+echo "✓ query-device (host arch, dev-only): native/macos/audio-device-helper/dist/query-device"

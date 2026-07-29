@@ -8,7 +8,7 @@
 
 ## 2. 프로젝트 전반에서의 역할
 
-이 도메인은 `electron/` 루트(`main.js`/`preload.js`)와 macOS 네이티브 헬퍼(`electron/native/macos/audio-device-helper`) 사이를 잇는 중간 계층이다. 헬퍼 프로세스 자체의 오디오 처리 로직은 갖지 않고, spawn·stdout 파싱·IPC 중계·리소스 정리만 맡는다.
+이 도메인은 `electron/` 루트(`main.js`/`preload.js`)와 macOS 네이티브 헬퍼(`native/macos/audio-device-helper`) 사이를 잇는 중간 계층이다. 헬퍼 프로세스 자체의 오디오 처리 로직은 갖지 않고, spawn·stdout 파싱·IPC 중계·리소스 정리만 맡는다.
 
 - 캡처 경로(`audio-capture.js`, `audio-playcapture.js`)는 헬퍼가 stdout에 첫 줄 JSON 헤더 한 번, 그 뒤로 int16 인터리브 raw PCM 청크를 계속 흘려보내는 동일한 스트리밍 프로토콜을 쓴다 — 이 공통 처리를 `run-streaming-helper.js`가 흡수해 두 파일이 각자 spawn/stdout 파싱 코드를 중복 구현하지 않는다.
 - `audio-device.js`가 export하는 `AUDIO_HELPER_PATH`/`SUPPORTED_PLATFORMS`/`withDevice`는 헬퍼 바이너리 경로 해석과 플랫폼 판정을 3개 IPC 모듈이 공유하는 단일 소스다. macOS는 `native/macos/audio-device-helper/dist/`, Windows는 `native/windows/audio-device-helper/dist/`(아직 소스 없음, `docs/windows-plan.md` 계획 단계) 경로 규칙만 다르고 CLI 인자 계약은 동일하다는 전제로 짜여 있다.
@@ -31,7 +31,7 @@
 
 - `audio-capture.js`, `audio-playcapture.js` → `./audio-device`(`AUDIO_HELPER_PATH`/`SUPPORTED_PLATFORMS`/`withDevice`), `./run-streaming-helper`(`runStreamingHelper`).
 - 외부 패키지/Node 내장 — `electron`(`app`/`ipcMain`/`BrowserWindow`/`dialog`), `child_process`(`execFile`/`spawn`), `fs`/`path`/`os`.
-- 헬퍼 바이너리 자체 — `electron/native/macos/audio-device-helper/dist/audio-device-helper`(Windows는 `electron/native/windows/audio-device-helper/`, 아직 소스 없음). 코드로 import하지 않고 `execFile`/`spawn`이 경로 문자열로 실행한다.
+- 헬퍼 바이너리 자체 — `native/macos/audio-device-helper/dist/audio-device-helper`(Windows는 `native/windows/audio-device-helper/`, 아직 소스 없음). 코드로 import하지 않고 `execFile`/`spawn`이 경로 문자열로 실행한다.
 
 **이 도메인을 import하는 것** (바깥 방향):
 

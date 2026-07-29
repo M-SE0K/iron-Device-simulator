@@ -4,6 +4,7 @@ import { ActiveDrawerProvider } from "@/features/audio/components/dashboard/Acti
 import { CalibrationProvider } from "@/features/audio/components/calibration/CalibrationContext";
 import { WorkspaceProvider } from "@/features/audio/components/workspace/WorkspaceContext";
 import { ErrorPopupProvider } from "@/shared/components/error-popup/ErrorPopupContext";
+import TauriBridgeInit from "./TauriBridgeInit";
 
 export const metadata: Metadata = {
   title: "Iron Device — Audio Analysis Dashboard",
@@ -24,6 +25,9 @@ export default function RootLayout({
   return (
     <html lang="ko">
       <body>
+        {/* Tauri shim 설치 부트스트랩 — children(및 그 안의 모든 브리지 감지 useEffect)보다
+            먼저 배치해 모듈 평가 시점에 window.audioDevice 등이 이미 채워져 있게 한다. */}
+        <TauriBridgeInit />
         {/* 앱 전역 에러 팝업 — 화면 곳곳의 에러 텍스트를 화면 중앙 모달 하나로 통일 (최상위) */}
         <ErrorPopupProvider>
           {/* 우측 드로어(Workspace/측정 기록/Calibration) 배타 전환 상태 — 최상위 단일 소스 */}

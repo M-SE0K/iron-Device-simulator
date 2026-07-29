@@ -1,7 +1,8 @@
-# electron/native/wasm-engine/ — ff_prot 참조 구현 (검증용 `libirontune.so` 스텁)
+# native/wasm-engine/ — ff_prot 참조 구현 (검증용 `libirontune.so` 스텁)
 
-> 이 폴더는 `electron/` 밑에 있지만 Electron 전용이 아닙니다 — 컴파일 산출물
-> (`public/wasm/ff_prot.{js,wasm}`)은 순수 웹 빌드(`build:desktop`)에도 그대로 쓰입니다.
+> 이 폴더는 프로젝트 최상위 `native/` 밑에 있고 Electron/Tauri 어느 쪽에도 종속되지
+> 않습니다 — 컴파일 산출물(`public/wasm/ff_prot.{js,wasm}`)은 순수 웹 빌드(`build:desktop`)에도
+> 그대로 쓰입니다.
 
 > ⚠️ **정품 아님.** Iron Device 정품 `libirontune.so` 의 원본 소스를 아직 받지 못해
 > 임의로 구성한 **물리 근사 모델**입니다. 실제로는 이 `.c` 소스를 Emscripten으로
@@ -79,7 +80,7 @@
 
 ```bash
 # Linux x86-64 전용
-cd electron/native/wasm-engine
+cd native/wasm-engine
 make selftest        # 순수 C 셀프테스트(온도 상승 + ch0(V)/ch1(I) 변위 차이) 확인
 ```
 

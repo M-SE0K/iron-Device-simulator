@@ -6,7 +6,7 @@
 // 붙이려면 지금 경계를 그어두는 편이 싸다.
 //
 // macOS(mac.swift)와는 소스를 공유하지 않는다 — 공유되는 것은 CLI 계약뿐이다.
-// (electron/native/macos/audio-device-helper/README.md 의 "명령어" 절이 단일 진실원)
+// (native/macos/audio-device-helper/README.md 의 "명령어" 절이 단일 진실원)
 #pragma once
 
 #include <cstddef>

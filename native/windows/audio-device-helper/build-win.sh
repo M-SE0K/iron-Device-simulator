@@ -61,4 +61,4 @@ done
 "$CXX" -static -o dist/audio-device-helper.exe "$OBJ"/*.o \
   -lole32 -loleaut32 -luuid -luser32 -ladvapi32
 
-echo "✓ audio-device-helper.exe (x64): electron/native/windows/audio-device-helper/dist/audio-device-helper.exe"
+echo "✓ audio-device-helper.exe (x64): native/windows/audio-device-helper/dist/audio-device-helper.exe"

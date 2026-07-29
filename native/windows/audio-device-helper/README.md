@@ -1,6 +1,6 @@
 # audio-device-helper — ASIO 헬퍼 (Windows 전용)
 
-`electron/native/macos/audio-device-helper/`(Swift/CoreAudio)와 **같은 CLI 계약을 구현하는
+`native/macos/audio-device-helper/`(Swift/CoreAudio)와 **같은 CLI 계약을 구현하는
 형제 바이너리**다. 소스는 공유하지 않는다 — 공유되는 것은 argv와 한 줄 JSON stdout뿐이고,
 `electron/ipc/audio-device.js`가 `process.platform`으로 경로만 갈라 그대로 재사용한다.
 계약의 단일 진실원은 macOS 쪽 README의 "명령어" 절이다.

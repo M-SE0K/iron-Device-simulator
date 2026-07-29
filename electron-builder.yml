@@ -52,7 +52,7 @@ mac:
   # universal binary) — mac 타깃에만 번들링. win/linux는 아직 해당 헬퍼가 없다
   # (계획: native/windows/audio-device-helper/, docs/windows-plan.md).
   extraResources:
-    - from: electron/native/macos/audio-device-helper/dist/audio-device-helper
+    - from: native/macos/audio-device-helper/dist/audio-device-helper
       to: audio-device-helper
 
 win:
@@ -72,7 +72,7 @@ win:
   # 바이너리가 복사되어 그 빌드에서는 헬퍼가 실행되지 않는다 (ASIO 드라이버 자체가
   # arm64 Windows에 사실상 없어 arm64 타깃을 뺄지 검토가 필요하다).
   extraResources:
-    - from: electron/native/windows/audio-device-helper/dist/audio-device-helper.exe
+    - from: native/windows/audio-device-helper/dist/audio-device-helper.exe
       to: audio-device-helper.exe
 
 linux:

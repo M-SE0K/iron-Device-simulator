@@ -4,7 +4,7 @@
 
 플레이어 컴포넌트가 서버 없이 브라우저 안에서 PCM 프레임을 스피커 온도(°C)·익스커션(콘 변위)으로 변환할 수 있게 하는 분석 엔진 계층이다. 개발자는 WebSocket 모양의 좁은 인터페이스(`SocketLike`) 하나만 다루면 되고 WASM(WebAssembly) 로드·메모리 관리·후처리 보정은 이 도메인이 전부 흡수한다.
 
-내부는 관심사별 4계층으로 나뉜다: 공통 상수·인터페이스(`core.ts`, leaf 모듈), PCM 변환·분석 파이프라인(`utils.ts`), WASM 런타임 어댑터(`adapters/wasm-client.ts`), 그리고 과거 WebSocket 서버 프로토콜을 in-process로 흉내 내는 프로토콜 계층(`protocol/`)이다. 실제 계산은 `electron/native/wasm-engine/ff_prot.c`를 브라우저 타깃 WASM으로 빌드한 `public/wasm/ff_prot.{js,wasm}`이 담당하는데, **이 C 소스는 정품 벤더 라이브러리(`libirontune.so`)가 아니라 물리 근사 참조 스텁**이다 — RMS 기반 1차 열 RC 모델과 120 Hz 저역통과 피크로 온도·변위를 추정하며 정품 소스 수령 시 폐기 예정이다.
+내부는 관심사별 4계층으로 나뉜다: 공통 상수·인터페이스(`core.ts`, leaf 모듈), PCM 변환·분석 파이프라인(`utils.ts`), WASM 런타임 어댑터(`adapters/wasm-client.ts`), 그리고 과거 WebSocket 서버 프로토콜을 in-process로 흉내 내는 프로토콜 계층(`protocol/`)이다. 실제 계산은 `native/wasm-engine/ff_prot.c`를 브라우저 타깃 WASM으로 빌드한 `public/wasm/ff_prot.{js,wasm}`이 담당하는데, **이 C 소스는 정품 벤더 라이브러리(`libirontune.so`)가 아니라 물리 근사 참조 스텁**이다 — RMS 기반 1차 열 RC 모델과 120 Hz 저역통과 피크로 온도·변위를 추정하며 정품 소스 수령 시 폐기 예정이다.
 
 ## 2. 프로젝트 전반에서의 역할
 
@@ -39,7 +39,7 @@ core.ts (leaf)
 - **들어옴** — `features/audio/types.ts`에서 `EngineParams`/`WsServerMessage` 타입을 가져온다. 런타임 입력은 플레이어가 `SocketLike.send()`로 넣는 JSON init 메시지(Calibration 값)와 binary PCM 프레임(인터리브 Int16, ch0=V/ch1=I) 두 가지다.
 - **나감** — `emit()`이 `onmessage`로 `WsServerMessage`(`ready`/`frame`/`error`)를 JSON 문자열로 돌려준다. `frame` 메시지는 `{type, frameIndex, time, temperature:[ch0,ch1], excursion:[ch0,ch1], processingMs}`. 이어서 `emitBinary()`가 같은 `frameIndex`를 단 **바이너리 메시지**(보호 감쇠 전/후 PCM 쌍)를 보낸다 — `protocol/analysis.ts`의 `encodeProcessedPcmMessage`/`decodeProcessedPcmMessage` 참고.
 - **소비자(플레이어 → engine 방향)** — `capture/useCaptureSession.ts`가 `createAnalysisSocket`과 `BYTES_PER_SAMPLE`을; `capture/useNativeCapture.ts`·`capture/useWebAudioWorkletCapture.ts`가 `SocketLike` 타입을(웹 캡처는 `encodeToInt16`도); `capture/build-init-message.ts`가 `EngineRuntimeConfig`를 가져다 쓴다. `lib/wav-encoder.ts`는 `CHANNELS`/`BYTES_PER_SAMPLE`을 WAV 헤더 계산에 쓴다.
-- **WASM 산출물** — `adapters/wasm-client.ts`가 `public/wasm/ff_prot.{js,wasm}`(`electron/native/wasm-engine/build-wasm.sh` 산출물, 원본은 참조 스텁 `electron/native/wasm-engine/ff_prot.c`)를 로드한다.
+- **WASM 산출물** — `adapters/wasm-client.ts`가 `public/wasm/ff_prot.{js,wasm}`(`native/wasm-engine/build-wasm.sh` 산출물, 원본은 참조 스텁 `native/wasm-engine/ff_prot.c`)를 로드한다.
 
 프레임 1개의 내부 처리 흐름:
 
@@ -63,7 +63,7 @@ send(ArrayBuffer) → LocalWasmSocket.handleFrame (크기 < frameBytes(config)�
 
 ⚠️ 현재 감쇠 커브(`EXC_LIMIT_UM` 4000 µm / `TEMP_LIMIT_C` 85°C 기반)는 참조 스텁이 지어낸 임의값이다 — 파이프라인 검증용이며 실제 보호 성능이 아니다. UI에도 배지로 명시돼 있고, 정품 `.so` 수령 시 폐기한다.
 
-Calibration `sampleRate`/`bufferSize`는 init 메시지 → `connConfig`(`EngineRuntimeConfig`)까지 그대로 전달된다. 세션 시작 후에는 바뀌지 않는다(다음 init에서 적용). 단 `ff_prot_start_exec`는 검증된 실제 벤더 시그니처(`sample_rate_hz` 없음, `electron/native/wasm-engine/VENDOR-API-SPEC.md` 2.2절)를 따르므로 `bufferSize`(samplesPerCh)만 그 호출 인자와 dt 계산에 반영되고, `sampleRate`는 캡처/와이어 세션 설정에만 쓰인다 — 엔진 내부 dt/LPF 계수는 스텁이 고정 `DEFAULT_SAMPLE_RATE_HZ`로 근사한다(`electron/native/wasm-engine/ff_prot.c`).
+Calibration `sampleRate`/`bufferSize`는 init 메시지 → `connConfig`(`EngineRuntimeConfig`)까지 그대로 전달된다. 세션 시작 후에는 바뀌지 않는다(다음 init에서 적용). 단 `ff_prot_start_exec`는 검증된 실제 벤더 시그니처(`sample_rate_hz` 없음, `native/wasm-engine/VENDOR-API-SPEC.md` 2.2절)를 따르므로 `bufferSize`(samplesPerCh)만 그 호출 인자와 dt 계산에 반영되고, `sampleRate`는 캡처/와이어 세션 설정에만 쓰인다 — 엔진 내부 dt/LPF 계수는 스텁이 고정 `DEFAULT_SAMPLE_RATE_HZ`로 근사한다(`native/wasm-engine/ff_prot.c`).
 
 ## 5. 주요 인터페이스 / 진입점
 

@@ -45,7 +45,7 @@ npm run build:electron:main
 # electron-builder.yml의 mac.extraResources가 이 산출물을 참조한다.
 # --windows-only/--linux-only 에서는 mac을 아예 패키징하지 않으므로 건너뛴다.
 if [[ "$(uname)" == "Darwin" && "$WINDOWS_ONLY" != "true" && "$LINUX_ONLY" != "true" ]]; then
-  ./electron/native/macos/audio-device-helper/build-mac.sh
+  ./native/macos/audio-device-helper/build-mac.sh
 fi
 
 # ASIO 헬퍼(Windows 전용)를 win 타깃 패키징 전에 크로스 컴파일한다.
@@ -60,7 +60,7 @@ fi
 if [[ "$MAC_ONLY" != "true" && "$LINUX_ONLY" != "true" ]]; then
   if [[ "${SKIP_WIN_HELPER_BUILD:-}" == "1" ]]; then
     echo "▶ ASIO 헬퍼 빌드 건너뜀 (SKIP_WIN_HELPER_BUILD=1) — dist/의 기존 exe를 그대로 씁니다"
-    HELPER_EXE="electron/native/windows/audio-device-helper/dist/audio-device-helper.exe"
+    HELPER_EXE="native/windows/audio-device-helper/dist/audio-device-helper.exe"
     if [[ -f "$HELPER_EXE" ]]; then
       echo "    기존 exe 빌드 시각: $(date -r "$HELPER_EXE" '+%Y-%m-%d %H:%M:%S')"
     else
@@ -68,7 +68,7 @@ if [[ "$MAC_ONLY" != "true" && "$LINUX_ONLY" != "true" ]]; then
       exit 1
     fi
   else
-    ./electron/native/windows/audio-device-helper/build-win.sh
+    ./native/windows/audio-device-helper/build-win.sh
   fi
 fi
 

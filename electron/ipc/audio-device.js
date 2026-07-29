@@ -18,10 +18,11 @@ const HELPER_SOURCE_DIR = process.platform === "win32" ? "windows" : "macos";
 
 // dev 폴백(!isPackaged)의 __dirname은 webpack 번들 결과 기준(electron-dist/,
 // project root 바로 아래 — webpack.electron.config.js 참고)이라 electron/ipc/
-// 원본 위치보다 한 단계 얕다. "native/..."에서 시작해 electron/ 하나만 내려간다.
+// 원본 위치보다 한 단계 얕다. native/는 electron/에서 프로젝트 최상위로 이동했으므로
+// project root 기준 "native/..."로 곧장 진입한다.
 const AUDIO_HELPER_PATH = app.isPackaged
   ? path.join(process.resourcesPath, HELPER_BINARY_NAME)
-  : path.join(__dirname, "..", "electron", "native", HELPER_SOURCE_DIR, "audio-device-helper", "dist", HELPER_BINARY_NAME);
+  : path.join(__dirname, "..", "native", HELPER_SOURCE_DIR, "audio-device-helper", "dist", HELPER_BINARY_NAME);
 
 function runAudioHelper(args) {
   return new Promise((resolve) => {

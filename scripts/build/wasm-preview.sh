@@ -15,6 +15,12 @@
 # public/$WASM_DIR_NAME/ 에 이미 놓아둔 ff_prot.{js,wasm}를 그대로 out/ 에 복사한다 — 다른
 # 머신에서 빌드했거나 정품 소스로 직접 컴파일한 커스텀 WASM 산출물을 미리 그 경로에 넣어두고
 # 쓸 때 쓴다. 리포의 .c 소스는 전혀 건드리지 않는다.
+#
+# APP_SHELL=electron(기본값)|tauri — WASM 갱신 뒤 어느 셸로 미리보기를 띄울지 고른다.
+# electron이면 기존과 동일하게 `electron .`, tauri면 `npx tauri dev`를 대신 실행한다.
+# tauri dev도 frontendDist(../out) 기준이라 같은 미리보기 철학(전체 재빌드 없이 out/만
+# 갱신 후 확인)이 그대로 유지되고, 매 실행마다 Rust 쪽 변경분만 증분 재컴파일한다(Rust
+# 소스를 안 건드렸으면 사실상 바로 뜬다).
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 
@@ -51,4 +57,9 @@ fi
 cp "public/$WASM_DIR_NAME/ff_prot.js" "public/$WASM_DIR_NAME/ff_prot.wasm" "$OUT_WASM_DIR/"
 echo "✓ $OUT_WASM_DIR 갱신 완료"
 
-electron .
+APP_SHELL="${APP_SHELL:-electron}"
+case "$APP_SHELL" in
+  electron) electron . ;;
+  tauri) npx tauri dev ;;
+  *) echo "알 수 없는 APP_SHELL: $APP_SHELL (electron|tauri)" >&2; exit 1 ;;
+esac

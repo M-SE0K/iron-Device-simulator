@@ -12,25 +12,25 @@ BufferFrameSize)에 접근할 방법이 없어서, 이 별도 바이너리가 �
 
 ```bash
 # 연결된 입력 장치 전체 열거 (uid/name/inputChannels/isDefault) — 장치 선택 드롭다운용
-electron/native/macos/audio-device-helper/dist/audio-device-helper list
+native/macos/audio-device-helper/dist/audio-device-helper list
 
 # 조회 (현재값만)
-electron/native/macos/audio-device-helper/dist/audio-device-helper get [--device <UID>]
+native/macos/audio-device-helper/dist/audio-device-helper get [--device <UID>]
 
 # 능력 조회 (현재값 + 지원 SampleRate 목록 + Buffer 허용 범위 + 입력 채널 수) — UI 장치 패널용
-electron/native/macos/audio-device-helper/dist/audio-device-helper query [--device <UID>]
+native/macos/audio-device-helper/dist/audio-device-helper query [--device <UID>]
 
 # 설정 (sampleRate: Hz, bufferSize: samples/frame) — ⚠️ bufferSize는 지속되지 않음, 아래 참고
-electron/native/macos/audio-device-helper/dist/audio-device-helper set [--device <UID>] <sampleRate> <bufferSize>
+native/macos/audio-device-helper/dist/audio-device-helper set [--device <UID>] <sampleRate> <bufferSize>
 
 # 상주 캡처 (sampleRate/bufferSize 적용 + 캡처 스트리밍) — bufferSize가 실제 적용되는 유일한 모드
-electron/native/macos/audio-device-helper/dist/audio-device-helper capture [--device <UID>] <sampleRate> <bufferSize> [channels=2]
+native/macos/audio-device-helper/dist/audio-device-helper capture [--device <UID>] <sampleRate> <bufferSize> [channels=2]
 
 # 파일 재생 + 캡처 (연속 재생, 단일 IOProc) — Electron 파일 모드의 재생/분석 경로
-electron/native/macos/audio-device-helper/dist/audio-device-helper play-capture [--device <UID>] --ref <path> [--ref-channels <1|2>] [--out-ch <n>] [--out-ch-r <n>] <sampleRate> <bufferSize> [channels=2]
+native/macos/audio-device-helper/dist/audio-device-helper play-capture [--device <UID>] --ref <path> [--ref-channels <1|2>] [--out-ch <n>] [--out-ch-r <n>] <sampleRate> <bufferSize> [channels=2]
 # 예
-electron/native/macos/audio-device-helper/dist/audio-device-helper capture 48000 480 2
-electron/native/macos/audio-device-helper/dist/audio-device-helper query --device BuiltInMicrophoneDevice
+native/macos/audio-device-helper/dist/audio-device-helper capture 48000 480 2
+native/macos/audio-device-helper/dist/audio-device-helper query --device BuiltInMicrophoneDevice
 ```
 
 `list`/`get`/`query`/`set` 출력은 한 줄 JSON(stdout).
@@ -94,7 +94,7 @@ cc -O2 -o dist/query-device src/query-device.c -framework CoreAudio -framework C
 ## 빌드
 
 ```bash
-./electron/native/macos/audio-device-helper/build-mac.sh
+./native/macos/audio-device-helper/build-mac.sh
 ```
 `swiftc`로 arm64/x64를 각각 컴파일 후 `lipo`로 합쳐 universal binary
 (`dist/audio-device-helper`)를 만든다 — electron-builder mac 타깃(`[x64, arm64]`)과
