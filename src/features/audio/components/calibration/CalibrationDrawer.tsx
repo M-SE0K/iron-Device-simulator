@@ -226,6 +226,14 @@ function CalibrationDrawer({ projectName, onApply }: Props) {
                 )}
               />
             )}
+
+            {hasMediaDevices && !hasAudioDeviceBridge && (
+              <NumberField
+                label="Output Channel"
+                value={draft.outputChannel}
+                onChange={(v) => set({ outputChannel: v })}
+              />
+            )}
           </section>
 
           <section className="space-y-3">
@@ -281,9 +289,9 @@ function CalibrationDrawer({ projectName, onApply }: Props) {
             {adjustedNote && !deviceOptionsLoading && (
               <p className="text-[11px] text-amber-600 leading-relaxed">⚠️ {adjustedNote}</p>
             )}
-            {hasAudioDeviceBridge && (
+            {(hasAudioDeviceBridge || hasMediaDevices) && (
               <SelectField
-                label="Capture Channels (native capture)"
+                label="Capture Channels"
                 unit="ch"
                 value={draft.channels}
                 options={channelOptions}

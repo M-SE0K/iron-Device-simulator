@@ -101,8 +101,8 @@ ipcMain.handle("local-folder:read-file", async (_event, filePath) => {
     return { success: false, error: "no-folder-connected" };
   }
   const resolved = path.resolve(filePath);
-  const base = path.resolve(allowedFolderPath) + path.sep;
-  if (!resolved.startsWith(base)) {
+  const relative = path.relative(path.resolve(allowedFolderPath), resolved);
+  if (relative.startsWith("..") || path.isAbsolute(relative)) {
     return { success: false, error: "invalid-path" };
   }
   try {

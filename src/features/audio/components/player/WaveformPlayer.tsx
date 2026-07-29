@@ -5,6 +5,7 @@ import { cn } from "@/shared/lib/utils";
 import { AppStatus, AnalysisFrame, InputParameterValues } from "@/features/audio/types";
 import { useCalibration } from "@/features/audio/components/calibration/CalibrationContext";
 import { useCaptureSession } from "./capture/useCaptureSession";
+import { useWebOutputRouting } from "./capture/useWebOutputRouting";
 import type { CaptureSnapshot, CaptureStreamListener } from "./capture/types";
 import PlayerBar from "./PlayerBar";
 
@@ -131,14 +132,11 @@ const WaveformPlayer = forwardRef<WaveformPlayerHandle, Props>(function Waveform
     if (status === "error") captureStartedRef.current = false;
   }, [status]);
 
-  useEffect(() => {
-    const wv = wavesurferRef.current as (import("wavesurfer.js").default & {
-      setSinkId?: (id: string) => Promise<void>;
-    }) | null;
-    if (!isReady || !wv || typeof wv.setSinkId !== "function") return;
-    wv.setSinkId(calibration.outputDeviceId || "").catch(() => {
-    });
-  }, [isReady, calibration.outputDeviceId]);
+  useWebOutputRouting({
+    mediaElement: isReady ? wavesurferRef.current?.getMediaElement() ?? null : null,
+    outputDeviceId: calibration.outputDeviceId,
+    outputChannel: calibration.outputChannel,
+  });
 
   const pausePlayback = useCallback(() => {
     const wv = wavesurferRef.current;

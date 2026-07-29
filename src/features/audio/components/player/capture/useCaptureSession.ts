@@ -197,9 +197,10 @@ export function useCaptureSession(deps: UseCaptureSessionDeps) {
     setActualBufferSize, openAnalysisSocket, cleanup, emitStreamEvent,
   });
   const { start: startWebCapture } = useWebAudioWorkletCapture({
-    audioCtxRef, streamRef, workletRef, analysisActiveRef, isActiveRef, frameCountRef,
+    audioCtxRef, streamRef, workletRef, rawCaptureRef, recordingActiveRef, analysisActiveRef,
+    isActiveRef, frameCountRef,
     setSampleRate, setDeviceName, setActualBufferSize, setActualLatency,
-    openAnalysisSocket,
+    openAnalysisSocket, emitStreamEvent,
   });
 
   const start = useCallback(async (options?: {
@@ -238,6 +239,7 @@ export function useCaptureSession(deps: UseCaptureSessionDeps) {
       await startWebCapture({
         sampleRate:       reqSampleRate,
         bufferSize:       reqBufferSize,
+        channels:         calibration.channels,
         inputDeviceId:    calibration.inputDeviceId?.trim() || "",
         inputDeviceLabel: calibration.inputDeviceLabel,
       });

@@ -14,6 +14,20 @@ export function encodeToInt16(ch0: Float32Array, ch1: Float32Array): Int16Array 
   return out;
 }
 
+// encodeToInt16()의 N채널 버전 — 분석 프레임(ch0=V/ch1=I)이 아니라 원본 보존용
+// raw 캡처 버퍼(WAV export/ChannelViewerOverlay)를 만들 때 쓴다.
+export function interleaveChannelsToInt16(channels: Float32Array[]): Int16Array {
+  const chCount = channels.length;
+  const samplesPerCh = channels[0]?.length ?? 0;
+  const out = new Int16Array(samplesPerCh * chCount);
+  for (let i = 0; i < samplesPerCh; i++) {
+    for (let ch = 0; ch < chCount; ch++) {
+      out[i * chCount + ch] = Math.max(INT16_MIN, Math.min(INT16_MAX, Math.round(channels[ch][i] * INT16_MAX)));
+    }
+  }
+  return out;
+}
+
 export function deinterleave(src: Buffer | Uint8Array, samplesPerCh: number): Int16Array {
   const dst = new Int16Array(samplesPerCh * CHANNELS);
   const channelOffsetSamples = samplesPerCh;
