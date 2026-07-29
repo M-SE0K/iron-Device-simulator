@@ -18,11 +18,11 @@ interface Props {
   canSave?: boolean;
   onReset?: () => void;
   elevated?: boolean;
-  /** 가운데 슬롯 — 파형 캔버스(WaveformPlayer) 또는 진행바(DuplexFilePlayer). */
+  /** 가운데 슬롯 — DuplexFilePlayer의 진행바. */
   children: ReactNode;
 }
 
-/** 하단 중앙 재생 컨트롤 알약 UI — WaveformPlayer/DuplexFilePlayer가 공유하는 프레젠테이션 셸. */
+/** 하단 중앙 재생 컨트롤 알약 UI — DuplexFilePlayer의 프레젠테이션 셸. */
 export default function PlayerBar({
   isReady,
   isPlaying,

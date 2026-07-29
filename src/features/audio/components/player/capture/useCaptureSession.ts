@@ -11,7 +11,6 @@ import { pcmFramesToWavBlob } from "@/features/audio/lib/codec/wav-encoder";
 import { CHANNELS, SAMPLE_RATE, SAMPLES_PER_CH, BYTES_PER_SAMPLE } from "@/features/audio/lib/engine/core";
 import { decodeProcessedPcmMessage } from "@/features/audio/lib/engine/protocol/analysis";
 import { useNativeCapture, type NativeRawCapture } from "./useNativeCapture";
-import { useWebAudioWorkletCapture } from "./useWebAudioWorkletCapture";
 import { buildInitMessage } from "./build-init-message";
 import type { CaptureSnapshot, CaptureStreamEvent, CaptureStreamListener, UseCaptureSessionDeps } from "./types";
 
@@ -39,14 +38,10 @@ export function useCaptureSession(deps: UseCaptureSessionDeps) {
     if (msg) showError(msg);
   }, [showError]);
   const [sampleRate, setSampleRate] = useState<number | null>(null);
-  const [actualLatency, setActualLatency] = useState<number | null>(null);
   const [deviceName, setDeviceName] = useState<string | null>(null);
   const [actualBufferSize, setActualBufferSize] = useState<number | null>(null);
 
   const wsRef          = useRef<SocketLike | null>(null);
-  const audioCtxRef    = useRef<AudioContext | null>(null);
-  const streamRef      = useRef<MediaStream | null>(null);
-  const workletRef     = useRef<AudioWorkletNode | null>(null);
   const nativeOffsRef  = useRef<Array<() => void>>([]);
   const nativeActiveRef = useRef(false);
   const playCaptureActiveRef = useRef(false);
@@ -84,16 +79,6 @@ export function useCaptureSession(deps: UseCaptureSessionDeps) {
       window.audioPlayCapture?.stop();
     }
 
-    workletRef.current?.port.close();
-    workletRef.current?.disconnect();
-    workletRef.current = null;
-
-    streamRef.current?.getTracks().forEach((t) => t.stop());
-    streamRef.current = null;
-
-    audioCtxRef.current?.close();
-    audioCtxRef.current = null;
-
     const ws = wsRef.current;
     wsRef.current = null;
     if (ws && ws.readyState === WebSocket.OPEN) {
@@ -103,7 +88,6 @@ export function useCaptureSession(deps: UseCaptureSessionDeps) {
 
     frameCountRef.current = 0;
     framesRcvdRef.current = 0;
-    setActualLatency(null);
     setDeviceName(null);
     setActualBufferSize(null);
   }, []);
@@ -196,12 +180,6 @@ export function useCaptureSession(deps: UseCaptureSessionDeps) {
     onStatusChange, setMicError, setSampleRate, setDeviceName,
     setActualBufferSize, openAnalysisSocket, cleanup, emitStreamEvent,
   });
-  const { start: startWebCapture } = useWebAudioWorkletCapture({
-    audioCtxRef, streamRef, workletRef, rawCaptureRef, recordingActiveRef, analysisActiveRef,
-    isActiveRef, frameCountRef,
-    setSampleRate, setDeviceName, setActualBufferSize, setActualLatency,
-    openAnalysisSocket, emitStreamEvent,
-  });
 
   const start = useCallback(async (options?: {
     playbackPcm?: Float32Array;
@@ -213,47 +191,32 @@ export function useCaptureSession(deps: UseCaptureSessionDeps) {
       const reqSampleRate = Number(calibration.sampleRate) || SAMPLE_RATE;
       const reqBufferSize = Number(calibration.bufferSize) || SAMPLES_PER_CH;
 
-      if (typeof window !== "undefined" && window.audioCapture) {
-        await startNativeCapture({
-          sampleRate:       reqSampleRate,
-          bufferSize:       reqBufferSize,
-          channels:         calibration.channels,
-          captureDeviceUID: calibration.captureDeviceUID ?? "",
-          playback: options?.playbackPcm
-            ? (() => {
-                const outputChannel = Number(calibration.outputChannel) || 0;
-                return {
-                  pcm: options.playbackPcm,
-                  onEnded: options.onPlaybackEnded ?? (() => {}),
-                  outputChannel,
-                  // R용 셀렉터 UI는 두지 않는다(Output Channel 필드 자체가 UX상 의도적으로 없음) —
-                  // 인접 채널(L+1)로 고정 배관. 장치에 그 채널이 없으면 네이티브 헬퍼가 조용히 모노로 폴백한다.
-                  outputChannelR: outputChannel + 1,
-                };
-              })()
-            : undefined,
-        });
-        return;
-      }
-
-      await startWebCapture({
+      await startNativeCapture({
         sampleRate:       reqSampleRate,
         bufferSize:       reqBufferSize,
         channels:         calibration.channels,
-        inputDeviceId:    calibration.inputDeviceId?.trim() || "",
-        inputDeviceLabel: calibration.inputDeviceLabel,
+        captureDeviceUID: calibration.captureDeviceUID ?? "",
+        playback: options?.playbackPcm
+          ? (() => {
+              const outputChannel = Number(calibration.outputChannel) || 0;
+              return {
+                pcm: options.playbackPcm,
+                onEnded: options.onPlaybackEnded ?? (() => {}),
+                outputChannel,
+                // R용 셀렉터 UI는 두지 않는다(Output Channel 필드 자체가 UX상 의도적으로 없음) —
+                // 인접 채널(L+1)로 고정 배관. 장치에 그 채널이 없으면 네이티브 헬퍼가 조용히 모노로 폴백한다.
+                outputChannelR: outputChannel + 1,
+              };
+            })()
+          : undefined,
       });
 
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      if (msg.includes("Permission") || msg.includes("NotAllowed")) {
-        setMicError("Microphone permission was denied. Please allow it in your browser settings.");
-      } else {
-        setMicError(msg);
-      }
+      setMicError(msg);
       cleanup();
     }
-  }, [calibration, startNativeCapture, startWebCapture, cleanup, setMicError]);
+  }, [calibration, startNativeCapture, cleanup, setMicError]);
 
   const getRecordedBlob = useCallback((): Blob | null => {
     const raw = rawCaptureRef.current;
@@ -307,7 +270,7 @@ export function useCaptureSession(deps: UseCaptureSessionDeps) {
 
   return {
     start, stop, cleanup, isRecording,
-    micError, sampleRate, deviceName, actualBufferSize, actualLatency,
+    micError, sampleRate, deviceName, actualBufferSize,
     getRecordedBlob, getCaptureSnapshot, sendMessage, pauseRecording, resumeRecording,
     getProtectedBlob, hasProtectedRecording,
     subscribeCaptureStream,

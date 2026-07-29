@@ -7,7 +7,7 @@ import { useErrorPopup } from "@/shared/components/error-popup/ErrorPopupContext
 import { SAMPLE_RATE } from "@/features/audio/lib/engine/core";
 import { decodeFileToStereo, type DecodedPlayback } from "@/features/audio/lib/codec/playback-decode";
 import { useCaptureSession } from "./capture/useCaptureSession";
-import type { WaveformPlayerHandle } from "./WaveformPlayer";
+import type { WaveformPlayerHandle } from "./capture/types";
 import PlayerBar from "./PlayerBar";
 
 interface Props {

@@ -8,7 +8,6 @@ import { useActiveDrawer } from "@/features/audio/components/dashboard/ActiveDra
 import { CALIBRATION_EMPTY, useCalibration } from "./CalibrationContext";
 import type { CalibrationValues } from "@/features/audio/types";
 import { useNativeAudioDevice } from "./hooks/useNativeAudioDevice";
-import { useMediaDevices } from "./hooks/useMediaDevices";
 import { useDeviceOptionAutoCorrect } from "./hooks/useDeviceOptionAutoCorrect";
 import { useCalibrationDraft } from "./hooks/useCalibrationDraft";
 import { useCalibrationApply } from "./hooks/useCalibrationApply";
@@ -102,10 +101,6 @@ function CalibrationDrawer({ projectName, onApply }: Props) {
     nativeDevices, nativeDevicesLoading, refreshNativeDevices,
   } = useNativeAudioDevice(draft.captureDeviceUID);
   const {
-    hasMediaDevices, inputDevices, outputDevices, devicesLoading, labelsHidden,
-    refreshInputDevices, revealDeviceNames,
-  } = useMediaDevices();
-  const {
     sampleRateOptions, bufferSizeOptions, channelOptions, deviceOptionsLoading, adjustedNote, clearAdjustedNote,
   } = useDeviceOptionAutoCorrect({ deviceInfo, deviceInfoLoading, hasAudioDeviceBridge, draft, set });
   const {
@@ -118,21 +113,8 @@ function CalibrationDrawer({ projectName, onApply }: Props) {
     clearAdjustedNote();
     refreshNativeDevices();
     refreshDeviceInfo(values.captureDeviceUID);
-    refreshInputDevices();
   }, [open]);
   useEscapeKey(() => setOpen(false), open);
-
-  const refreshDevicesButton = (
-    <button
-      type="button"
-      onClick={labelsHidden ? revealDeviceNames : refreshInputDevices}
-      disabled={devicesLoading}
-      className="flex items-center gap-1 text-[11px] text-iron-400 hover:text-iron-700 disabled:opacity-50"
-    >
-      <RefreshCw className={`w-3 h-3 ${devicesLoading ? "animate-spin" : ""}`} />
-      {labelsHidden ? "Show Names" : "Refresh"}
-    </button>
-  );
 
   return (
     <SideDrawer
@@ -177,64 +159,6 @@ function CalibrationDrawer({ projectName, onApply }: Props) {
             </div>
           )}
 
-
-          <section className="space-y-3">
-            {hasMediaDevices && !hasAudioDeviceBridge && (
-              <DeviceSelectField
-                label="Input Device"
-                aria-label="Input Device"
-                value={draft.inputDeviceId}
-                onChange={(id) => {
-                  const dev = inputDevices.find((d) => d.deviceId === id);
-                  set({ inputDeviceId: id, inputDeviceLabel: dev?.label ?? "" });
-                }}
-                devices={inputDevices.map((d, i) => ({
-                  value: d.deviceId,
-                  label: d.label || `Microphone ${i + 1}`,
-                }))}
-                placeholderLabel="System Default Input"
-                savedLabel={draft.inputDeviceLabel || "Saved Device"}
-                headerRight={refreshDevicesButton}
-                footnote={labelsHidden && (
-                  <p className="text-[10px] text-iron-300 leading-relaxed">
-                    Allow microphone access to see device names.
-                  </p>
-                )}
-              />
-            )}
-
-            {hasMediaDevices && !hasAudioDeviceBridge && (
-              <DeviceSelectField
-                label="Output Device"
-                aria-label="Output Device"
-                value={draft.outputDeviceId}
-                onChange={(id) => {
-                  const dev = outputDevices.find((d) => d.deviceId === id);
-                  set({ outputDeviceId: id, outputDeviceLabel: dev?.label ?? "" });
-                }}
-                devices={outputDevices.map((d, i) => ({
-                  value: d.deviceId,
-                  label: d.label || `Output ${i + 1}`,
-                }))}
-                placeholderLabel="System Default Output"
-                savedLabel={draft.outputDeviceLabel || "Saved Device"}
-                headerRight={refreshDevicesButton}
-                footnote={(
-                  <p className="text-[10px] text-iron-300 leading-relaxed">
-                    The output device playback audio is routed to. For V/I sensing, choose the output connected to the amp/speaker.
-                  </p>
-                )}
-              />
-            )}
-
-            {hasMediaDevices && !hasAudioDeviceBridge && (
-              <NumberField
-                label="Output Channel"
-                value={draft.outputChannel}
-                onChange={(v) => set({ outputChannel: v })}
-              />
-            )}
-          </section>
 
           <section className="space-y-3">
             <h4 className="text-xs font-semibold text-iron-500">THRESHOLD</h4>
@@ -289,7 +213,7 @@ function CalibrationDrawer({ projectName, onApply }: Props) {
             {adjustedNote && !deviceOptionsLoading && (
               <p className="text-[11px] text-amber-600 leading-relaxed">⚠️ {adjustedNote}</p>
             )}
-            {(hasAudioDeviceBridge || hasMediaDevices) && (
+            {hasAudioDeviceBridge && (
               <SelectField
                 label="Capture Channels"
                 unit="ch"
@@ -386,7 +310,7 @@ function CalibrationDrawer({ projectName, onApply }: Props) {
               {deviceInfo?.outputChannels === 0 && (
                 <p className="text-[11px] text-amber-600 leading-relaxed">
                   This device has no output channels, so file playback (single-IOProc duplex)
-                  is unavailable — only microphone mode can be used.
+                  is unavailable.
                 </p>
               )}
               <p className="text-[10px] text-iron-300 leading-relaxed">

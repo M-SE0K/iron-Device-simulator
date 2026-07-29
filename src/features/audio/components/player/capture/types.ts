@@ -31,3 +31,12 @@ export interface UseCaptureSessionDeps {
   onStreamStart: () => void;
   inputParams: InputParameterValues | undefined;
 }
+
+export interface WaveformPlayerHandle {
+  sendMessage: (msg: object) => void;
+  pause: () => void;
+  exportRecordedAudio: () => Blob | null;
+  exportProtectedAudio: () => Blob | null;
+  getCaptureSnapshot: () => CaptureSnapshot | null;
+  subscribeCaptureStream: (fn: CaptureStreamListener) => () => void;
+}

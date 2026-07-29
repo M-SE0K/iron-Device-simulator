@@ -13,9 +13,6 @@
     "wasm:build": "cd electron/native/wasm-engine && ./build-wasm.sh",
     "wasm:build:debug": "cd electron/native/wasm-engine && FF_PROT_DEBUG_VI=1 WASM_OUT_DIR=../../../public/wasm-debug ./build-wasm.sh",
     "wasm:build:dummy": "cd electron/native/wasm-engine && FF_PROT_DUMMY_ATTENUATION=1 WASM_OUT_DIR=../../../public/wasm-dummy ./build-wasm.sh",
-    "build:desktop": "./scripts/build/build-static-local.sh && echo '✓ 데스크톱 독립 웹앱 빌드 완료: out/ (로컬 확인: npx serve out)'",
-    "build:desktop:debug": "WASM_MODE=debug ./scripts/build/build-static-local.sh && echo '✓ 실험(debug) 데스크톱 웹앱 빌드 완료: out/ (V/I 값 printf 덤프 포함 WASM — 값 확인 전용, E2E 지연 측정에 쓰지 말 것)'",
-    "build:desktop:dummy": "WASM_MODE=dummy ./scripts/build/build-static-local.sh && echo '✓ 실험(dummy) 데스크톱 웹앱 빌드 완료: out/ (pass B 감쇠 항상 미개입 WASM — Protected==Input 검증/무보호 temp·exc 확인용)'",
     "build:electron": "./scripts/build/build-electron.sh",
     "build:electron:mac": "./scripts/build/build-electron.sh --mac-only",
     "build:electron:mac:debug": "WASM_MODE=debug ./scripts/build/build-electron.sh --mac-only",
@@ -39,8 +36,7 @@
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "tailwind-merge": "^3.2.0",
-    "uplot": "^1.6.32",
-    "wavesurfer.js": "^7.9.5"
+    "uplot": "^1.6.32"
   },
   "devDependencies": {
     "@types/node": "^20",
