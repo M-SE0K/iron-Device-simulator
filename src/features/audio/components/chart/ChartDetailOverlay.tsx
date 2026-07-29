@@ -15,6 +15,7 @@ import { useCtrlBToggle } from "@/shared/hooks/useCtrlBToggle";
 import FullscreenOverlay from "@/shared/components/overlay/FullscreenOverlay";
 import { BYTES_PER_SAMPLE, INT16_SCALE } from "@/features/audio/lib/engine/core";
 import { readChannelSegment } from "@/features/audio/lib/render/capture-reader";
+import { yieldToMain } from "@/shared/lib/yield-to-main";
 import type { CaptureSnapshot, CaptureStreamEvent, CaptureStreamListener } from "@/features/audio/components/player/capture/types";
 import { channelLabel, channelColor } from "@/features/audio/lib/render/channel-meta";
 import TemperatureChart from "./TemperatureChart";
@@ -26,11 +27,12 @@ import { ChannelWaveStore } from "@/features/audio/lib/render/wave-store";
 import { ProtectedComparePanel } from "../channel/ProtectedComparePanel";
 
 /**
- * 채널을 새로 선택했을 때 지금까지의 캡처를 스토어에 채워 넣는 백필의 한 번 디코딩 단위(초).
- * 세션 전체를 통째로 디코딩하면 순간 메모리가 세션 길이에 비례해 커지므로 구간을 끊어
- * 넣는다 — 스토어는 어차피 버킷 엔벨로프로 접으므로 원본은 구간마다 바로 버려진다.
+ * 백필 루프가 메인 스레드를 한 번에 붙잡는 시간 예산(ms). 캡처 콜백 주기(48 kHz/480
+ * samples 기준 10 ms)의 절반 이하로 잡아, 예산을 넘겨 양보하는 시점까지 캡처 콜백이 최악
+ * 경우에도 그 주기를 넘게 기다리지 않도록 한다. 이 예산을 넘기면 지금까지 쌓인 버킷을
+ * flush하고 yieldToMain()으로 한 프레임 양보한 뒤 이어간다.
  */
-const SEED_SEGMENT_SEC = 30;
+const SLICE_BUDGET_MS = 4;
 
 const METRIC_ID = "metric";
 // 보호 감쇠 전/후 비교 뷰 — 원본 채널(channel 섹션)이 아니라 분석 결과라 metric 섹션에 둔다.
@@ -230,51 +232,67 @@ export default function ChartDetailOverlay({
   }, [drawerOpen, getChannelsSnapshot]);
 
   // 채널을 새로 선택한 순간 — 청크 스트림에는 "지금부터"만 쌓이므로, 세션 시작부터 지금까지를
-  // getChannelsBlob()에서 딱 한 번 백필한다. 스토어는 버킷을 절대 시각으로 찾으므로 백필이
+  // getChannelsSnapshot()에서 딱 한 번 백필한다. 스토어는 버킷을 절대 시각으로 찾으므로 백필이
   // 진행되는 동안 도착한 라이브 청크(항상 백필 구간보다 뒤의 시각)와 섞여도 서로 덮어쓰지 않는다.
   //
-  // 백필은 이펙트가 아니라 **채널 단위**로 살아 있다 — 다른 채널을 추가로 선택했다고 진행 중인
-  // 백필을 취소해버리면 그 채널의 앞부분이 영영 비게 된다(이미 seed 완료로 표시된 뒤라 재시도도
-  // 안 된다). 중단 조건은 두 가지뿐: 해당 채널이 선택 해제됐거나(스토어가 지워짐), 세션이
-  // 리셋됐거나(토큰 변경).
+  // 백필은 이펙트가 아니라 **배치 단위**로 살아 있다(대개 채널 1개 = 배치 1개 — 체크박스가
+  // 한 번에 하나씩 토글되므로). 다른 채널을 추가로 선택했다고 진행 중인 배치를 취소해버리면
+  // 그 채널의 앞부분이 영영 비게 된다(이미 seed 완료로 표시된 뒤라 재시도도 안 된다) — 그래서
+  // 새 채널은 별도의 새 배치(이펙트 재실행)로 처리하고, 진행 중이던 배치는 그대로 둔다.
+  // 중단 조건은 두 가지뿐: 배치 안의 채널이 선택 해제됐거나(스토어가 지워짐), 세션이
+  // 리셋됐거나(토큰 변경) — stale()이 매 양보 지점마다 이 둘을 확인한다.
   useEffect(() => {
-    const toSeed = wantedChannels.filter((ch) => !seededRef.current.has(ch));
-    if (toSeed.length === 0 || !getChannelsSnapshot) return;
-    toSeed.forEach((ch) => seededRef.current.add(ch)); // 재진입 방지 — 실패해도 라이브로는 계속 그린다
+    const batch = wantedChannels.filter((ch) => !seededRef.current.has(ch));
+    if (batch.length === 0 || !getChannelsSnapshot) return;
+    batch.forEach((ch) => seededRef.current.add(ch)); // 재진입 방지 — 실패해도 라이브로는 계속 그린다
 
     const token = sessionTokenRef.current;
-    // 스토어 인스턴스까지 비교한다 — 백필 중 해제했다가 다시 선택하면 새 스토어 + 새 백필이
-    // 뜨므로, 옛 백필은 자기 스토어가 더 이상 현역이 아님을 보고 조용히 물러난다.
-    const stale = (ch: number, s: ChannelWaveStore) =>
-      sessionTokenRef.current !== token || storesRef.current.get(ch) !== s;
+    const targets = batch.map((ch) => [ch, getStore(ch)] as const);
+    // 스토어 인스턴스까지 비교한다 — 백필 중 해제했다가 다시 선택하면 새 스토어 + 새 배치가
+    // 뜨므로, 옛 배치는 자기 채널의 스토어가 더 이상 현역이 아님을 보고 조용히 물러난다.
+    const stale = () =>
+      sessionTokenRef.current !== token
+      || targets.some(([ch, s]) => storesRef.current.get(ch) !== s);
 
     (async () => {
       // 스냅샷은 복사 없이 rawCaptureRef.frames를 그대로 참조한다 — frames.length는
-      // 이후에도 라이브 청크로 계속 자라지만, totalFrames는 지금 이 호출 시점의 값으로
-      // 고정해 둔다. 백필은 "지금까지"만 채우고, 그 이후 도착분은 라이브 청크 경로
-      // (handleChunk)가 이어받으므로 이중 반영이나 누락이 없다.
+      // 이후에도 라이브 청크로 계속 자라지만, frames.length(스냅샷 시점)는 지금 이 호출
+      // 시점의 값으로 고정해 둔다. 백필은 "지금까지"만 채우고, 그 이후 도착분은 라이브
+      // 청크 경로(handleChunk)가 이어받으므로 이중 반영이나 누락이 없다.
       const snap = getChannelsSnapshot();
       if (!snap) return;
-      const { channels, sampleRate, totalFrames } = snap;
-      const segmentFrames = Math.max(1, Math.round(SEED_SEGMENT_SEC * sampleRate));
-      // 채널 × 구간을 순차로 처리한다. readChannelSegment는 이제 완전 동기(Blob 슬라이스/
-      // WAV 파싱 없이 인터리브 int16 프레임 배열을 직접 인덱싱)라, 예전에 decodeWavRange의
-      // blob.arrayBuffer()가 실제 비동기 I/O로 공짜로 주던 "세그먼트 사이 메인 스레드 양보"가
-      // 사라졌다 — 세그먼트 경계마다 명시적으로 한 번씩 양보해 그 자리를 대신 채운다.
-      // (더 촘촘한 시간 예산 기반 슬라이싱은 별도 후속 작업.)
-      for (const ch of toSeed) {
-        if (ch >= channels) continue;
-        const waveStore = getStore(ch);
-        for (let start = 0; start < totalFrames; start += segmentFrames) {
-          if (stale(ch, waveStore)) break;
-          const end = Math.min(totalFrames, start + segmentFrames);
-          const data = readChannelSegment(snap, ch, start, end);
-          if (stale(ch, waveStore)) break;
-          waveStore.addBlock(data, start / sampleRate, sampleRate);
-          waveStore.flush();
-          await new Promise<void>((resolve) => setTimeout(resolve, 0));
+      const { channels, sampleRate, samplesPerFrame, frames } = snap;
+      const liveTargets = targets.filter(([ch]) => ch < channels);
+      if (liveTargets.length === 0) return;
+
+      // 데이터는 인터리브라 프레임 하나를 읽으면 그 프레임의 모든 채널이 이미 손안에
+      // 있다 — 프레임이 바깥, 채널이 안쪽이라야 배치 안의 채널 수만큼 같은 구간을
+      // 중복해서 다시 훑지 않는다(예: ch0·ch1을 동시에 볼 때 절반으로 줄어든다).
+      // scratch는 배치 전체에서 재사용 — 프레임마다 새 Float32Array를 할당하지 않는다.
+      const scratch = new Float32Array(samplesPerFrame);
+      const frameCount = frames.length;
+      let deadline = performance.now() + SLICE_BUDGET_MS;
+
+      for (let fi = 0; fi < frameCount; fi++) {
+        const view = new Int16Array(frames[fi]);
+        const startSec = (fi * samplesPerFrame) / sampleRate;
+        for (const [ch, waveStore] of liveTargets) {
+          for (let i = 0; i < samplesPerFrame; i++) {
+            scratch[i] = view[i * channels + ch] / INT16_SCALE;
+          }
+          waveStore.addBlock(scratch, startSec, sampleRate);
+        }
+        // 시간 예산을 넘기면 지금까지 쌓인 걸 화면에 반영하고 한 프레임 양보한다 — 그
+        // 사이 도착한 캡처 IPC 콜백(WASM 분석·차트 커밋)이 처리될 틈을 준다.
+        if (performance.now() >= deadline) {
+          liveTargets.forEach(([, s]) => s.flush());
+          await yieldToMain();
+          if (stale()) return;
+          deadline = performance.now() + SLICE_BUDGET_MS;
         }
       }
+      liveTargets.forEach(([, s]) => s.flush());
+
       if (sessionTokenRef.current !== token) return;
       setHeader((prev) => (
         prev && prev.channels === channels && prev.sampleRate === sampleRate
