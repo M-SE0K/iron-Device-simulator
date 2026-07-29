@@ -19,7 +19,7 @@ require("./ipc/audio-device"); // IPC 채널 등록(부수효과) — audio-capt
 const REMOTE_DEBUG_PORT = process.env.IRON_REMOTE_DEBUG_PORT;
 if (REMOTE_DEBUG_PORT) {
   app.commandLine.appendSwitch("remote-debugging-port", String(REMOTE_DEBUG_PORT));
-  // 측정 자동화 편의: 캡처가 사용자 제스처 없이 시작될 수 있게(웹 폴백 대비) + 로컬 바인딩.
+  // 측정 자동화용 DevTools 클라이언트의 로컬 원격 디버깅 접속을 허용한다.
   app.commandLine.appendSwitch("remote-allow-origins", "*");
 }
 

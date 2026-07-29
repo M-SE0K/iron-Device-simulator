@@ -7,8 +7,8 @@ import { useEscapeKey } from "@/shared/hooks/useEscapeKey";
 import SideDrawer from "@/shared/components/overlay/SideDrawer";
 
 function WorkspaceDrawer() {
-  const { open, setOpen, localFolderFiles, browserFolderFiles } = useWorkspace();
-  const fileCount = localFolderFiles.length + browserFolderFiles.length;
+  const { open, setOpen, localFolderFiles } = useWorkspace();
+  const fileCount = localFolderFiles.length;
 
   useEscapeKey(() => setOpen(false), open);
 

@@ -11,8 +11,8 @@
 //     "다음 단계로 진행해도 됨"을 알려주는 구조로 바꿨다.
 //
 // 전제:
-//   - out/ 와 electron-dist/ 가 이미 빌드돼 있어야 한다: npm run build:desktop 그리고
-//     npm run build:electron:main (또는 build:electron:mac 등으로 한 번 만들어두면 충분).
+//   - out/ 와 electron-dist/ 가 이미 빌드돼 있어야 한다: npm run build:electron:mac
+//     (또는 build:electron:main 을 포함하는 다른 build:electron:* 한 번으로 충분).
 //   - 실제 오디오 하드웨어(캡처 디바이스)가 연결되어 있어야 한다.
 //
 // 사용법:

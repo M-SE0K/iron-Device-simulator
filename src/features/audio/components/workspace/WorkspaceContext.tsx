@@ -3,7 +3,6 @@
 import { createContext, useCallback, useContext, useMemo, useState, type ReactNode } from "react";
 import { useWorkspaceItems } from "./hooks/useWorkspaceItems";
 import { useLocalFolderConnection } from "./hooks/useLocalFolderConnection";
-import { useBrowserFolderUpload } from "./hooks/useBrowserFolderUpload";
 import { useActiveDrawer } from "@/features/audio/components/dashboard/ActiveDrawerContext";
 import type { WorkspaceItemMeta, SaveWorkspaceInput } from "@/features/audio/lib/cache/workspace";
 import type { LocalAudioFileEntry } from "@/features/audio/lib/local-folder";
@@ -26,11 +25,6 @@ interface WorkspaceCtx {
   connectLocalFolder: () => Promise<void>;
   disconnectLocalFolder: () => void;
   loadLocalFile: (entry: LocalAudioFileEntry) => Promise<void>;
-  browserFolderName: string | null;
-  browserFolderFiles: File[];
-  selectBrowserFolder: (files: FileList | File[]) => void;
-  disconnectBrowserFolder: () => void;
-  loadBrowserFile: (file: File) => void;
   activeFileName: string | null;
   pendingLocalFile: File | null;
   clearPendingLocalFile: () => void;
@@ -62,25 +56,19 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     connectLocalFolder, disconnectLocalFolder, loadLocalFile,
   } = useLocalFolderConnection(onFileLoad);
 
-  const {
-    browserFolderName, browserFolderFiles, selectBrowserFolder, disconnectBrowserFolder, loadBrowserFile,
-  } = useBrowserFolderUpload(onFileLoad);
-
   const ctx = useMemo<WorkspaceCtx>(
     () => ({
       items, open, setOpen, saveCurrent, rename, remove, exportJson, exportCsv, downloadAudio, downloadProtectedAudio,
       localFolderPath, localFolderFiles, localFolderError, localFolderConnecting,
       connectLocalFolder, disconnectLocalFolder, loadLocalFile,
-      browserFolderName, browserFolderFiles, selectBrowserFolder, disconnectBrowserFolder,
-      loadBrowserFile, activeFileName,
+      activeFileName,
       pendingLocalFile, clearPendingLocalFile,
     }),
     [
       items, open, saveCurrent, rename, remove, exportJson, exportCsv, downloadAudio, downloadProtectedAudio,
       localFolderPath, localFolderFiles, localFolderError, localFolderConnecting,
       connectLocalFolder, disconnectLocalFolder, loadLocalFile,
-      browserFolderName, browserFolderFiles, selectBrowserFolder, disconnectBrowserFolder,
-      loadBrowserFile, activeFileName,
+      activeFileName,
       pendingLocalFile, clearPendingLocalFile,
     ],
   );

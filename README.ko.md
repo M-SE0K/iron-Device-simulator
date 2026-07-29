@@ -8,7 +8,7 @@
 **Teams에 공유된 SDK를 아래의 경로로 옮긴 뒤 진행해야 되며, third_party를 반드시 추가해야 패키징이 진행됩니다.**
 ```
 ./iron-Device-simulator
-ㄴ--electron
+ㄴ--native
         ㅏ----wasm-engine/custom
         |                    ㅏ 보호 알고리즘.h
         |                    ㄴ 보호 알고리즘.c
@@ -40,7 +40,11 @@ npm install
 npm run bootstrap
 ```
 
-### 데스크톱 앱 패키징(Electron)
+### 데스크톱 앱 패키징
+
+두 데스크톱 셸이 병행 존재하며, 정적 코어(`out/`, 브라우저 WASM 엔진)와 네이티브 오디오 헬퍼(`native/`)를 그대로 공유합니다 — 패키징 단계와 산출물 디렉터리만 다릅니다. 어느 셸을 쓰느냐는 순전히 빌드 옵션 선택이지, 갈라진 별도 트랙이 아닙니다.
+
+#### Electron
 
 `build:desktop`과 동일한 정적 코어 빌드를 실행한 뒤, [electron-builder](https://www.electron.build/)로 감싸 **macOS, Windows, Linux**(`x64`, `arm64` 모두) 설치형 데스크톱 앱 6종을 `dist-electron/` 아래에 생성합니다.
 ```bash
@@ -51,19 +55,49 @@ npm run build:electorn:mac      # only-mac
 npm run build:electron:windows  # only-windows
 ```
 
-**이 빌드들은 서명되지 않았습니다**(앱스토어/공개 배포용이 아니라 팀 내부 배포용 — `electron-builder.yml` 참고). 최초 실행 시 다음 한 단계가 필요합니다.
-
-- **macOS**: 앱을 우클릭 → 열기 (더블클릭으로 실행하면 Gatekeeper가 서명되지 않은 앱을 차단합니다)
-- **Windows**: SmartScreen 경고에서 "추가 정보" → "실행" 클릭
-- **Linux**: `chmod +x *.AppImage` 후 바로 실행 — 별도 경고 없음
-
 전체 패키징 없이 미리보기만 하려면(이미 어떤 정적 빌드로든 `out/`이 만들어져 있는 상태에서):
-
 
 ```bash
 npm run build:desktop       # 빌드
 npm run electron:preview    # electron . — electron/main.js를 현재 out/ 기준으로 실행
 ```
+
+#### Tauri (v2)
+
+같은 `out/`을 Tauri 번들러로 감싸 `scripts/build/build-tauri.sh`가 `dist-tauri/{mac,windows,linux}/` 아래에 산출물을 생성합니다.
+
+```bash
+npm run build:tauri             # 옵션 없이 실행하면 현재 호스트 OS 타깃만 빌드(아래 제약 참고)
+npm run build:tauri:mac         # mac 전용 (macOS에서 실행해야 함)
+npm run build:tauri:windows     # windows 전용 (Windows에서 실행해야 함)
+npm run build:tauri:linux       # linux 전용 (Linux에서 실행해야 함)
+npm run tauri:preview           # npx tauri dev — 현재 out/ 기준 실행, 패키징 없음
+```
+
+**추가 사전 요구사항** (Electron은 아무것도 추가로 필요 없습니다): Rust 툴체인(`cargo`, [rustup.rs](https://rustup.rs)) 및 Linux/WSL에서는 `libwebkit2gtk-4.1-dev pkg-config libssl-dev librsvg2-dev libxdo-dev libayatana-appindicator3-dev`. `npm run bootstrap` / `scripts/setup/setup-*.sh`가 이를 확인해 없으면 안내만 하고(비차단) — Electron 전용 워크플로는 이 없이도 그대로 동작합니다.
+
+**중요한 제약 — 호스트 OS = 타깃 OS (실험적 예외 하나 있음)**: electron-builder와 달리 Tauri는 호스트 OS와 타깃 OS가 같아야 합니다(mac 산출물은 macOS에서, Linux 산출물은 Linux에서). 그래서 `build:tauri`는 옵션 없이 실행해도 현재 머신의 타깃 하나만 자동으로 빌드하고, `build:tauri:mac`/`build:tauri:linux`를 맞지 않는 호스트에서 실행하면 조용히 아무것도 안 하는 대신 명확한 에러로 안내합니다.
+
+`build:tauri:windows`만은 예외입니다: 네이티브 Windows 호스트에서는 그대로 빌드되지만, **WSL/Linux에서 실행해도 이제 동작합니다** — Tauri의 [실험적(experimental) 크로스 컴파일 경로](https://v2.tauri.app/distribute/windows-installer/)(`cargo-xwin` + NSIS)를 통해서입니다. 이 리포의 `scripts/build/build-tauri.sh`가 Linux 호스트를 자동 감지해 별도 플래그 없이 이 경로로 전환합니다. Windows 머신 없이도 반복 작업을 할 수 있게 해주는 편의 기능이며, 상류(Tauri)에서 실험적이라고 명시한 경로이므로 **실기 Windows 빌드를 여전히 정본/폴백 경로로 취급**하고 배포 전에는 실기 Windows에서 설치/실행을 다시 검증해야 합니다. 크로스 경로의 추가 사전 요구사항(위 Rust 툴체인에 더해):
+
+```bash
+rustup target add x86_64-pc-windows-msvc
+cargo install cargo-xwin
+sudo apt install nsis clang lld llvm    # makensis + cargo-xwin이 필요로 하는 링커/코드젠 도구
+```
+
+첫 크로스 빌드는 MS CRT/SDK를 `~/.cache`에 내려받습니다(네트워크 필요, 수 분 소요) — 이후 빌드는 캐시를 재사용합니다.
+
+두 셸 모두 **서명되지 않은 빌드**입니다(앱스토어/공개 배포용이 아니라 팀 내부 배포용). 최초 실행 시 다음 한 단계가 필요하며, 셸에 상관없이 동일합니다.
+
+- **macOS**: 앱을 우클릭 → 열기 (더블클릭으로 실행하면 Gatekeeper가 서명되지 않은 앱을 차단합니다)
+- **Windows**: SmartScreen 경고에서 "추가 정보" → "실행" 클릭
+- **Linux**: `chmod +x *.AppImage` 후 바로 실행 — 별도 경고 없음
+
+### 알려진 제약
+
+- **E2E 지연 측정 스크립트는 Electron 전용입니다.** `scripts/실험용/measure-e2e-latency.sh` 등은 Chrome DevTools Protocol(CDP) 원격 디버깅에 의존합니다. Windows Tauri는 `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS`로 여전히 CDP를 열 수 있지만, macOS의 WKWebView는 CDP를 지원하지 않아 macOS Tauri 빌드에는 대응 경로가 없습니다.
+- **Tauri 크로스 패키징은 완전 불가는 아니지만 제한적입니다.** Windows 산출물은 위에서 설명한 실험적 `cargo-xwin` 경로로 WSL/Linux에서도 크로스 빌드할 수 있습니다 — 다만 최종 검증은 실기 Windows에서 한 번 더 하는 것을 전제로 합니다. macOS는 여전히 실제 Mac이 있어야 합니다(이 리포에는 크로스 경로가 없고 계획도 없습니다). Linux 산출물도 여전히 Linux 호스트가 있어야 합니다.
 
 ## 환경 변수
 
@@ -78,11 +112,12 @@ npm run electron:preview    # electron . — electron/main.js를 현재 out/ 기
 웹에서의 동작은 배제하고 작성된 명령어로, Electron 개발 명령어이니 참고 부탁드립니다.
 
 ```bash
-npm run wasm:build          # electron/native/wasm-engine/*.c를 브라우저 타깃 WASM으로 컴파일
+npm run wasm:build          # native/wasm-engine/*.c를 브라우저 타깃 WASM으로 컴파일
 npm run wasm:preview        # 변경된 알고리즘에 대해서만 변경 이후 electron 자동 실행해주는 명령어
 npm run build:desktop       # 정적 빌드 → out/ (위 빌드 항목 참고)
 npm run build:electron      # {:linux, :mac, :windows} 정적 빌드 + Electron 패키징 → out/ + dist-electron/ (위 빌드 항목 참고)
 npm run electron:preview    # electron . — 현재 out/ 기준으로 electron/main.js 실행, 패키징 없음. 앱 환경에서의 빠른 확인 가능(개발할 때 주로 사용하시면 됩니다.)
+npm run tauri:preview       # npx tauri dev — 현재 out/ 기준 실행, 패키징 없음. electron:preview의 Tauri 대응.
 ```
 
 ## 기술 스택
@@ -93,8 +128,9 @@ npm run electron:preview    # electron . — 현재 out/ 기준으로 electron/m
 | UI | React 19 · Tailwind CSS |
 | 차트 | Apache ECharts (echarts-for-react) |
 | 파형 | wavesurfer.js |
-| 분석 엔진 | Emscripten(`emcc`) — `electron/native/wasm-engine/ff_prot.c` → WebAssembly, 브라우저 타깃, 프로세스 내부 실행(서버 없음) |
+| 분석 엔진 | Emscripten(`emcc`) — `native/wasm-engine/ff_prot.c` → WebAssembly, 브라우저 타깃, 프로세스 내부 실행(서버 없음) |
 | 데스크톱 패키징 | Electron + electron-builder (macOS / Windows / Linux) |
+| 데스크톱 패키징 (대체) | Tauri v2 (Rust) — Electron과 동일한 `out/` + `native/`를 공유, 산출물 디렉터리만 분리(`dist-tauri/`) |
 
 
 ## 라이선스

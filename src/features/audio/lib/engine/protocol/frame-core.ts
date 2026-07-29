@@ -35,7 +35,7 @@ export function processAnalysisFrame(
   if (data.byteLength < wireBytes) return null;
 
   // useNativeCapture.ts는 buf 프레임 + sensing 프레임을 이어붙인 2배 길이 메시지를 보낸다
-  // (buf = 재생 음원/무음, sensing = 캡처된 V/I). 단일 길이 메시지(웹 getUserMedia 폴백)는
+  // (buf = 재생 음원/무음, sensing = 캡처된 V/I). 단일 길이 레거시 메시지는
   // 하위 호환으로 같은 소스를 buf/sensing 양쪽에 그대로 쓴다.
   const hasAudioOverride = data.byteLength >= wireBytes * 2;
   const bufBytes = data.slice(0, wireBytes);

@@ -81,10 +81,15 @@ export function useWorkspaceItems(onSaved: () => void) {
       },
       frames: payload.frames,
     };
-    downloadBlob(
-      new Blob([JSON.stringify(data, null, 2)], { type: "application/json" }),
-      `${sanitizeFileName(meta.name)}.json`,
-    );
+    try {
+      await downloadBlob(
+        new Blob([JSON.stringify(data, null, 2)], { type: "application/json" }),
+        `${sanitizeFileName(meta.name)}.json`,
+      );
+    } catch (e) {
+      console.error("[useWorkspaceItems] exportJson save failed:", e);
+      showError("Failed to export JSON.");
+    }
   }, [showError]);
 
   const exportCsv = useCallback(async (meta: WorkspaceItemMeta) => {
@@ -96,10 +101,15 @@ export function useWorkspaceItems(onSaved: () => void) {
       return;
     }
     if (!payload) return;
-    downloadBlob(
-      new Blob([framesToCsv(payload.frames)], { type: "text/csv;charset=utf-8" }),
-      `${sanitizeFileName(meta.name)}.csv`,
-    );
+    try {
+      await downloadBlob(
+        new Blob([framesToCsv(payload.frames)], { type: "text/csv;charset=utf-8" }),
+        `${sanitizeFileName(meta.name)}.csv`,
+      );
+    } catch (e) {
+      console.error("[useWorkspaceItems] exportCsv save failed:", e);
+      showError("Failed to export CSV.");
+    }
   }, [showError]);
 
   const downloadAudio = useCallback(async (meta: WorkspaceItemMeta) => {
@@ -112,7 +122,12 @@ export function useWorkspaceItems(onSaved: () => void) {
     }
     if (!payload?.audioBlob) return;
     const ext = splitFileName(meta.audioFileName).ext || "audio";
-    downloadBlob(payload.audioBlob, `${sanitizeFileName(meta.name)}.${ext}`);
+    try {
+      await downloadBlob(payload.audioBlob, `${sanitizeFileName(meta.name)}.${ext}`);
+    } catch (e) {
+      console.error("[useWorkspaceItems] downloadAudio save failed:", e);
+      showError("Failed to download audio.");
+    }
   }, [showError]);
 
   const downloadProtectedAudio = useCallback(async (meta: WorkspaceItemMeta) => {
@@ -124,7 +139,12 @@ export function useWorkspaceItems(onSaved: () => void) {
       return;
     }
     if (!payload?.protectedAudioBlob) return;
-    downloadBlob(payload.protectedAudioBlob, `${sanitizeFileName(meta.name)}-protected.wav`);
+    try {
+      await downloadBlob(payload.protectedAudioBlob, `${sanitizeFileName(meta.name)}-protected.wav`);
+    } catch (e) {
+      console.error("[useWorkspaceItems] downloadProtectedAudio save failed:", e);
+      showError("Failed to download protected audio.");
+    }
   }, [showError]);
 
   return { items, saveCurrent, rename, remove, exportJson, exportCsv, downloadAudio, downloadProtectedAudio };

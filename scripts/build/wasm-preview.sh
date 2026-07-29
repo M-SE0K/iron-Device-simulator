@@ -9,12 +9,18 @@
 # WASM_MODE=debug|dummy 를 주면 wasm:build:debug/:dummy 와 같은 산출물(public/wasm-debug,
 # public/wasm-dummy)을 만들어 out/의 같은 이름 폴더에 덮어쓴다 — 단, out/이 애초에 그 모드로
 # 빌드되어 있어야 한다(NEXT_PUBLIC_WASM_DIR가 빌드 시점에 JS 번들에 박히기 때문에, 모드를
-# 바꾸는 최초 1회는 build:desktop:debug/:dummy 같은 전체 빌드가 필요).
+# 바꾸는 최초 1회는 build:electron:mac:debug/:dummy 같은 전체 빌드가 필요).
 #
 # SKIP_WASM_BUILD=1 이면 emcc 컴파일 자체를 건너뛰고(build-static-local.sh와 동일한 플래그),
 # public/$WASM_DIR_NAME/ 에 이미 놓아둔 ff_prot.{js,wasm}를 그대로 out/ 에 복사한다 — 다른
 # 머신에서 빌드했거나 정품 소스로 직접 컴파일한 커스텀 WASM 산출물을 미리 그 경로에 넣어두고
 # 쓸 때 쓴다. 리포의 .c 소스는 전혀 건드리지 않는다.
+#
+# APP_SHELL=electron(기본값)|tauri — WASM 갱신 뒤 어느 셸로 미리보기를 띄울지 고른다.
+# electron이면 기존과 동일하게 `electron .`, tauri면 `npx tauri dev`를 대신 실행한다.
+# tauri dev도 frontendDist(../out) 기준이라 같은 미리보기 철학(전체 재빌드 없이 out/만
+# 갱신 후 확인)이 그대로 유지되고, 매 실행마다 Rust 쪽 변경분만 증분 재컴파일한다(Rust
+# 소스를 안 건드렸으면 사실상 바로 뜬다).
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 
@@ -27,14 +33,14 @@ case "$WASM_MODE" in
 esac
 
 if [ ! -d out ]; then
-  echo "out/ 이 없습니다 — 최초 1회는 npm run build:desktop (또는 build:electron:*) 으로 만들어야 합니다." >&2
+  echo "out/ 이 없습니다 — 최초 1회는 npm run build:electron:* 으로 만들어야 합니다." >&2
   exit 1
 fi
 
 OUT_WASM_DIR="out/$WASM_DIR_NAME"
 if [ ! -d "$OUT_WASM_DIR" ]; then
   echo "$OUT_WASM_DIR 가 없습니다 — out/ 이 WASM_MODE=$WASM_MODE 로 빌드된 적이 없는 것 같습니다." >&2
-  echo "최초 1회는 WASM_MODE=$WASM_MODE npm run build:desktop 같은 전체 빌드가 필요합니다." >&2
+  echo "최초 1회는 WASM_MODE=$WASM_MODE npm run build:electron:mac 같은 전체 빌드가 필요합니다." >&2
   exit 1
 fi
 
@@ -51,4 +57,9 @@ fi
 cp "public/$WASM_DIR_NAME/ff_prot.js" "public/$WASM_DIR_NAME/ff_prot.wasm" "$OUT_WASM_DIR/"
 echo "✓ $OUT_WASM_DIR 갱신 완료"
 
-electron .
+APP_SHELL="${APP_SHELL:-electron}"
+case "$APP_SHELL" in
+  electron) electron . ;;
+  tauri) npx tauri dev ;;
+  *) echo "알 수 없는 APP_SHELL: $APP_SHELL (electron|tauri)" >&2; exit 1 ;;
+esac

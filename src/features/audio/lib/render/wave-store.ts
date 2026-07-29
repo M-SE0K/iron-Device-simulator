@@ -16,7 +16,7 @@
  */
 
 /** 채널 파형 하나가 화면에 유지하는 최대 버킷 수. 버킷당 min/max 2점 = 최대 2000점. */
-export const MAX_WAVE_BUCKETS = 1000;
+const MAX_WAVE_BUCKETS = 1000;
 
 /**
  * 압축 전 초기 버킷 폭(초). 48 kHz 기준 버킷당 240 샘플이고, 첫 압축은

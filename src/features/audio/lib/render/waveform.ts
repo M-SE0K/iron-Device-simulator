@@ -1,8 +1,3 @@
-export interface WaveformWindow {
-  startSec: number;
-  data: Float32Array;
-}
-
 export function channelStats(data: Float32Array): { peak: number; rms: number } {
   let peak = 0, sumSq = 0;
   for (let i = 0; i < data.length; i++) {

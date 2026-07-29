@@ -4,7 +4,7 @@
 #   wsl bash scripts/setup-wsl.sh     # Windows PowerShell에서 WSL2로 위임할 때
 #   bash scripts/setup-wsl.sh         # WSL2/Linux 셸 안에서 직접 실행할 때
 #
-# 이 리포의 빌드 스크립트(wasm:build, build:desktop 등)는 전부 bash라 WSL2/Linux에서는
+# 이 리포의 빌드 스크립트(wasm:build, build:electron 등)는 전부 bash라 WSL2/Linux에서는
 # 별도 변환 없이 그대로 동작한다 — 이 스크립트는 그 전제조건(Node/emcc/빌드 도구)만 갖춘다.
 set -euo pipefail
 cd "$(dirname "$0")/../.."
@@ -99,18 +99,41 @@ npm run wasm:build
 ok "WASM 빌드 완료"
 
 # ---------------------------------------------------------------------------
+# (선택, 비차단) Rust 툴체인 확인 — Tauri 데스크톱 셸(build:tauri*, tauri:preview)
+# 빌드에만 필요하다. Electron 전용으로만 쓸 팀원은 아래가 없어도 이 셋업은 그대로
+# 성공한다 — 안내만 하고 절대 실패시키지 않는다.
+if ! command -v cargo >/dev/null 2>&1; then
+  warn "Rust 툴체인(cargo) 없음 — Electron 전용 워크플로는 무관합니다. Tauri 빌드까지 쓰려면:"
+  echo "      - Rust: https://rustup.rs"
+  echo "      - WSL/Linux 추가 패키지 (Tauri v2 WebKitGTK 의존):"
+  echo "          sudo apt install libwebkit2gtk-4.1-dev pkg-config libssl-dev \\"
+  echo "            librsvg2-dev libxdo-dev libayatana-appindicator3-dev"
+else
+  ok "$(cargo --version)"
+fi
+
+# (선택, 비차단) Windows 크로스 빌드 도구 안내 — 이 WSL/Linux 머신에서
+# `npm run build:tauri:windows`를 실기 Windows 없이 바로 돌리고 싶을 때만 필요하다
+# (cargo-xwin + NSIS를 쓰는 Tauri의 실험적 크로스 컴파일 경로, README 참고). 없어도
+# 다른 워크플로에는 전혀 영향이 없다 — 그 명령을 실제로 실행할 때 각 도구의 부재를
+# 에러로 알려주므로, 여기서는 미리 안내만 한다.
+echo "      (선택) Windows 크로스 빌드(build:tauri:windows, cargo-xwin 경로, 실험적)까지 쓰려면:"
+echo "          rustup target add x86_64-pc-windows-msvc"
+echo "          cargo install cargo-xwin"
+echo "          sudo apt install nsis clang lld llvm"
+
+# ---------------------------------------------------------------------------
 cat <<EOF
 
 ✓ 셋업 완료: $ROOT
 
 다음 단계:
-  npm run dev              # http://localhost:3000 (브라우저 WASM 엔진)
-  npm run build:desktop    # 정적 번들 (out/)
+  npm run dev              # http://localhost:3000 (UI 확인 전용 — 오디오 캡처/재생은 Electron 브리지가 없어 동작하지 않음)
   npm run build:electron   # Electron 패키징 (dist-electron/) — WSL2에서는 GUI 실행에 WSLg(Win11) 필요
 
 참고:
   - Electron 창을 WSL2 안에서 직접 띄우려면(electron:preview 등) Windows 11 + WSLg가 필요합니다.
-    안 되면 build:desktop 산출물(out/)을 Windows 쪽에서 npx serve out 으로 띄워 브라우저로 확인하세요.
-  - macOS 전용 네이티브 오디오 캡처(window.audioDevice/audioCapture)는 WSL2/Linux에서 동작하지 않습니다
-    (docs/windows-plan.md 참고, 아직 미구현) — 파일 업로드 분석과 getUserMedia 기반 마이크는 정상 동작합니다.
+  - 이 앱은 Electron 전용입니다 — 웹 전용 캡처 폴백(getUserMedia)은 제거됐습니다. Linux용 네이티브
+    오디오 헬퍼(window.audioDevice/audioCapture)가 아직 없어서(docs/windows-plan.md 참고) WSL2/Linux에서는
+    오디오 캡처/재생 자체를 테스트할 수 없고, WSLg로 띄운 Electron 창의 UI만 확인할 수 있습니다.
 EOF

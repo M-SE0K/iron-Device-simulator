@@ -4,9 +4,8 @@ import { useState, useCallback, useRef, useEffect, useMemo } from "react";
 import { Menu, PanelLeftClose, PanelLeftOpen } from "lucide-react";
 import Sidebar from "@/shared/components/Sidebar";
 import SelectedFilePanel from "@/features/audio/components/dashboard/SelectedFilePanel";
-import WaveformPlayer, { WaveformPlayerHandle } from "@/features/audio/components/player/WaveformPlayer";
 import DuplexFilePlayer from "@/features/audio/components/player/DuplexFilePlayer";
-import type { CaptureStreamListener } from "@/features/audio/components/player/capture/types";
+import type { CaptureStreamListener, WaveformPlayerHandle } from "@/features/audio/components/player/capture/types";
 import TemperatureChart from "@/features/audio/components/chart/TemperatureChart";
 import ExcursionChart from "@/features/audio/components/chart/ExcursionChart";
 import ChartDetailOverlay, { type DetailMetric } from "@/features/audio/components/chart/ChartDetailOverlay";
@@ -79,11 +78,6 @@ export default function DashboardPage({ useQueue }: DashboardPageProps) {
     thresholdsRef.current = tempThresholds;
   }, [tempThresholds]);
 
-  const [isElectron, setIsElectron] = useState(false);
-  useEffect(() => {
-    setIsElectron(typeof window !== "undefined" && typeof window.audioCapture !== "undefined");
-  }, []);
-
   const [detailChart, setDetailChart] = useState<DetailMetric | null>(null);
 
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
@@ -103,16 +97,13 @@ export default function DashboardPage({ useQueue }: DashboardPageProps) {
     [],
   );
 
-  const getChannelsBlob = useCallback(
-    () => realtimeWaveRef.current?.exportRecordedAudio() ?? null,
+  const getChannelsSnapshot = useCallback(
+    () => realtimeWaveRef.current?.getCaptureSnapshot() ?? null,
     [],
   );
-  // isElectron이 바뀌면 파일 플레이어 구현(DuplexFilePlayer ↔ WaveformPlayer)이 통째로
-  // 교체되면서 ref가 새 핸들을 가리키므로, 구독자들이 다시 구독하도록 deps에 남겨둔다.
   const subscribeChannelStream = useCallback(
     (fn: CaptureStreamListener) => realtimeWaveRef.current?.subscribeCaptureStream(fn) ?? (() => {}),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [isElectron],
+    [],
   );
   const outputQueueRef       = useRef<QueuedFrame[]>([]);
   const prevTempRef          = useRef<number | null>(null);
@@ -355,37 +346,20 @@ export default function DashboardPage({ useQueue }: DashboardPageProps) {
         <RecordsDrawer />
         <CalibrationDrawer />
 
-        {isElectron ? (
-          <DuplexFilePlayer
-            ref={realtimeWaveRef}
-            audioFile={audioFile}
-            status={realtimeStatus}
-            onStatusChange={handleRealtimeStatus}
-            onFrameReceived={handleFrameReceived}
-            onStreamStart={handleStreamStart}
-            inputParams={inputParams}
-            onDurationReady={setAudioDuration}
-            onSave={handleSaveToWorkspace}
-            canSave={!!audioFile && hasFrames}
-            onReset={handleReset}
-            elevated={detailChart !== null}
-          />
-        ) : (
-          <WaveformPlayer
-            ref={realtimeWaveRef}
-            audioFile={audioFile}
-            status={realtimeStatus}
-            onStatusChange={handleRealtimeStatus}
-            onFrameReceived={handleFrameReceived}
-            onStreamStart={handleStreamStart}
-            inputParams={inputParams}
-            onDurationReady={setAudioDuration}
-            onSave={handleSaveToWorkspace}
-            canSave={!!audioFile && hasFrames}
-            onReset={handleReset}
-            elevated={detailChart !== null}
-          />
-        )}
+        <DuplexFilePlayer
+          ref={realtimeWaveRef}
+          audioFile={audioFile}
+          status={realtimeStatus}
+          onStatusChange={handleRealtimeStatus}
+          onFrameReceived={handleFrameReceived}
+          onStreamStart={handleStreamStart}
+          inputParams={inputParams}
+          onDurationReady={setAudioDuration}
+          onSave={handleSaveToWorkspace}
+          canSave={!!audioFile && hasFrames}
+          onReset={handleReset}
+          elevated={detailChart !== null}
+        />
       </div>
 
       {detailChart && (
@@ -396,7 +370,7 @@ export default function DashboardPage({ useQueue }: DashboardPageProps) {
           audioDuration={audioDuration}
           warnThreshold={tempThresholds.warn}
           dangerThreshold={tempThresholds.danger}
-          getChannelsBlob={getChannelsBlob}
+          getChannelsSnapshot={getChannelsSnapshot}
           getProtectedBlob={getProtectedBlob}
           subscribeChannelStream={subscribeChannelStream}
           sourceFile={audioFile}

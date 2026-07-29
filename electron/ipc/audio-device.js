@@ -1,10 +1,7 @@
 // electron/ipc/audio-device.js — audio-device-helper: OS 기본 입력 장치(MCHStreamer 등)의
 // SampleRate/BufferFrameSize를 조회·설정하는 컴파일된 바이너리. macOS는 native/macos/
 // audio-device-helper/ (Swift/CoreAudio), Windows는 native/windows/audio-device-helper/
-// (RtAudio, 소스 미작성 — 계획만 있는 상태)로 각자 소스가 갈리지만 CLI 계약(list/get/query/
-// set/capture/play-capture, 동일 JSON stdout)은 동일하다. 실제 win32 바이너리가 아직 없어
-// SUPPORTED_PLATFORMS에 넣어도 지금은 spawn 시 ENOENT로 실패한다 — 헬퍼가 만들어지면
-// 별도 코드 변경 없이 그대로 동작한다.
+// ASIO/C++ 구현이며 build-win.sh로 audio-device-helper.exe를 생성한다; 빌드 전에는 dev 실행이 ENOENT로 실패한다.
 const { app, ipcMain } = require("electron");
 const path = require("path");
 const { execFile } = require("child_process");
@@ -18,10 +15,11 @@ const HELPER_SOURCE_DIR = process.platform === "win32" ? "windows" : "macos";
 
 // dev 폴백(!isPackaged)의 __dirname은 webpack 번들 결과 기준(electron-dist/,
 // project root 바로 아래 — webpack.electron.config.js 참고)이라 electron/ipc/
-// 원본 위치보다 한 단계 얕다. "native/..."에서 시작해 electron/ 하나만 내려간다.
+// 원본 위치보다 한 단계 얕다. native/는 electron/에서 프로젝트 최상위로 이동했으므로
+// project root 기준 "native/..."로 곧장 진입한다.
 const AUDIO_HELPER_PATH = app.isPackaged
   ? path.join(process.resourcesPath, HELPER_BINARY_NAME)
-  : path.join(__dirname, "..", "electron", "native", HELPER_SOURCE_DIR, "audio-device-helper", "dist", HELPER_BINARY_NAME);
+  : path.join(__dirname, "..", "native", HELPER_SOURCE_DIR, "audio-device-helper", "dist", HELPER_BINARY_NAME);
 
 function runAudioHelper(args) {
   return new Promise((resolve) => {

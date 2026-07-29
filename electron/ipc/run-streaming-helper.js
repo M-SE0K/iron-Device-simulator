@@ -112,4 +112,4 @@ function createStreamingChildController() {
   };
 }
 
-module.exports = { runStreamingHelper, stopStreamingChild, createStreamingChildController };
+module.exports = { runStreamingHelper, createStreamingChildController };

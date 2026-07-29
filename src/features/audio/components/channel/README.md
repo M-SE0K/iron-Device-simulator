@@ -32,7 +32,7 @@
 - `lib/render/uplot-option.ts` — 축 빌더(`buildTimeAxis`/`buildValueAxis`)와 시간 소수점 헬퍼(`timeDecimalsForInterval`)로 메인 차트와 같은 축 규약을 따른다.
 - `lib/render/uplot-plugins.ts` — `zoomPlugin`/`tooltipPlugin`(메인 차트와 같은 줌·툴팁 규약). 두 컴포넌트 모두 `zoomPlugin`에 `getFullXRange`(세션 전체 길이를 돌려주는 안정된 getter)를 넘긴다 — 로드된 데이터가 세션 전체보다 짧을 때도(예: 라이브 윈도우) 휠 줌아웃·더블클릭 리셋이 "로드된 구간"이 아니라 "세션 전체"로 돌아가게 하기 위함.
 - `lib/render/envelope.ts` — `BucketEnvelope`(버킷 min/max 누적)와 `envelopesToAligned`(엔벨로프들 → 공유 x축 aligned 데이터). `ProtectedComparePanel` 전용.
-- `lib/render/waveform.ts` — `WaveformWindow` 타입(`ChannelWaveformCanvas`의 실시간 윈도우 입력).
+- `lib/render/wave-store.ts` — `ChannelWaveStore`(`ChannelWaveformCanvas`의 세션 파형 입력).
 - `lib/codec/wav-incremental.ts` — `ProtectedComparePanel`의 감쇠 PCM 1회 백필(`peekWavHeader`/`decodeWavRange`).
 - `lib/engine/core.ts` — `INT16_SCALE`/`CHANNELS`(`ProtectedComparePanel`의 int16 → float 환산·채널 분리).
 - `shared/components/overlay/SideDrawer.tsx` — `ChannelSelectDrawer`의 슬라이드 드로어 셸.
@@ -60,7 +60,7 @@
 
 ## 5. 주요 인터페이스 / 진입점
 
-- `ChannelWaveformCanvas(props)` (named export) — `{ color: string; sampleRate: number; totalDurationSec: number; liveWindow: WaveformWindow; fetchRange: (startSec, endSec) => Promise<Float32Array> }`. 한 채널 파형을 그린다. `totalDurationSec`가 x축 전체 도메인(세션 진행에 따라 증가), `liveWindow`가 최근 실시간 윈도우, `fetchRange`가 과거 구간 온디맨드 조회다. `WaveformWindow` 타입과 `channelStats`는 이 파일이 아니라 `lib/render/waveform.ts`에서 export한다.
+- `ChannelWaveformCanvas(props)` (named export) — `{ color: string; sampleRate: number; store: ChannelWaveStore; fetchRange: (startSec, endSec) => Promise<Float32Array> }`. 한 채널 파형을 그린다. `store`가 세션 전체 엔벨로프와 길이를 제공하고, `fetchRange`가 과거 구간 원본 데이터를 온디맨드 조회한다.
 - `ProtectedComparePanel(props)` (named export, `memo`) — `{ subscribeCaptureStream: (fn: CaptureStreamListener) => () => void; sourceFile?: File | null; getProtectedBlob?: () => Blob | null; bare?: boolean }`. 보호 감쇠 전/후 비교 패널. `sourceFile`이 없으면 안내 문구만 보여주고 `bare`가 true면 카드 셸 없이 본문만 그린다(상세 오버레이 스택용).
 - `ChannelRowHeader({ color, name, role, stats? })` (default export) — 채널 행 머리 내용(Fragment). `stats`(`{ peak, rms }`)가 있을 때만 우측 배지를 그린다.
 - `ChannelStackView({ items, emptyLabel?, onReorder? })` (default export) — 드래그 재배치·리사이즈 세로 스택. `onReorder(ids)`는 보이는 항목의 새 순서 전체를 넘긴다.
@@ -71,5 +71,5 @@
 ## 6. 변경 이력(요약)
 - 2026-07-10: 최초 작성 — `chart/`가 겸하던 "채널 파형 뷰" 부품 4종(`ChannelWaveformCanvas`(+`channelStats`)·`ChannelRowHeader`·`ChannelStackView`·`ChannelSelectDrawer`)을 별도 도메인 `components/channel/`으로 분리(chart·workspace가 단방향 참조). `ChannelRowHeader`는 두 오버레이의 중복 헤더를 통합해 신설, 드로어/오버레이 셸은 공용 `shared/components/overlay`·`ui`로 위임 (커밋 범위: 537099f..HEAD, 워크트리 포함)
 - 2026-07-20: `ChannelWaveformCanvas`에 확대 시 포인트 심볼 표시 기능 추가 — 줌 구간 안 포인트 수가 `SYMBOL_VISIBLE_MAX` 이하면 각 샘플에 점을 찍어 간격을 보여주고 LTTB/large 샘플링을 끈다. 섹션 3·4 부분 갱신 (커밋 범위: 9f08d59..fb8e4fa)
-- 2026-07-27: ECharts → uPlot 이관 + 부품 재편 반영 — `ChannelWaveformCanvas`/`ProtectedComparePanel`이 공용 `shared/components/UPlotChart` 래퍼 기반으로 교체(줌은 드래그/휠/더블클릭, 과거 구간 fetch는 `onUserZoom` 초 단위 콜백, 비교 패널의 L/R/Both는 `seriesShow` 토글). `ProtectedComparePanel`을 이 도메인 문서에 편입(§3·4·5), `channelStats`/`WaveformWindow`는 `lib/render/waveform.ts` 소속으로 정정. 섹션 1·3·4·5 부분 갱신 (커밋 범위: 14941b7..HEAD, 워크트리 포함)
+- 2026-07-27: ECharts → uPlot 이관 + 부품 재편 반영 — `ChannelWaveformCanvas`/`ProtectedComparePanel`이 공용 `shared/components/UPlotChart` 래퍼 기반으로 교체(줌은 드래그/휠/더블클릭, 과거 구간 fetch는 `onUserZoom` 초 단위 콜백, 비교 패널의 L/R/Both는 `seriesShow` 토글). `ProtectedComparePanel`을 이 도메인 문서에 편입(§3·4·5), `channelStats`는 `lib/render/waveform.ts` 소속으로 정정. 섹션 1·3·4·5 부분 갱신 (커밋 범위: 14941b7..HEAD, 워크트리 포함)
 - 2026-07-27(2): 두 컴포넌트의 드래그·휠 줌이 실제로는 항상 무효화되던 버그 수정 — `UPlotChart`의 x축 커스텀 `range()` 콜백이 xRange(고정 도메인) prop이 있을 때 사용자의 드래그/휠 줌 결과까지 그 고정 도메인으로 되돌려버렸다. `wheelZoomPlugin` → `zoomPlugin`으로 개칭하고 `getFullXRange` 옵션을 추가해 "로드된 데이터가 아니라 세션 전체로 리셋"하는 책임을 플러그인 쪽으로 옮기고, `UPlotChart`의 x축 range() 콜백 자체는 제거(uPlot 기본 동작만 사용). 섹션 3·4 부분 갱신 (커밋 범위: 워크트리, 미커밋)
