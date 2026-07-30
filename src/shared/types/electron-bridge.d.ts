@@ -48,7 +48,7 @@ interface AudioDeviceQueryResult {
   error?: string;
 }
 
-// E2E 지연 실험(N1, src/features/audio/lib/perf-e2e/) 전용 — main이 stdout 청크마다 별도
+// E2E 지연 실험(N1, src/features/audio/lib/perf-e2e/) 전용 — Electron main 또는 Tauri Rust core가 stdout 청크마다 별도
 // 채널로 보내는 Date.now() 타임스탬프.
 interface AudioE2EMark {
   sentAt: number;
