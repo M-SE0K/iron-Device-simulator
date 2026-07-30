@@ -1,4 +1,4 @@
-import type { SocketLike } from "./local-socket";
+import type { SocketLike } from "./socket-types";
 import { e2e } from "@/features/audio/lib/perf-e2e/collector";
 
 interface WorkerResultItem { json: string; bin: ArrayBuffer | null }

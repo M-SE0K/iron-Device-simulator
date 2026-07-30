@@ -4,7 +4,7 @@ import { useCallback, type MutableRefObject } from "react";
 import type { AppStatus } from "@/features/audio/types";
 import { e2e } from "@/features/audio/lib/perf-e2e/collector";
 import { createCaptureTelemetry } from "@/features/audio/lib/perf/capture-telemetry";
-import type { SocketLike } from "@/features/audio/lib/engine/protocol/local-socket";
+import type { SocketLike } from "@/features/audio/lib/engine/protocol/socket-types";
 import { clampCaptureChannels, CHANNELS } from "@/features/audio/lib/engine/core";
 import { encodeToInt16 } from "@/features/audio/lib/engine/utils";
 import { humanizeIpcError } from "@/shared/lib/ipc-error";
