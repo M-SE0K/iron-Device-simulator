@@ -8,11 +8,38 @@ import {
   deleteWorkspaceItem,
   getWorkspacePayload,
   type WorkspaceItemMeta,
+  type WorkspacePayload,
   type SaveWorkspaceInput,
 } from "@/features/audio/lib/cache/workspace";
 import { framesToCsv } from "@/features/audio/lib/export/csv";
 import { downloadBlob, sanitizeFileName, splitFileName } from "@/shared/lib/utils";
 import { useErrorPopup } from "@/shared/components/error-popup/ErrorPopupContext";
+
+async function withWorkspacePayload<T>(
+  meta: WorkspaceItemMeta,
+  pick: (payload: WorkspacePayload) => T | null | undefined,
+  build: (value: T) => Promise<void>,
+  operation: string,
+  errorMessage: string,
+  showError: (message: string) => void,
+): Promise<void> {
+  let payload;
+  try {
+    payload = await getWorkspacePayload(meta.id);
+  } catch {
+    showError(errorMessage);
+    return;
+  }
+  if (!payload) return;
+  const value = pick(payload);
+  if (!value) return;
+  try {
+    await build(value);
+  } catch (e) {
+    console.error(`[useWorkspaceItems] ${operation} save failed:`, e);
+    showError(errorMessage);
+  }
+}
 
 export function useWorkspaceItems(onSaved: () => void) {
   const { showError } = useErrorPopup();
@@ -62,89 +89,73 @@ export function useWorkspaceItems(onSaved: () => void) {
   }, [refresh, showError]);
 
   const exportJson = useCallback(async (meta: WorkspaceItemMeta) => {
-    let payload;
-    try {
-      payload = await getWorkspacePayload(meta.id);
-    } catch {
-      showError("Failed to export JSON.");
-      return;
-    }
-    if (!payload) return;
-    const data = {
-      meta: {
-        name:          meta.name,
-        audioFileName: meta.audioFileName,
-        audioDuration: meta.audioDuration,
-        analysisMode:  meta.analysisMode,
-        createdAt:     new Date(meta.createdAt).toISOString(),
-        frameCount:    meta.frameCount,
+    await withWorkspacePayload(
+      meta,
+      (payload) => payload,
+      async (payload) => {
+        const data = {
+          meta: {
+            name:          meta.name,
+            audioFileName: meta.audioFileName,
+            audioDuration: meta.audioDuration,
+            analysisMode:  meta.analysisMode,
+            createdAt:     new Date(meta.createdAt).toISOString(),
+            frameCount:    meta.frameCount,
+          },
+          frames: payload.frames,
+        };
+        await downloadBlob(
+          new Blob([JSON.stringify(data, null, 2)], { type: "application/json" }),
+          `${sanitizeFileName(meta.name)}.json`,
+        );
       },
-      frames: payload.frames,
-    };
-    try {
-      await downloadBlob(
-        new Blob([JSON.stringify(data, null, 2)], { type: "application/json" }),
-        `${sanitizeFileName(meta.name)}.json`,
-      );
-    } catch (e) {
-      console.error("[useWorkspaceItems] exportJson save failed:", e);
-      showError("Failed to export JSON.");
-    }
+      "exportJson",
+      "Failed to export JSON.",
+      showError,
+    );
   }, [showError]);
 
   const exportCsv = useCallback(async (meta: WorkspaceItemMeta) => {
-    let payload;
-    try {
-      payload = await getWorkspacePayload(meta.id);
-    } catch {
-      showError("Failed to export CSV.");
-      return;
-    }
-    if (!payload) return;
-    try {
-      await downloadBlob(
-        new Blob([framesToCsv(payload.frames)], { type: "text/csv;charset=utf-8" }),
-        `${sanitizeFileName(meta.name)}.csv`,
-      );
-    } catch (e) {
-      console.error("[useWorkspaceItems] exportCsv save failed:", e);
-      showError("Failed to export CSV.");
-    }
+    await withWorkspacePayload(
+      meta,
+      (payload) => payload,
+      async (payload) => {
+        await downloadBlob(
+          new Blob([framesToCsv(payload.frames)], { type: "text/csv;charset=utf-8" }),
+          `${sanitizeFileName(meta.name)}.csv`,
+        );
+      },
+      "exportCsv",
+      "Failed to export CSV.",
+      showError,
+    );
   }, [showError]);
 
   const downloadAudio = useCallback(async (meta: WorkspaceItemMeta) => {
-    let payload;
-    try {
-      payload = await getWorkspacePayload(meta.id);
-    } catch {
-      showError("Failed to download audio.");
-      return;
-    }
-    if (!payload?.audioBlob) return;
-    const ext = splitFileName(meta.audioFileName).ext || "audio";
-    try {
-      await downloadBlob(payload.audioBlob, `${sanitizeFileName(meta.name)}.${ext}`);
-    } catch (e) {
-      console.error("[useWorkspaceItems] downloadAudio save failed:", e);
-      showError("Failed to download audio.");
-    }
+    await withWorkspacePayload(
+      meta,
+      (payload) => payload.audioBlob,
+      async (audioBlob) => {
+        const ext = splitFileName(meta.audioFileName).ext || "audio";
+        await downloadBlob(audioBlob, `${sanitizeFileName(meta.name)}.${ext}`);
+      },
+      "downloadAudio",
+      "Failed to download audio.",
+      showError,
+    );
   }, [showError]);
 
   const downloadProtectedAudio = useCallback(async (meta: WorkspaceItemMeta) => {
-    let payload;
-    try {
-      payload = await getWorkspacePayload(meta.id);
-    } catch {
-      showError("Failed to download protected audio.");
-      return;
-    }
-    if (!payload?.protectedAudioBlob) return;
-    try {
-      await downloadBlob(payload.protectedAudioBlob, `${sanitizeFileName(meta.name)}-protected.wav`);
-    } catch (e) {
-      console.error("[useWorkspaceItems] downloadProtectedAudio save failed:", e);
-      showError("Failed to download protected audio.");
-    }
+    await withWorkspacePayload(
+      meta,
+      (payload) => payload.protectedAudioBlob,
+      async (protectedAudioBlob) => {
+        await downloadBlob(protectedAudioBlob, `${sanitizeFileName(meta.name)}-protected.wav`);
+      },
+      "downloadProtectedAudio",
+      "Failed to download protected audio.",
+      showError,
+    );
   }, [showError]);
 
   return { items, saveCurrent, rename, remove, exportJson, exportCsv, downloadAudio, downloadProtectedAudio };
