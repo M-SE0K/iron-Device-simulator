@@ -4,7 +4,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { AnalysisFrame } from "@/features/audio/types";
 import { perf } from "@/features/audio/lib/perf/collector";
 import { e2e } from "@/features/audio/lib/perf-e2e/collector";
-import { createAnalysisSocket, type SocketLike } from "@/features/audio/lib/engine/protocol/local-socket";
+import { createAnalysisSocket } from "@/features/audio/lib/engine/protocol/local-socket";
+import type { SocketLike } from "@/features/audio/lib/engine/protocol/socket-types";
 import { useCalibration } from "@/features/audio/components/calibration/CalibrationContext";
 import { useErrorPopup } from "@/shared/components/error-popup/ErrorPopupContext";
 import { pcmFramesToWavBlob } from "@/features/audio/lib/codec/wav-encoder";
@@ -20,6 +21,11 @@ export type {
   CaptureStreamListener,
   UseCaptureSessionDeps,
 } from "./types";
+
+function blobFromCapture(entry: NativeRawCapture | null): Blob | null {
+  if (!entry || entry.frames.length === 0) return null;
+  return pcmFramesToWavBlob(entry.frames, entry.sampleRate, entry.channels);
+}
 
 export function useCaptureSession(deps: UseCaptureSessionDeps) {
   const {
@@ -218,17 +224,15 @@ export function useCaptureSession(deps: UseCaptureSessionDeps) {
     }
   }, [calibration, startNativeCapture, cleanup, setMicError]);
 
-  const getRecordedBlob = useCallback((): Blob | null => {
-    const raw = rawCaptureRef.current;
-    if (!raw || raw.frames.length === 0) return null;
-    return pcmFramesToWavBlob(raw.frames, raw.sampleRate, raw.channels);
-  }, []);
+  const getRecordedBlob = useCallback(
+    (): Blob | null => blobFromCapture(rawCaptureRef.current),
+    [],
+  );
 
-  const getProtectedBlob = useCallback((): Blob | null => {
-    const buf = protectedCaptureRef.current;
-    if (!buf || buf.frames.length === 0) return null;
-    return pcmFramesToWavBlob(buf.frames, buf.sampleRate, buf.channels);
-  }, []);
+  const getProtectedBlob = useCallback(
+    (): Blob | null => blobFromCapture(protectedCaptureRef.current),
+    [],
+  );
 
   // getRecordedBlob()과 달리 복사가 없다 — rawCaptureRef.frames를 그대로 참조로 돌려준다.
   // 채널 뷰 백필/온디맨드 확대처럼 세션이 길어져도 호출 비용이 늘면 안 되는 읽기 경로용.
