@@ -1,7 +1,7 @@
 import type {
   PerfExport, PerfFrameSample, PerfRenderSample, PerfSessionMeta,
 } from "./types";
-import { downloadBlob, round3 } from "@/shared/lib/utils";
+import { downloadJsonArtifact, round3 } from "@/shared/lib/utils";
 import { summarizeStats } from "./statistics";
 
 class PerfCollector {
@@ -118,10 +118,8 @@ class PerfCollector {
 
   download(filename?: string): void {
     const data = this.export();
-    if (!data || typeof document === "undefined") return;
-    const stamp = data.meta.startedAt.replace(/[:.]/g, "-");
-    const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
-    downloadBlob(blob, filename ?? `perf_${data.meta.mode}_${stamp}.json`);
+    if (!data) return;
+    downloadJsonArtifact(data, "perf", data.meta, filename);
   }
 
   reset(): void {
