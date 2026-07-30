@@ -1,15 +1,7 @@
 "use client";
 
 import { AlertTriangle, CheckCircle2 } from "lucide-react";
-import type { PopupVariant } from "./ErrorPopupContext";
-
-interface ErrorPopupModalProps {
-  message: string;
-  variant: PopupVariant;
-  /** 이 팝업 뒤에 아직 대기 중인 메시지 개수 — 0이면 배지를 표시하지 않는다. */
-  queuedCount: number;
-  onClose: () => void;
-}
+import type { ErrorPopupModalProps } from "./popup-types";
 
 const VARIANT_STYLE = {
   error: {
