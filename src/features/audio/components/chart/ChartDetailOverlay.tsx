@@ -14,10 +14,10 @@ import { useOverlayTransition } from "@/shared/hooks/useOverlayTransition";
 import { useCtrlBToggle } from "@/shared/hooks/useCtrlBToggle";
 import FullscreenOverlay from "@/shared/components/overlay/FullscreenOverlay";
 import { BYTES_PER_SAMPLE, INT16_SCALE } from "@/features/audio/lib/engine/core";
-import { readChannelSegment } from "@/features/audio/lib/render/capture-reader";
 import { yieldToMain } from "@/shared/lib/yield-to-main";
 import type { CaptureSnapshot, CaptureStreamEvent, CaptureStreamListener } from "@/features/audio/components/player/capture/types";
 import { channelLabel, channelColor } from "@/features/audio/lib/render/channel-meta";
+import { useLocale } from "@/shared/lib/i18n/LocaleProvider";
 import TemperatureChart from "./TemperatureChart";
 import ExcursionChart from "./ExcursionChart";
 import ChannelSelectDrawer, { type DrawerEntry } from "../channel/ChannelSelectDrawer";
@@ -63,8 +63,8 @@ interface Props {
   dangerThreshold?: number;
   /**
    * 현재 캡처 세션의 전 채널 원본 PCM을 복사 없이 들여다보는 스냅샷(파일 플레이어 핸들의
-   * getCaptureSnapshot). 채널을 새로 선택했을 때의 1회 백필과, 과거 구간 온디맨드
-   * 조회에만 쓰인다 — 없으면(캡처 이력 없음) 드로어에 메인 차트 항목만 나열된다.
+   * getCaptureSnapshot). 드로어를 열 때 채널 목록을 확인하고 새로 선택한 채널을 1회 초기
+   * 백필하는 데만 쓰인다 — 없으면(캡처 이력 없음) 드로어에 메인 차트 항목만 나열된다.
    */
   getChannelsSnapshot?: () => CaptureSnapshot | null;
   /**
@@ -97,8 +97,9 @@ export default function ChartDetailOverlay({
   sourceFile,
   onClose,
 }: Props) {
+  const { t } = useLocale();
   const isTemp = metric === "temperature";
-  const title = isTemp ? "Temperature" : "Excursion";
+  const title = isTemp ? t.metrics.temperature : t.metrics.excursion;
   const Icon = isTemp ? Thermometer : Activity;
   const accent = isTemp ? "#0B4171" : "#10B981";
 
@@ -302,17 +303,6 @@ export default function ChartDetailOverlay({
     })();
   }, [wantedChannels, getChannelsSnapshot, getStore]);
 
-  // 과거 구간(라이브 윈도우 밖)을 사용자가 확대했을 때만 호출되는 온디맨드 읽기 — 요청한
-  // 구간 길이에만 비용이 비례한다. 스냅샷은 매 호출 새로 받아 최신 길이를 반영한다.
-  const fetchRangeFor = useCallback(async (ch: number, startSec: number, endSec: number): Promise<Float32Array> => {
-    if (!getChannelsSnapshot) return new Float32Array(0);
-    const snap = getChannelsSnapshot();
-    if (!snap) return new Float32Array(0);
-    const startFrame = Math.max(0, Math.round(startSec * snap.sampleRate));
-    const endFrame = Math.max(startFrame, Math.round(endSec * snap.sampleRate));
-    return readChannelSegment(snap, ch, startFrame, endFrame);
-  }, [getChannelsSnapshot]);
-
   const toggle = useCallback((id: string) => {
     setSelected((prev) => {
       const next = new Set(prev);
@@ -334,7 +324,7 @@ export default function ChartDetailOverlay({
       id: METRIC_ID,
       section: "metric",
       name: title,
-      role: isTemp ? "Temperature" : "Excursion",
+      role: title,
       color: accent,
       icon: Icon,
     };
@@ -343,18 +333,18 @@ export default function ChartDetailOverlay({
       ? [{
           id: PROTECT_ID,
           section: "metric",
-          name: "Protection Attenuation",
-          role: "Before/After Compare",
+          name: t.chartDetail.protectionAttenuation,
+          role: t.chartDetail.beforeAfterCompare,
           color: "#F59E0B",
           icon: ShieldAlert,
         }]
       : [];
     const channelEntries: DrawerEntry[] = Array.from({ length: channelCount }, (_, ch) => {
-      const { name, role } = channelLabel(ch);
+      const { name, role } = channelLabel(ch, t.channelMeta);
       return { id: channelId(ch), section: "channel", name, role, color: channelColor(ch) };
     });
     return [metricEntry, ...protectEntry, ...channelEntries];
-  }, [title, isTemp, accent, Icon, channelCount, getProtectedBlob]);
+  }, [title, isTemp, accent, Icon, channelCount, getProtectedBlob, t]);
 
   // 사용자가 드래그로 재배치한 항목 순서 — 기본값은 entries가 나열되는 순서(메인 차트 →
   // 채널 오름차순) 그대로다. 채널이 새로 발견되면(헤더 갱신) 기존 배치는 건드리지 않고
@@ -406,7 +396,7 @@ export default function ChartDetailOverlay({
             />
           ) : (
             <div className="flex items-center justify-center h-full text-xs text-iron-400">
-              No capture session — nothing to compare.
+              {t.chartDetail.noCaptureSession}
             </div>
           ),
           defaultHeight: 240,
@@ -463,11 +453,10 @@ export default function ChartDetailOverlay({
             color={entry.color}
             sampleRate={header.sampleRate}
             store={waveStore}
-            fetchRange={(s, e) => fetchRangeFor(ch, s, e)}
           />
         ) : (
           <div className="flex items-center justify-center h-full text-xs text-iron-400">
-            {channelError ? "Unable to load channel waveform." : "Loading channel waveform…"}
+            {channelError ? t.chartDetail.unableToLoadWaveform : t.chartDetail.loadingWaveform}
           </div>
         ),
         defaultHeight: 200,
@@ -478,12 +467,12 @@ export default function ChartDetailOverlay({
     return items;
   }, [
     orderedEntries, selected, Icon, accent, title, isTemp, store, isActive,
-    audioDuration, warnThreshold, dangerThreshold, header, channelError, fetchRangeFor, getStore,
+    audioDuration, warnThreshold, dangerThreshold, header, channelError, getStore,
     subscribeChannelStream, getProtectedBlob, sourceFile,
   ]);
 
   return (
-    <FullscreenOverlay show={show} ariaLabel={`${title} detail view`}>
+    <FullscreenOverlay show={show} ariaLabel={t.chartDetail.ariaLabel(title)}>
       {/* 상단 바 */}
       <header className="shrink-0 h-14 px-3 sm:px-5 flex items-center gap-3 border-b border-iron-100 bg-white">
         <div className="flex items-center gap-2 min-w-0">
@@ -496,15 +485,15 @@ export default function ChartDetailOverlay({
           type="button"
           onClick={() => setDrawerOpen((prev) => !prev)}
           aria-pressed={drawerOpen}
-          title="Visible items (Ctrl/Cmd+B)"
-          aria-label="Visible items"
+          title={t.chartDetail.visibleItemsTitle}
+          aria-label={t.chartDetail.visibleItems}
           className={cn(
             "ml-auto flex items-center gap-1.5 h-9 px-2.5 rounded-lg text-sm transition",
             drawerOpen ? "bg-brand-blue/10 text-brand-blue" : "text-iron-500 hover:bg-iron-100 hover:text-iron-900",
           )}
         >
           <Rows3 className="w-4 h-4" />
-          <span className="hidden sm:inline">Visible items</span>
+          <span className="hidden sm:inline">{t.chartDetail.visibleItems}</span>
           {selected.size > 0 && (
             <span className="px-1.5 py-0.5 rounded-full bg-brand-blue/15 text-[10px] font-semibold tabular-nums">
               {selected.size}
@@ -514,7 +503,7 @@ export default function ChartDetailOverlay({
         <button
           type="button"
           onClick={close}
-          aria-label="Close"
+          aria-label={t.chartDetail.close}
           className="flex items-center justify-center w-9 h-9 rounded-lg text-iron-400 hover:bg-iron-100 hover:text-iron-700 transition"
         >
           <X className="w-4 h-4" />
@@ -528,7 +517,7 @@ export default function ChartDetailOverlay({
         <ChannelStackView
           items={stackItems}
           onReorder={reorder}
-          emptyLabel="Select a chart or channel from the items drawer to display it here."
+          emptyLabel={t.chartDetail.emptyLabel}
         />
       </div>
 

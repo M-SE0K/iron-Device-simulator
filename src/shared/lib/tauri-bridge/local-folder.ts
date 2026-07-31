@@ -1,12 +1,13 @@
-// local-folder.ts — window.localFolder 브리지 (electron/ipc/local-folder.js →
-// Rust local_folder.rs). Linux(WSL)에서도 동작하는 유일한 브리지 — 검증 우선순위 높음.
+// local-folder.ts — window.localFolder 브리지 (과거 Electron IPC 모듈 electron/ipc/local-folder.js,
+// 현재는 제거됨 → Rust local_folder.rs로 포팅). 네이티브 오디오 헬퍼가 미지원인 Linux에서도
+// 동작하는 크로스플랫폼 폴더 브리지.
 import { invoke } from "@tauri-apps/api/core";
 import { COMMANDS, ARG_KEYS, EVENTS } from "./contract";
 import { safeInvoke } from "./safe-invoke";
 import { syncListen } from "./sync-listen";
 import { mimeForPath } from "./mime";
 import type { LocalFolderReadResult, LocalFolderSelectResult } from "./types";
-import type { LocalAudioFileEntry } from "@/shared/types/electron-bridge";
+import type { LocalAudioFileEntry } from "@/shared/types/native-bridge";
 
 export function createLocalFolderBridge(): NonNullable<Window["localFolder"]> {
   return {

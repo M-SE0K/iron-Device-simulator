@@ -36,6 +36,10 @@ export const COMMANDS = {
   // (sync 커맨드에서 그대로 부르면 메인 스레드 데드락 — 실측 확인됨).
   fileExportWriteTemp: "file_export_write_temp",
   fileExportSave: "file_export_save",
+
+  // WASM 알고리즘 암호화 배포(방법 5) — src-tauri/src/wasm_asset.rs. 인자 없음, raw 응답
+  // (tauri::ipc::Response, local_folder_read_file과 동일 패턴).
+  wasmAssetLoad: "wasm_asset_load",
 } as const;
 
 /**
@@ -45,7 +49,7 @@ export const COMMANDS = {
  * - start 계열/audio_device 계열은 옵션들을 **`opts` 객체 하나로 중첩**해서 보낸다
  *   (Rust가 `opts: CaptureStartOptions`/`opts: Value` 단일 파라미터로 받음 — Electron
  *   preload가 opts 객체 하나를 invoke에 넘기던 원형과도 일치).
- * - `opts` 내부 키는 electron-bridge.d.ts의 원형 그대로 (특히 `deviceUID` — 대문자 UID.
+ * - `opts` 내부 키는 native-bridge.d.ts의 원형 그대로 (특히 `deviceUID` — 대문자 UID.
  *   Rust 구조체가 `#[serde(rename = "deviceUID")]`로 받는다).
  * - 스트리밍 Channel 파라미터 이름은 Rust 시그니처의 `data`/`mark`.
  * - `local_folder_read_file`의 경로 파라미터는 Rust 시그니처의 `path`.
@@ -89,9 +93,8 @@ export const EVENTS = {
 } as const;
 
 /**
- * 커맨드별 실제 사용 인자(top-level 키) — 런타임에서는 각 호출부가 리터럴 객체를 직접
- * 만들므로 이 맵을 참조하지 않는다. Rust 시그니처와의 diff 문서화 목적.
- * `[ARG_KEYS.opts]`로 표기된 곳은 opts 객체 내부에 어떤 키가 들어가는지 주석으로 병기.
+ * 각 호출부는 top-level 키를 `ARG_KEYS`로 구성한다. 커맨드 인자는 Rust 시그니처와 항상
+ * 동기화해야 한다.
  *
  * - `audio_capture_start` / `audio_playcapture_start`: `data`/`mark` 채널은 e2e 여부와
  *   무관하게 **항상** 함께 전달한다 — `tauri::ipc::Channel`은 Deserialize 미구현이라

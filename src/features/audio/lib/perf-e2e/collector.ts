@@ -86,7 +86,8 @@ class E2ELatencyCollector {
     return out;
   }
 
-  // N11 기준 시각 저장용 — ChartStore.push/flush 직전에 호출한다. 현재 sampleSinceCommit 호출부는 없다.
+  // N11 기준 시각 저장용 — ChartStore.push/flush 직전에 호출한다. sampleSinceCommit은
+  // useMetricChartRuntime.ts에서 N11 측정에 호출한다.
   markCommit(): void {
     if (!this.active) return;
     this.commitAt = performance.now();

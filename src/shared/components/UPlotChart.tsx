@@ -45,7 +45,7 @@ interface Props {
   onRender?: (ms: number) => void;
   /**
    * 사용자 줌 조작(드래그/휠/더블클릭)으로 x 스케일이 바뀔 때만 호출된다 — 스트리밍
-   * setData가 일으키는 내부 auto-rescale은 제외. (예: 채널 뷰의 과거 구간 온디맨드 fetch)
+   * setData가 일으키는 내부 auto-rescale은 제외.
    */
   onUserZoom?: (min: number, max: number, zoomed: boolean) => void;
   /**

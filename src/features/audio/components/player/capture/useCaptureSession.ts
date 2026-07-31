@@ -11,6 +11,7 @@ import { useErrorPopup } from "@/shared/components/error-popup/ErrorPopupContext
 import { pcmFramesToWavBlob } from "@/features/audio/lib/codec/wav-encoder";
 import { CHANNELS, SAMPLE_RATE, SAMPLES_PER_CH, BYTES_PER_SAMPLE } from "@/features/audio/lib/engine/core";
 import { decodeProcessedPcmMessage } from "@/features/audio/lib/engine/protocol/analysis";
+import { useLocale } from "@/shared/lib/i18n/LocaleProvider";
 import { useNativeCapture, type NativeRawCapture } from "./useNativeCapture";
 import { buildInitMessage } from "./build-init-message";
 import type { CaptureSnapshot, CaptureStreamEvent, CaptureStreamListener, UseCaptureSessionDeps } from "./types";
@@ -33,6 +34,7 @@ export function useCaptureSession(deps: UseCaptureSessionDeps) {
   } = deps;
   const { values: calibration } = useCalibration();
   const { showError } = useErrorPopup();
+  const { t } = useLocale();
 
   const [micError, setMicErrorState] = useState<string | null>(null);
   // 캡처/재생 세션 에러는 이 훅 한 곳에서만 세팅되므로, 여기서 전역
@@ -165,7 +167,7 @@ export function useCaptureSession(deps: UseCaptureSessionDeps) {
     };
 
     ws.onerror = () => {
-      setMicError("An error occurred connecting to the analysis engine.");
+      setMicError(t.capture.socketError);
       cleanup();
       onStatusChange("error");
     };
@@ -178,7 +180,7 @@ export function useCaptureSession(deps: UseCaptureSessionDeps) {
     };
 
     return ws;
-  }, [inputParams, onStatusChange, onStreamStart, onFrameReceived, cleanup, emitStreamEvent, setMicError]);
+  }, [inputParams, onStatusChange, onStreamStart, onFrameReceived, cleanup, emitStreamEvent, setMicError, t]);
 
   const { start: startNativeCapture } = useNativeCapture({
     nativeOffsRef, nativeActiveRef, playCaptureActiveRef, rawCaptureRef, recordingActiveRef, analysisActiveRef,
@@ -235,7 +237,7 @@ export function useCaptureSession(deps: UseCaptureSessionDeps) {
   );
 
   // getRecordedBlob()과 달리 복사가 없다 — rawCaptureRef.frames를 그대로 참조로 돌려준다.
-  // 채널 뷰 백필/온디맨드 확대처럼 세션이 길어져도 호출 비용이 늘면 안 되는 읽기 경로용.
+  // 채널 목록 확인과 신규 선택 채널의 초기 백필처럼 세션이 길어져도 호출 비용이 늘면 안 되는 읽기 경로용.
   const getCaptureSnapshot = useCallback((): CaptureSnapshot | null => {
     const raw = rawCaptureRef.current;
     if (!raw || raw.frames.length === 0) return null;

@@ -1,8 +1,8 @@
 // index.ts — installTauriBridge(): Tauri 데스크톱 런타임에서만 window.audioDevice/
-// audioCapture/audioPlayCapture/localFolder 4개 전역을 채운다(electron/preload.js가
-// contextBridge로 하던 일의 TS 등가물, 계획서 5.7 참조).
+// audioCapture/audioPlayCapture/localFolder/wasmAsset 5개 전역을 채운다(과거 Electron IPC
+// 시절 electron/preload.js가 contextBridge로 하던 일의 TS 등가물 — 그 파일은 현재 제거됨).
 //
-// 렌더러는 Electron/Tauri 여부를 오직 이 4개 전역의 존재로만 판단하고(userAgent 스니핑 없음),
+// 각 기능은 자신이 사용하는 브리지 전역의 존재 여부로 가용성을 판단하고(userAgent 스니핑 없음),
 // 그 검사는 전부 useEffect(hydration 이후)에서 일어난다. 그래서 이 함수가 "React 마운트보다
 // 먼저" 실행되기만 하면 되고, src/app/TauriBridgeInit.tsx가 모듈 스코프(컴포넌트 렌더 이전,
 // import 시점)에서 동기 호출한다.
@@ -12,6 +12,7 @@ import { createAudioDeviceBridge } from "./audio-device";
 import { createAudioCaptureBridge } from "./audio-capture";
 import { createAudioPlayCaptureBridge } from "./audio-playcapture";
 import { createLocalFolderBridge } from "./local-folder";
+import { createWasmAssetBridge } from "./wasm-asset";
 
 let installed = false;
 
@@ -28,4 +29,5 @@ export function installTauriBridge(): void {
   window.audioCapture = createAudioCaptureBridge();
   window.audioPlayCapture = createAudioPlayCaptureBridge();
   window.localFolder = createLocalFolderBridge();
+  window.wasmAsset = createWasmAssetBridge();
 }

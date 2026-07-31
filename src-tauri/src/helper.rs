@@ -1,4 +1,5 @@
-//! helper.rs — `electron/ipc/audio-device.js` 1:1 포팅.
+//! helper.rs — 과거 Electron IPC 모듈(`electron/ipc/audio-device.js`, 현재는 제거됨)에서
+//! 1:1 포팅.
 //!
 //! Electron 채널 → Tauri 커맨드 매핑:
 //!   `audio-device:list`       → `audio_device_list`
@@ -13,8 +14,8 @@ use std::path::PathBuf;
 use std::process::Command;
 
 /// macOS/Windows만 지원 — 그 외(Linux 포함)는 즉시 unsupported-platform.
-/// 실제 win32 바이너리가 아직 없어도(계획서 참고) 목록에 넣어두면 헬퍼가 준비되는 즉시
-/// 별도 코드 변경 없이 동작한다.
+/// Windows 헬퍼 실행 파일은 저장소에 커밋되지 않으며, 패키징 전에
+/// `native/windows/audio-device-helper/build-win.sh`가 빌드해 생성한다.
 pub fn is_supported_platform() -> bool {
     cfg!(target_os = "macos") || cfg!(target_os = "windows")
 }
@@ -35,7 +36,7 @@ fn helper_source_dir() -> &'static str {
     }
 }
 
-/// 헬퍼 바이너리 경로 해석 — Electron의 `app.isPackaged` 분기 대체.
+/// 헬퍼 바이너리 경로 해석 — 과거 Electron의 `app.isPackaged` 분기를 대체하는 Tauri 쪽 판정.
 /// 1) 실행파일 옆의 `audio-device-helper(.exe)` — `bundle.externalBin` 사이드카는
 ///    빌드 스크립트가 타깃 트리플 접미사를 제거한 이름으로 이 위치에 복사해둔다.
 /// 2) 없으면 개발 폴백: `<repo>/native/{macos|windows}/audio-device-helper/dist/…`.
