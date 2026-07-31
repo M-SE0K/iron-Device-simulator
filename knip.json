@@ -1,4 +1,9 @@
 {
   "$schema": "https://unpkg.com/knip@latest/schema.json",
-  "ignoreDependencies": ["electron-builder"]
+  "entry": [
+    "scripts/build/encrypt-wasm.js",
+    "scripts/build/gen-wasm-key-rs.js"
+  ],
+  "ignore": ["installer-site/**"],
+  "ignoreDependencies": ["javascript-obfuscator", "wasm-opt"]
 }
