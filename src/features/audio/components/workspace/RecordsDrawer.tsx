@@ -45,7 +45,7 @@ function RecordRow({ item }: { item: WorkspaceItemMeta }) {
     { key: "csv", label: "CSV", onClick: () => exportCsv(item) },
     ...(item.audioFileName
       ? [
-          { key: "audio", label: "V/I", onClick: () => downloadAudio(item) },
+          { key: "audio", label: "V/I WAV", onClick: () => downloadAudio(item) },
         ]
       : []),
     ...(item.hasProtectedAudio
@@ -186,7 +186,7 @@ function RecordsDrawer() {
             <div className="flex flex-col gap-1">
               <div className="flex items-center justify-between px-1 pb-1">
                 <span className="text-sm font-medium text-iron-400">Records by File</span>
-                <CountBadge count={groups.length} suffix="files" />
+                <CountBadge count={groups.length} suffix=" files" />
               </div>
 
               {groups.map((group) => {

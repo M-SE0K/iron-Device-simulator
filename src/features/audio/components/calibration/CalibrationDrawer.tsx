@@ -309,14 +309,11 @@ function CalibrationDrawer({ projectName, onApply }: Props) {
               )}
               {deviceInfo?.outputChannels === 0 && (
                 <p className="text-[11px] text-amber-600 leading-relaxed">
-                  This device has no output channels, so file playback (single-IOProc duplex)
-                  is unavailable.
+                  This device has no output channels, so file playback (single-IOProc duplex) is unavailable.
                 </p>
               )}
               <p className="text-[10px] text-iron-300 leading-relaxed">
-                ⚠️ Buffer Size is per-client (TN2321), so this query only shows the device default.
-                Pressing &ldquo;Apply&rdquo; briefly opens and closes the microphone to confirm the actual
-                applied value (this fails if the microphone is already recording).
+                ⚠️ Buffer Size is per-client (TN2321), so this query only shows the device default. Pressing “Apply” briefly opens and closes the microphone to confirm the actual applied value (this fails if the microphone is already recording).
               </p>
             </section>
           )}

@@ -13,6 +13,10 @@ interface SideDrawerProps {
    * 대부분의 사이드바 드로어는 "content", 오버레이 안에서 여는 드로어만 "overlay".
    */
   layer?: "content" | "overlay";
+  /** 슬라이드 방향 — 기본은 우측(right). 좌측 Sidebar 옆에서 여는 드로어는 "left". */
+  side?: "left" | "right";
+  /** 패널 폭 클래스 — 기본은 320px(다른 사이드 드로어와 동일). 차트처럼 넓은 본문은 오버라이드. */
+  widthClassName?: string;
   /** 상단 safe-area 여백(전체화면 오버레이 위에 뜨는 드로어) */
   safeAreaTop?: boolean;
   /** 기본 헤더(제목 + 카운트 pill + 닫기) 대신 통째로 쓸 커스텀 헤더 */
@@ -29,17 +33,20 @@ interface SideDrawerProps {
 }
 
 /**
- * 우측 슬라이드 드로어 공용 셸 — 백드롭(300ms 페이드) + 우측 패널(240ms 슬라이드) + 기본
- * 헤더/본문/푸터. WorkspaceDrawer / RecordsDrawer / CalibrationDrawer / ChannelSelectDrawer가
- * 복붙하던 동일 마크업을 통합한다. ESC 닫기는 셸이 강제하지 않는다 — 일반 드로어
- * (Workspace/Records/Calibration)는 각자 useEscapeKey로 직접 관리하고, 오버레이 위 드로어
- * (ChannelSelectDrawer)는 부모 오버레이가 useOverlayTransition으로 ESC를 소유한다.
+ * 사이드 슬라이드 드로어 공용 셸 — 백드롭(300ms 페이드) + 좌/우 패널(240ms 슬라이드) + 기본
+ * 헤더/본문/푸터. WorkspaceDrawer / RecordsDrawer / CalibrationDrawer / ChannelSelectDrawer /
+ * ChartDetailOverlay가 복붙하던 동일 마크업을 통합한다. 기본은 우측(side="right") — 좌측
+ * Sidebar 옆에서 여는 ChartDetailOverlay만 side="left"를 쓴다. ESC 닫기는 셸이 강제하지
+ * 않는다 — 각 드로어가 스스로 useEscapeKey로 관리한다(오버레이 위 드로어인
+ * ChannelSelectDrawer는 부모의 open 상태를 그대로 물려받는다).
  */
 export default function SideDrawer({
   open,
   onClose,
   ariaLabel,
   layer = "content",
+  side = "right",
+  widthClassName = "w-[320px] max-w-[82vw]",
   safeAreaTop = false,
   header,
   title,
@@ -50,6 +57,12 @@ export default function SideDrawer({
 }: SideDrawerProps) {
   const backdropPos = layer === "overlay" ? "fixed z-[61]" : "absolute z-40";
   const panelPos = layer === "overlay" ? "fixed z-[62]" : "absolute z-50";
+  const sidePos = side === "left" ? "left-0" : "right-0";
+  const sideBorder = side === "left" ? "border-r" : "border-l";
+  const sideShadow = side === "left"
+    ? "shadow-[12px_0_40px_rgba(15,23,42,0.16)]"
+    : "shadow-[-12px_0_40px_rgba(15,23,42,0.16)]";
+  const closedTranslate = side === "left" ? "-translate-x-full" : "translate-x-full";
 
   return (
     <>
@@ -62,10 +75,10 @@ export default function SideDrawer({
         }`}
       />
 
-      {/* 우측 슬라이딩 패널 */}
+      {/* 슬라이딩 패널 */}
       <aside
-        className={`${panelPos} top-0 right-0 h-full w-[320px] max-w-[82vw] bg-white border-l border-iron-100 shadow-[-12px_0_40px_rgba(15,23,42,0.16)] flex flex-col transition-transform duration-[240ms] ease-out ${
-          open ? "translate-x-0" : "translate-x-full"
+        className={`${panelPos} top-0 ${sidePos} h-full ${widthClassName} bg-white ${sideBorder} border-iron-100 ${sideShadow} flex flex-col transition-transform duration-[240ms] ease-out ${
+          open ? "translate-x-0" : closedTranslate
         }`}
         style={safeAreaTop ? { paddingTop: "env(safe-area-inset-top)" } : undefined}
         role="dialog"

@@ -360,10 +360,12 @@ export default function DashboardPage({ useQueue }: DashboardPageProps) {
           onReset={handleReset}
           elevated={detailChart !== null}
         />
-      </div>
 
-      {detailChart && (
+        {/* content-column 안에 둬야(relative 컨테이너) SideDrawer의 layer="content"
+            absolute 포지셔닝이 Workspace/Records/Calibration과 같은 기준으로 맞는다 —
+            예전 전체화면 오버레이 시절엔 fixed라 위치가 상관없었다. */}
         <ChartDetailOverlay
+          open={detailChart !== null}
           metric={detailChart}
           store={chartStore}
           isActive={isActive}
@@ -376,7 +378,7 @@ export default function DashboardPage({ useQueue }: DashboardPageProps) {
           sourceFile={audioFile}
           onClose={() => setDetailChart(null)}
         />
-      )}
+      </div>
     </div>
   );
 }

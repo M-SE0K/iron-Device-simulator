@@ -163,19 +163,26 @@ export function useNativeCapture(deps: NativeCaptureDeps) {
     if (playback) playCaptureActiveRef.current = true;
     else nativeActiveRef.current = true;
     const wireSamplesPerCh = res.actual?.bufferSize ?? params.bufferSize;
+    // 헬퍼가 실제로 연 채널 수 — 요청값(captureChannels)과 다를 수 있다(드라이버가 요청한
+    // 채널 수를 다 못 받아주는 경우 등). 헬퍼는 응답 헤더에 이 값을 "channels"로 정직하게
+    // 돌려주는데(main.cpp/mac.swift 둘 다), 지금까지 이 필드를 아무도 읽지 않고 요청값을
+    // 그대로 wire 프레이밍(reframeNativeChunk)에 썼다 — 실제로 열린 채널 수가 요청과 어긋나면
+    // 인터리브 바이트 계산 전체가 틀어져 채널 뷰/저장된 WAV가 전부 0(또는 뒤섞인 값)으로
+    // 보이는 원인이 된다. 항상 헬퍼가 보고한 실측값을 우선한다.
+    const actualChannels = res.channels ?? captureChannels;
     setSampleRate(actualRate);
     setActualBufferSize(res.actual?.bufferSize ?? null);
     setDeviceName(res.device || null);
 
     const ws = openAnalysisSocket(actualRate, wireSamplesPerCh);
 
-    rawCaptureRef.current = { channels: captureChannels, sampleRate: actualRate, frames: [] };
+    rawCaptureRef.current = { channels: actualChannels, sampleRate: actualRate, frames: [] };
     recordingActiveRef.current = true;
-    emitStreamEvent({ type: "reset", channels: captureChannels, sampleRate: actualRate });
+    emitStreamEvent({ type: "reset", channels: actualChannels, sampleRate: actualRate });
 
     const telemetry = createCaptureTelemetry<Int16Array>({
       mode: "native", sampleRate: actualRate, samplesPerCh: wireSamplesPerCh,
-      channels: captureChannels, deviceName: res.device || null,
+      channels: actualChannels, deviceName: res.device || null,
       onEncodedFrame: (frame) => {
         const audioBuf = buildAudioBufFrame(playback?.pcm ?? null, emittedFrames++, wireSamplesPerCh);
         ws.send(concatFrames(audioBuf, frame));
@@ -185,7 +192,7 @@ export function useNativeCapture(deps: NativeCaptureDeps) {
 
     let emittedFrames = 0;
     const reframe = createNativeFrameReframer(
-      captureChannels,
+      actualChannels,
       wireSamplesPerCh,
       (frame) => {
         if (!analysisActiveRef.current) return;
@@ -195,13 +202,21 @@ export function useNativeCapture(deps: NativeCaptureDeps) {
         if (!recordingActiveRef.current) return;
         const copy = (rawFrame.buffer as ArrayBuffer).slice(0);
         rawCaptureRef.current?.frames.push(copy);
-        emitStreamEvent({ type: "chunk", chunk: copy, channels: captureChannels, sampleRate: actualRate });
+        emitStreamEvent({ type: "chunk", chunk: copy, channels: actualChannels, sampleRate: actualRate });
       },
     );
 
     const bridge = playback ? window.audioPlayCapture! : window.audioCapture!;
     const offData = bridge.onData((chunk) => {
-      if (!isActiveRef.current || ws.readyState !== WebSocket.OPEN) return;
+      // 엔진 준비("ready") 전에 도착한 청크도 원본 녹음/채널 뷰에는 반드시 들어가야 한다.
+      // 예전엔 여기서 isActiveRef(= "ready"를 받아야 true)로 청크를 통째로 걸러냈다 — WASM
+      // 로드가 끝나기 전까지의 세션 앞부분이 rawCaptureRef에 아예 안 쌓여서 저장된 WAV,
+      // 채널 차트, peak/rms 배지에서 그 구간이 통째로 사라졌다. 하필 IOProc 기동 직후의
+      // 과도 구간이 거기에 있어(실측: 정상 구간의 약 20배 진폭) 채널 피크가 크게 어긋났고,
+      // 재생은 그 사이에도 흘러가므로 분석에 실리는 audioBuf 프레임 번호(emittedFrames)와
+      // 실제 재생 위치도 버린 만큼 어긋나 있었다.
+      // 분석 프레임을 실제로 보낼지 말지는 reframer의 analysisActiveRef 게이트가 계속 맡는다.
+      if (ws.readyState === WebSocket.CLOSED) return;
       telemetry.markChunkArrival();
       telemetry.measureEncoding(() => reframe(chunk));
     });

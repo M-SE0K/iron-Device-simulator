@@ -5,10 +5,10 @@ import { LayoutDashboard, FolderOpen, History, SlidersHorizontal } from "lucide-
 
 type SidebarDrawerKey = "workspace" | "records" | "calibration";
 
-const NAV_ITEMS: { key: SidebarDrawerKey; label: string; icon: typeof FolderOpen }[] = [
-  { key: "workspace",   label: "Workspace",  icon: FolderOpen },
-  { key: "records",     label: "Records",   icon: History },
-  { key: "calibration", label: "Calibration", icon: SlidersHorizontal },
+const NAV_ITEMS: { key: SidebarDrawerKey; icon: typeof FolderOpen; label: string }[] = [
+  { key: "workspace",   icon: FolderOpen,          label: "Workspace" },
+  { key: "records",     icon: History,             label: "Records" },
+  { key: "calibration", icon: SlidersHorizontal,   label: "Calibration" },
 ];
 
 interface SidebarProps {
@@ -75,7 +75,7 @@ function Sidebar({
         Dashboard
       </button>
 
-      {NAV_ITEMS.map(({ key, label, icon: Icon }) => {
+      {NAV_ITEMS.map(({ key, icon: Icon, label }) => {
         const isActive = activeDrawer === key;
         return (
           <button
