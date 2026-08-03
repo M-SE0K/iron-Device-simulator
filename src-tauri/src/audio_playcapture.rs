@@ -1,4 +1,5 @@
-//! audio_playcapture.rs — `electron/ipc/audio-playcapture.js` 1:1 포팅
+//! audio_playcapture.rs — 과거 Electron IPC 모듈(`electron/ipc/audio-playcapture.js`, 현재는
+//! 제거됨)에서 1:1 포팅
 //! (파일 재생 + V/I 캡처, 상주 play-capture 헬퍼).
 //!
 //! Electron 채널 → Tauri 커맨드/이벤트 매핑:
@@ -165,7 +166,7 @@ pub struct PlayCaptureStartOptions {
     buffer_size: u32,
     #[serde(default)]
     channels: Option<u32>,
-    // wire 키는 electron-bridge.d.ts 원형(`deviceUID` — 대문자 UID) 그대로. rename_all =
+    // wire 키는 native-bridge.d.ts 원형(`deviceUID` — 대문자 UID) 그대로. rename_all =
     // "camelCase"는 `deviceUid`를 만들어 shim이 보내는 키와 어긋나므로 명시적으로 재지정한다.
     #[serde(default, rename = "deviceUID")]
     device_uid: Option<String>,

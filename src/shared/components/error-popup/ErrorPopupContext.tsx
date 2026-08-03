@@ -2,8 +2,7 @@
 
 import { createContext, useCallback, useContext, useMemo, useRef, useState, type ReactNode } from "react";
 import ErrorPopupModal from "./ErrorPopupModal";
-
-export type PopupVariant = "error" | "success";
+import type { PopupVariant } from "./popup-types";
 
 interface QueuedMessage {
   id: number;

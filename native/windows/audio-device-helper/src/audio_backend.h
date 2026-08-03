@@ -16,7 +16,7 @@
 
 namespace audio {
 
-// list 항목 하나. macOS의 AudioInputDevice(electron-bridge.d.ts)와 키가 일치해야 한다.
+// list 항목 하나. macOS의 AudioInputDevice(native-bridge.d.ts)와 키가 일치해야 한다.
 struct DeviceInfo {
   std::string uid;          // ASIO는 CLSID 문자열 "{...}" — 이름보다 안정적이라 uid로 쓴다
   std::string name;         // 레지스트리 표시 이름

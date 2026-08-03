@@ -1,11 +1,11 @@
-// types.ts — src/shared/types/electron-bridge.d.ts에 선언돼 있지만 export되지 않은(그래서
+// types.ts — src/shared/types/native-bridge.d.ts에 선언돼 있지만 export되지 않은(그래서
 // import로 이름을 가져올 수 없는) 결과 타입들을 shim 내부 타이핑용으로 그대로 미러링한다.
 //
-// electron-bridge.d.ts는 계약의 단일 소스이므로 이 파일에서는 절대 수정하지 않는다 — 대신
+// native-bridge.d.ts는 계약의 단일 소스이므로 이 파일에서는 절대 수정하지 않는다 — 대신
 // window.audioDevice 등에 최종 객체를 대입할 때 TypeScript가 구조적으로 이 타입들과
-// electron-bridge.d.ts의 내부 인터페이스를 비교해 검증해준다. 즉 이 파일의 필드가
-// electron-bridge.d.ts와 어긋나면 index.ts의 대입문에서 타입 에러로 드러난다(그래서 안전).
-import type { AudioInputDevice, LocalAudioFileEntry } from "@/shared/types/electron-bridge";
+// native-bridge.d.ts의 내부 인터페이스를 비교해 검증해준다. 즉 이 파일의 필드가
+// native-bridge.d.ts와 어긋나면 index.ts의 대입문에서 타입 에러로 드러난다(그래서 안전).
+import type { AudioInputDevice, LocalAudioFileEntry } from "@/shared/types/native-bridge";
 
 interface AudioDeviceActual {
   sampleRate: number | null;

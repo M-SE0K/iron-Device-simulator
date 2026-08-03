@@ -3,7 +3,7 @@
 #
 #   bash scripts/setup-macos.sh
 #
-# 이 리포의 빌드 스크립트(wasm:build, build:electron ...)는 전부 bash라
+# 이 리포의 빌드 스크립트(wasm:build, build:tauri ...)는 전부 bash라
 # macOS 기본 터미널(zsh/bash)에서 별도 변환 없이 그대로 동작한다 — 이 스크립트는 그
 # 전제조건(Xcode CLT/Node/emcc)만 갖추고, 선택적으로 macOS 전용 CoreAudio 캡처 헬퍼까지
 # 미리 빌드해둔다.
@@ -102,19 +102,18 @@ npm run wasm:build
 ok "WASM 빌드 완료"
 
 # ---------------------------------------------------------------------------
-log "6/6 (선택) macOS CoreAudio 캡처 헬퍼 빌드 — Electron 네이티브 마이크/장치 제어에만 필요"
+log "6/6 (선택) macOS CoreAudio 캡처 헬퍼 빌드 — Tauri 네이티브 마이크/장치 제어에만 필요"
 if ./native/macos/audio-device-helper/build-mac.sh; then
   ok "audio-device-helper 빌드 완료 (native/macos/audio-device-helper/dist/)"
 else
-  warn "audio-device-helper 빌드 실패 — npm run dev(브라우저 getUserMedia 폴백)는 영향 없습니다. 필요 시 나중에 다시 실행하세요."
+  warn "audio-device-helper 빌드 실패 — npm run dev(UI 확인 전용)는 영향 없습니다. 필요 시 나중에 다시 실행하세요."
 fi
 
 # ---------------------------------------------------------------------------
-# (선택, 비차단) Rust 툴체인 확인 — Tauri 데스크톱 셸(build:tauri*, tauri:preview)
-# 빌드에만 필요하다. Electron 전용으로만 쓸 팀원은 아래가 없어도 이 셋업은 그대로
-# 성공한다 — 안내만 하고 절대 실패시키지 않는다.
+# Rust 툴체인 확인 — Tauri 데스크톱 셸(build:tauri*, tauri:preview) 빌드에 필요하다.
+# npm run dev(UI 확인)는 cargo 없이도 되므로 여기서도 실패시키지 않고 안내만 한다.
 if ! command -v cargo >/dev/null 2>&1; then
-  warn "Rust 툴체인(cargo) 없음 — Electron 전용 워크플로는 무관합니다. Tauri 빌드까지 쓰려면 https://rustup.rs 참고 (macOS는 Xcode Command Line Tools 외 추가 시스템 패키지 불필요)."
+  warn "Rust 툴체인(cargo) 없음 — npm run dev(UI 확인)는 그대로 되지만 Tauri 빌드/미리보기(build:tauri*, tauri:preview)는 https://rustup.rs 설치가 필요합니다 (macOS는 Xcode Command Line Tools 외 추가 시스템 패키지 불필요)."
 else
   ok "$(cargo --version)"
 fi
@@ -125,13 +124,13 @@ cat <<EOF
 ✓ 셋업 완료: $ROOT
 
 다음 단계:
-  npm run dev                # http://localhost:3000 (UI 확인 전용 — 오디오 캡처/재생은 Electron 브리지가 없어 동작하지 않음)
-  npm run build:electron:mac # Electron 패키징, macOS 전용 (dist-electron/, 네이티브 CoreAudio 헬퍼 포함)
-  npm run electron:preview   # electron . — 패키징 없이 out/ 기준으로 실행
+  npm run dev               # http://localhost:3000 (UI 확인 전용 — 오디오 캡처/재생은 Tauri 브리지가 없어 동작하지 않음)
+  npm run build:tauri:mac   # Tauri 패키징, macOS 전용 (dist-tauri/mac/, 네이티브 CoreAudio 헬퍼 포함)
+  npm run tauri:preview     # npx tauri dev — 패키징 없이 out/ 기준으로 실행 (먼저 npm run build:desktop 필요)
 
 참고:
-  - 이 앱은 Electron 전용입니다 — 웹 전용 캡처 폴백(getUserMedia)은 제거됐습니다. 오디오 캡처/재생을
-    테스트하려면 반드시 electron:preview 또는 패키징된 앱으로 실행해야 합니다.
+  - 이 앱은 Tauri 전용입니다 — 웹 전용 캡처 폴백(getUserMedia)은 제거됐습니다. 오디오 캡처/재생을
+    테스트하려면 반드시 tauri:preview 또는 패키징된 앱으로 실행해야 합니다.
   - 방금 빌드한 audio-device-helper는 소스(mac.swift)가 바뀔 때마다 다시 빌드해야 합니다
-    (npm run build:electron / build:electron:mac 이 자동으로 다시 빌드합니다).
+    (npm run build:tauri / build:tauri:mac 이 자동으로 다시 빌드합니다).
 EOF

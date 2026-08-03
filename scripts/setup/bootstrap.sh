@@ -41,15 +41,16 @@ echo "→ npm run wasm:build"
 npm run wasm:build
 
 # ── 4.5. (선택, 비차단) Rust 툴체인 확인 — Tauri 데스크톱 셸 빌드에만 필요 ────────
-# Electron만 쓰는 워크플로(dev/build:desktop/build:electron*)는 여기서 아무것도
-# 필요 없다 — cargo가 없어도 이 온보딩은 절대 실패하지 않는다. Tauri 빌드/미리보기
-# (build:tauri*, tauri:preview, wasm:preview:tauri*)를 쓰려는 사람에게만 안내한다.
+# dev/build:desktop(UI 확인 전용) 워크플로는 여기서 아무것도 필요 없다 — cargo가
+# 없어도 이 온보딩은 절대 실패하지 않는다. 다만 오디오 캡처/재생을 실제로 테스트하려면
+# Tauri 데스크톱 셸(build:tauri*, tauri:preview, wasm:preview)이 유일한 경로이므로
+# 결국 필요해진다 — cargo가 없는 사람에게만 미리 안내한다.
 if ! command -v cargo >/dev/null 2>&1; then
   cat <<'EOF'
 
-ℹ Rust 툴체인(cargo)이 없습니다 — Electron 전용 워크플로(dev/build:desktop/build:electron*)는
-  이 상태로도 전혀 문제 없습니다. Tauri 데스크톱 셸(build:tauri*, tauri:preview,
-  wasm:preview:tauri*)까지 쓰려면 나중에 아래를 준비하세요:
+ℹ Rust 툴체인(cargo)이 없습니다 — dev/build:desktop(UI 확인 전용)는 이 상태로도 전혀
+  문제 없지만, 오디오 캡처/재생까지 테스트하려면 Tauri 데스크톱 셸(build:tauri*,
+  tauri:preview, wasm:preview)이 유일한 경로라 결국 필요합니다. 준비 방법:
     - Rust: https://rustup.rs
     - Linux/WSL 추가 패키지 (Tauri v2 WebKitGTK 의존):
         sudo apt install libwebkit2gtk-4.1-dev pkg-config libssl-dev \

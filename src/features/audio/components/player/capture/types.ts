@@ -11,7 +11,7 @@ export type CaptureStreamListener = (ev: CaptureStreamEvent) => void;
  * 세션 시작~현재까지 캡처된 전 채널 원본 PCM을 복사 없이 들여다보는 스냅샷.
  * getRecordedBlob()(WAV 인코딩, Workspace 저장 전용)과 달리 이건 O(1)이다 — `frames`가
  * rawCaptureRef가 들고 있는 배열 참조 그대로라, 세션이 길어져도 호출 비용이 늘지 않는다.
- * 채널 뷰 백필/온디맨드 확대처럼 "읽기만" 하는 경로는 이쪽을 쓴다.
+ * 채널 목록 확인과 신규 선택 채널의 초기 백필처럼 "읽기만" 하는 경로는 이쪽을 쓴다.
  */
 export interface CaptureSnapshot {
   channels: number;

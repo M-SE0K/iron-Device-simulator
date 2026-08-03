@@ -11,7 +11,7 @@
 # 요구사항: Visual Studio 2019+ (C++ 데스크톱 워크로드), CMake 3.15+
 #
 # ⚠️ 비트수를 맞춰야 한다. 64비트 헬퍼는 64비트 ASIO 드라이버만 열거·오픈할 수 있다.
-#    Electron이 x64이므로 기본값 x64를 유지하는 게 맞다.
+#    Tauri 앱의 기본 빌드 타깃이 x64이므로 기본값 x64를 유지하는 게 맞다.
 [CmdletBinding()]
 param(
   [string]$AsioSdkDir = $env:ASIOSDK_DIR,

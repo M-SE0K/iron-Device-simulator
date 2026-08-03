@@ -1,7 +1,7 @@
 # audio-device-helper — CoreAudio HAL 헬퍼 (macOS 전용)
 
-Electron 메인 프로세스(`electron/main.js`)가 `child_process`로 실행하는 컴파일된
-CLI. Web Audio API/`getUserMedia`는 CoreAudio HAL 프로퍼티(NominalSampleRate,
+Tauri Rust 코어(`src-tauri/src/helper.rs`)가 자식 프로세스로 실행하는 컴파일된
+CLI(패키징 시 `externalBin` 사이드카로 번들됨). Web Audio API/`getUserMedia`는 CoreAudio HAL 프로퍼티(NominalSampleRate,
 BufferFrameSize)에 접근할 방법이 없어서, 이 별도 바이너리가 그 다리 역할을 한다.
 항상 **OS 기본 입력 장치**(사용자가 앱 실행 전 Audio MIDI 설정 등에서 지정해둔 장치,
 예: MCHStreamer AllRate)를 대상으로 동작한다 — 장치 이름을 인자로 받지 않는다.
@@ -26,7 +26,7 @@ native/macos/audio-device-helper/dist/audio-device-helper set [--device <UID>] <
 # 상주 캡처 (sampleRate/bufferSize 적용 + 캡처 스트리밍) — bufferSize가 실제 적용되는 유일한 모드
 native/macos/audio-device-helper/dist/audio-device-helper capture [--device <UID>] <sampleRate> <bufferSize> [channels=2]
 
-# 파일 재생 + 캡처 (연속 재생, 단일 IOProc) — Electron 파일 모드의 재생/분석 경로
+# 파일 재생 + 캡처 (연속 재생, 단일 IOProc) — 파일 모드의 재생/분석 경로
 native/macos/audio-device-helper/dist/audio-device-helper play-capture [--device <UID>] --ref <path> [--ref-channels <1|2>] [--out-ch <n>] [--out-ch-r <n>] <sampleRate> <bufferSize> [channels=2]
 # 예
 native/macos/audio-device-helper/dist/audio-device-helper capture 48000 480 2
@@ -80,7 +80,7 @@ native/macos/audio-device-helper/dist/audio-device-helper query --device BuiltIn
 헬퍼 소스는 `src/`에 있다 — 앱에 번들되는 CoreAudio 헬퍼가 `src/mac.swift`, 그리고 개발용
 진단 도구가 `src/query-device.c`다. 후자는 **기본 입력 장치에 묶이지 않고** 장치를 이름으로 찾아
 같은 정보(현재값·지원 SampleRate·Buffer 범위·입력 채널 수)를 사람이 읽기 좋은 형태로 출력하는
-독립 진단 도구다. 앱(Electron)은 이 C 도구가 아니라 위 Swift 헬퍼의 `query`를 쓴다 —
+독립 진단 도구다. 앱(Tauri)은 이 C 도구가 아니라 위 Swift 헬퍼의 `query`를 쓴다 —
 실제 캡처가 대상으로 삼는 "기본 입력 장치"와 일치하기 때문. `src/query-device.c`는 여러 장치를
 비교하거나 기본 장치가 아닌 장치를 확인할 때 쓴다.
 
@@ -97,8 +97,9 @@ cc -O2 -o dist/query-device src/query-device.c -framework CoreAudio -framework C
 ./native/macos/audio-device-helper/build-mac.sh
 ```
 `swiftc`로 arm64/x64를 각각 컴파일 후 `lipo`로 합쳐 universal binary
-(`dist/audio-device-helper`)를 만든다 — electron-builder mac 타깃(`[x64, arm64]`)과
-아키텍처 분기 없이 매칭된다. `scripts/build/build-electron.sh`가 mac 패키징 전에 자동 호출한다.
+(`dist/audio-device-helper`)를 만든다 — 이 universal binary 하나를 aarch64/x86_64 두
+사이드카 트리플 이름으로 복사해 Tauri의 두 타깃 요구사항을 동시에 만족시킨다(`build-tauri.sh`
+참고). `scripts/build/build-tauri.sh`가 mac 패키징 전에 자동 호출한다.
 
 ## ⚠️ `set`의 한계와 `capture` 모드
 
@@ -114,7 +115,7 @@ cc -O2 -o dist/query-device src/query-device.c -framework CoreAudio -framework C
 `capture` 모드가 이 한계의 해결책이다: 헬퍼 **자신이 IOProc을 열어 캡처 I/O의 주인이
 되므로** 요청한 BufferFrameSize가 실제 적용·유지된다 (MCHStreamer AllRate에서 480 적용
 실측 확인). 대신 캡처 데이터도 이 프로세스가 공급해야 하므로, `MicrophonePlayer.tsx`는
-Electron 환경(`window.audioCapture` 존재)에서 getUserMedia 대신 이 경로를 쓴다.
+Tauri 환경(`window.audioCapture` 존재)에서 getUserMedia 대신 이 경로를 쓴다.
 
 ### capture 프로토콜
 
@@ -126,7 +127,7 @@ Electron 환경(`window.audioCapture` 존재)에서 getUserMedia 대신 이 경�
   `channels`는 CalibrationDrawer의 **Capture Channels** 필드(`calibration.channels`)에서
   오고, `MicrophonePlayer.tsx`가 N채널 인터리브에서 **ch0/ch1만 뽑아** 3840바이트 2ch
   분석 프레임으로 재구성한다(분석 파이프라인은 항상 2ch 고정). 나머지 채널은 향후 V/I 센싱용.
-- **종료**: SIGTERM/SIGINT, stdin EOF(부모 Electron 사망 시 파이프 닫힘 → 고아 방지), 또는
+- **종료**: SIGTERM/SIGINT, stdin EOF(부모 Tauri 코어 사망 시 파이프 닫힘 → 고아 방지), 또는
   장치 연결 해제(**exit 3** — 아래 "장치 연결 해제 감지" 참고).
 - bufferSize는 `kAudioDevicePropertyBufferFrameSizeRange`로 조회한 장치 허용 범위로 클램프된다.
 
@@ -137,13 +138,13 @@ Electron 환경(`window.audioCapture` 존재)에서 getUserMedia 대신 이 경�
 IOProc 실행 중 USB 분리 등으로 장치가 죽으면 이 프로퍼티가 0이 되고, 헬퍼는 즉시
 **exit 3**으로 자기 종료한다 — 리스너가 없으면 IOProc이 데이터 없이 조용히 멈추고
 부모/렌더러는 아무 신호도 못 받아 사용자가 직접 정지할 때까지 화면이 얼어붙는다.
-부모(`audio-capture.js`/`audio-playcapture.js`)는 이 종료 코드를 그대로 `ended` 이벤트에
-실어 렌더러로 넘기고, 렌더러(`useNativeCapture.ts`의 `offEnded`)는 code 3을 일반 크래시와
-구분해 "장치 연결이 끊겼습니다" 안내를 보여준다.
+부모(`src-tauri/src/audio_capture.rs`/`audio_playcapture.rs`)는 이 종료 코드를 그대로 `ended`
+이벤트에 실어 렌더러로 넘기고, 렌더러(`useNativeCapture.ts`의 `offEnded`)는 code 3을 일반
+크래시와 구분해 "장치 연결이 끊겼습니다" 안내를 보여준다.
 
 ### play-capture 프로토콜 (파일 재생 + 캡처, 단일 IOProc)
 
-Electron 파일 모드의 재생·분석 경로가 쓴다(`electron/ipc/audio-playcapture.js` →
+파일 모드의 재생·분석 경로가 쓴다(`src-tauri/src/audio_playcapture.rs` →
 `window.audioPlayCapture`). 입출력 겸용 단일 장치에 IOProc 하나를 열어 재생과 캡처가
 **같은 클록** 위에 놓인다 — 렌더러는 수신한 캡처 프레임 수만으로 재생 위치를 계산한다.
 
@@ -175,6 +176,6 @@ Electron 파일 모드의 재생·분석 경로가 쓴다(`electron/ipc/audio-pl
 
 ### 마이크 권한 (TCC)
 
-권한이 없으면 macOS는 에러 대신 **무음(전부 0)** 을 준다. Electron이 spawn하면 앱의
+권한이 없으면 macOS는 에러 대신 **무음(전부 0)** 을 준다. Tauri가 spawn하면 앱의
 마이크 권한을 따라가지만, 터미널에서 직접 실행해 테스트할 때는 해당 터미널 앱에
 시스템 설정 > 개인정보 보호 및 보안 > 마이크 권한이 있어야 실제 신호가 들어온다.

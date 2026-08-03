@@ -1,5 +1,5 @@
-// audio-capture.ts — window.audioCapture 브리지. mic 캡처 스트리밍(electron/ipc/
-// audio-capture.js → Rust audio_capture.rs)을 Tauri Channel로 중계한다.
+// audio-capture.ts — window.audioCapture 브리지. mic 캡처 스트리밍(과거 Electron IPC 모듈
+// electron/ipc/audio-capture.js, 현재는 제거됨 → Rust audio_capture.rs)을 Tauri Channel로 중계한다.
 //
 // data/mark 콜백 레지스트리(ChannelHub)는 모듈 스코프에 두어 여러 start/stop 세션에 걸쳐
 // 살아있게 한다 — Electron의 ipcRenderer.on이 헬퍼 재시작과 무관하게 리스너를 유지하던
@@ -27,7 +27,7 @@ export function createAudioCaptureBridge(): NonNullable<Window["audioCapture"]> 
       dataChannel.onmessage = (buf) => dataHub.dispatch(new Uint8Array(buf));
 
       // e2e:false여도 항상 만들어 함께 넘긴다 — Rust가 e2e일 때만 실제로 메시지를 보낸다
-      // (계획서 5.7 규칙 7 / contract.ts COMMAND_ARGS 주석 참조).
+      // (계획서 5.7 규칙 7 / contract.ts ARG_KEYS 주석 참조).
       const markChannel = new Channel<AudioE2EMark>();
       markChannel.onmessage = (mark) => markHub.dispatch(mark);
 

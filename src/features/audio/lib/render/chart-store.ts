@@ -83,7 +83,7 @@ export class ChartStore {
    * 이펙트 의존성에 그대로 넣어도 재구독이 일어나지 않는다.
    *
    * 알림 자체는 flush() 시점에만 발생하고, 실제 그리기 빈도는 구독자가 정한다
-   * (차트는 rAF로 합쳐 최대 60Hz로 커밋한다).
+   * (차트는 rAF로 합쳐 최대 실제 화면 주사율로 커밋한다).
    */
   subscribe = (fn: () => void): (() => void) => {
     this.listeners.add(fn);

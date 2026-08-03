@@ -1,6 +1,6 @@
-// channel-registry.ts — Electron ipcRenderer.on 방식(리스너가 채널-전역이고 start/stop 여러
-// 세션을 넘어 살아있음, preload.js의 onIpc 참조)과 동등한 동작을 Tauri Channel 위에서
-// 재현한다.
+// channel-registry.ts — 과거 Electron ipcRenderer.on 방식(리스너가 채널-전역이고 start/stop
+// 여러 세션을 넘어 살아있던 방식, 원래 electron/preload.js의 onIpc — 현재는 제거됨)과
+// 동등한 동작을 Tauri Channel 위에서 재현한다.
 //
 // Tauri Channel 인스턴스는 매 invoke(start()) 호출마다 새로 만들어야 하지만, 렌더러가
 // onData/onE2EMark로 등록한 콜백은 세션 1회(start~stop)에 종속되지 않고 컴포넌트 생명주기를

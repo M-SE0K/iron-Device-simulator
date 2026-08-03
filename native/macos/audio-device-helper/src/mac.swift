@@ -1,8 +1,8 @@
 // mac.swift — CoreAudio HAL 헬퍼 (macOS 전용)
 //
-// Electron 메인 프로세스가 child_process로 이 바이너리를 실행해, 현재 OS 기본 입력 장치
+// Tauri Rust 코어가 자식 프로세스로 이 바이너리를 실행해, 현재 OS 기본 입력 장치
 // (사용자가 실행 전에 시스템 환경설정에서 MCHStreamer 등으로 지정해둔 장치)의
-// NominalSampleRate / BufferFrameSize를 조회·설정한다. Node <-> CoreAudio를 직접 잇는
+// NominalSampleRate / BufferFrameSize를 조회·설정한다. Rust <-> CoreAudio를 직접 잇는
 // 코드가 없어서(Web/WASM 샌드박스는 이 프로퍼티에 접근 불가) 별도 컴파일 바이너리로 분리했다.
 //
 // 사용법:
@@ -31,7 +31,7 @@
 // capture는 상주 모드: 첫 줄 JSON 헤더 → 이후 stdout은 int16 인터리브 raw PCM 스트림.
 // BufferFrameSize는 그 I/O를 실제로 여는 클라이언트가 주인(TN2321)이라 1회성 set으로는
 // 유지되지 않는다 — capture 모드는 자기 자신이 IOProc을 열어 값을 붙잡는 것이 핵심.
-// 종료: SIGTERM/SIGINT 또는 stdin EOF(부모 Electron 종료 시 파이프가 닫힘).
+// 종료: SIGTERM/SIGINT 또는 stdin EOF(부모 Tauri 코어 종료 시 파이프가 닫힘).
 
 import CoreAudio
 import Foundation
@@ -393,7 +393,7 @@ func installResidentLifecycle(device: AudioDeviceID, procID: AudioDeviceIOProcID
         var pending = Data()
         while true {
             let chunk = FileHandle.standardInput.availableData
-            if chunk.isEmpty { break } // EOF = 부모(Electron) 종료
+            if chunk.isEmpty { break } // EOF = 부모(Tauri 코어) 종료
             guard let handler = stdinLineHandler else { continue }
             pending.append(chunk)
             while let nl = pending.firstIndex(of: 0x0a) {

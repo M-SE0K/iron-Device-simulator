@@ -1,4 +1,5 @@
-//! streaming.rs — `electron/ipc/run-streaming-helper.js` 1:1 포팅 (공용 상주 헬퍼 러너).
+//! streaming.rs — 과거 Electron IPC 모듈(`electron/ipc/run-streaming-helper.js`, 현재는 제거됨)
+//! 에서 1:1 포팅 (공용 상주 헬퍼 러너).
 //!
 //! audio_capture.rs/audio_playcapture.rs가 이 모듈의 `StreamController`/`run_streaming_helper`를
 //! 공유 재사용한다 — 두 헬퍼(capture/play-capture) 모두 "첫 줄 JSON 헤더 → 이후 raw PCM 청크"

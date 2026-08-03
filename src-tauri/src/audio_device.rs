@@ -1,4 +1,5 @@
-//! audio_device.rs — `electron/ipc/audio-device.js`의 ipcMain.handle 4종 1:1 포팅.
+//! audio_device.rs — 과거 Electron IPC 모듈(`electron/ipc/audio-device.js`, 현재는 제거됨)의
+//! ipcMain.handle 4종을 1:1 포팅.
 //!
 //! Electron 채널 → Tauri 커맨드 매핑:
 //!   `audio-device:list`       → `audio_device_list`
@@ -8,7 +9,7 @@
 //!
 //! 인자/반환 모두 `serde_json::Value` 패스스루 — 헬퍼 CLI 계약이 진짜 소스이므로 여기서
 //! 별도 타입을 만들지 않는다. (참고: get/setConfig는 렌더러에서 현재 미사용(죽은 표면)이지만
-//! `electron-bridge.d.ts` 계약 유지를 위해 그대로 구현한다.)
+//! `native-bridge.d.ts` 계약 유지를 위해 그대로 구현한다.)
 
 use crate::helper::{run_audio_helper, with_device};
 use serde_json::Value;

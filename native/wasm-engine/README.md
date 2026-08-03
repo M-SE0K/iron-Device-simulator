@@ -1,7 +1,7 @@
 # native/wasm-engine/ — ff_prot 참조 구현 (검증용 `libirontune.so` 스텁)
 
-> 이 폴더는 프로젝트 최상위 `native/` 밑에 있고 Electron/Tauri 어느 쪽에도 종속되지
-> 않습니다 — 컴파일 산출물(`public/wasm/ff_prot.{js,wasm}`)은 순수 웹 빌드(`build:desktop`)에도
+> 이 폴더는 프로젝트 최상위 `native/` 밑에 있고 특정 데스크톱 셸에 종속되지 않습니다 —
+> 컴파일 산출물(`public/wasm/ff_prot.{js,wasm}`)은 순수 웹 빌드(`build:desktop`)에도
 > 그대로 쓰입니다.
 
 > ⚠️ **정품 아님.** Iron Device 정품 `libirontune.so` 의 원본 소스를 아직 받지 못해

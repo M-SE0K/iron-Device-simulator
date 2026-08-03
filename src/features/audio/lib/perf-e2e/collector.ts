@@ -2,7 +2,7 @@
 // `active`가 아니면 즉시 반환하므로, 실험을 켜지 않은 일반 사용에는 성능 영향이 사실상 없다.
 // 활성화: 브라우저 콘솔에서 window.__ironE2E.enable() 또는 URL에 ?e2e=1 (sessionStorage에 저장돼
 // 새로고침 후에도 유지됨). docs/e2e-latency-experiment.md 참고.
-import { downloadBlob, round3 } from "@/shared/lib/utils";
+import { downloadJsonArtifact, round3 } from "@/shared/lib/utils";
 import {
   E2E_NODES,
   type E2ENodeId, type E2ESample, type E2EExport, type E2ESessionMeta,
@@ -86,7 +86,8 @@ class E2ELatencyCollector {
     return out;
   }
 
-  // N11 기준 시각 저장용 — ChartStore.push/flush 직전에 호출한다. 현재 sampleSinceCommit 호출부는 없다.
+  // N11 기준 시각 저장용 — ChartStore.push/flush 직전에 호출한다. sampleSinceCommit은
+  // useMetricChartRuntime.ts에서 N11 측정에 호출한다.
   markCommit(): void {
     if (!this.active) return;
     this.commitAt = performance.now();
@@ -122,10 +123,8 @@ class E2ELatencyCollector {
 
   download(filename?: string): void {
     const data = this.export();
-    if (!data || typeof document === "undefined") return;
-    const stamp = data.meta.startedAt.replace(/[:.]/g, "-");
-    const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
-    downloadBlob(blob, filename ?? `e2e-latency_${data.meta.mode}_${stamp}.json`);
+    if (!data) return;
+    downloadJsonArtifact(data, "e2e-latency", data.meta, filename);
   }
 
   reset(): void {

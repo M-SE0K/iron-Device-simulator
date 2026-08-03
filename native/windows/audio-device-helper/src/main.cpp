@@ -1,8 +1,8 @@
 // main.cpp — audio-device-helper (Windows/ASIO).
 //
 // macOS의 mac.swift(CoreAudio)와 **소스가 아니라 CLI 계약을 공유하는** 형제 바이너리다.
-// 같은 argv, 같은 한 줄 JSON stdout을 내보내므로 electron/ipc/audio-device.js는
-// process.platform으로 경로만 갈라 그대로 재사용한다.
+// 같은 argv, 같은 한 줄 JSON stdout을 내보내므로 src-tauri/src/audio_device.rs는
+// 타깃 OS로 경로만 갈라 그대로 재사용한다.
 //
 // 이 파일은 계약(파싱·직렬화·종료 코드)만 담당하고 장치 접근은 audio_backend.h 뒤에 있다.
 //
@@ -254,7 +254,7 @@ void writerLoop() {
 
 std::atomic<bool> g_stopRequested{false};
 
-// stdin EOF = 부모 Electron 사망. 감지하지 못하면 헬퍼가 고아로 남아 장치를 계속 물고 있다.
+// stdin EOF = 부모 Tauri 코어 사망. 감지하지 못하면 헬퍼가 고아로 남아 장치를 계속 물고 있다.
 // 별도 스레드인 이유: main은 reset/재생완료 플래그도 함께 폴링해야 하는데 stdin 읽기는 블로킹이다.
 //
 // play-capture의 라인 명령(pause/resume/stop)도 여기서 받는다. capture 모드에서도 같은

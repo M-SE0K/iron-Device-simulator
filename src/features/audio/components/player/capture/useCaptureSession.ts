@@ -4,12 +4,14 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { AnalysisFrame } from "@/features/audio/types";
 import { perf } from "@/features/audio/lib/perf/collector";
 import { e2e } from "@/features/audio/lib/perf-e2e/collector";
-import { createAnalysisSocket, type SocketLike } from "@/features/audio/lib/engine/protocol/local-socket";
+import { createAnalysisSocket } from "@/features/audio/lib/engine/protocol/local-socket";
+import type { SocketLike } from "@/features/audio/lib/engine/protocol/socket-types";
 import { useCalibration } from "@/features/audio/components/calibration/CalibrationContext";
 import { useErrorPopup } from "@/shared/components/error-popup/ErrorPopupContext";
 import { pcmFramesToWavBlob } from "@/features/audio/lib/codec/wav-encoder";
 import { CHANNELS, SAMPLE_RATE, SAMPLES_PER_CH, BYTES_PER_SAMPLE } from "@/features/audio/lib/engine/core";
 import { decodeProcessedPcmMessage } from "@/features/audio/lib/engine/protocol/analysis";
+import { useLocale } from "@/shared/lib/i18n/LocaleProvider";
 import { useNativeCapture, type NativeRawCapture } from "./useNativeCapture";
 import { buildInitMessage } from "./build-init-message";
 import type { CaptureSnapshot, CaptureStreamEvent, CaptureStreamListener, UseCaptureSessionDeps } from "./types";
@@ -21,12 +23,18 @@ export type {
   UseCaptureSessionDeps,
 } from "./types";
 
+function blobFromCapture(entry: NativeRawCapture | null): Blob | null {
+  if (!entry || entry.frames.length === 0) return null;
+  return pcmFramesToWavBlob(entry.frames, entry.sampleRate, entry.channels);
+}
+
 export function useCaptureSession(deps: UseCaptureSessionDeps) {
   const {
     status, onStatusChange, onFrameReceived, onStreamStart, inputParams,
   } = deps;
   const { values: calibration } = useCalibration();
   const { showError } = useErrorPopup();
+  const { t } = useLocale();
 
   const [micError, setMicErrorState] = useState<string | null>(null);
   // 캡처/재생 세션 에러는 이 훅 한 곳에서만 세팅되므로, 여기서 전역
@@ -159,7 +167,7 @@ export function useCaptureSession(deps: UseCaptureSessionDeps) {
     };
 
     ws.onerror = () => {
-      setMicError("An error occurred connecting to the analysis engine.");
+      setMicError(t.capture.socketError);
       cleanup();
       onStatusChange("error");
     };
@@ -172,7 +180,7 @@ export function useCaptureSession(deps: UseCaptureSessionDeps) {
     };
 
     return ws;
-  }, [inputParams, onStatusChange, onStreamStart, onFrameReceived, cleanup, emitStreamEvent, setMicError]);
+  }, [inputParams, onStatusChange, onStreamStart, onFrameReceived, cleanup, emitStreamEvent, setMicError, t]);
 
   const { start: startNativeCapture } = useNativeCapture({
     nativeOffsRef, nativeActiveRef, playCaptureActiveRef, rawCaptureRef, recordingActiveRef, analysisActiveRef,
@@ -218,20 +226,18 @@ export function useCaptureSession(deps: UseCaptureSessionDeps) {
     }
   }, [calibration, startNativeCapture, cleanup, setMicError]);
 
-  const getRecordedBlob = useCallback((): Blob | null => {
-    const raw = rawCaptureRef.current;
-    if (!raw || raw.frames.length === 0) return null;
-    return pcmFramesToWavBlob(raw.frames, raw.sampleRate, raw.channels);
-  }, []);
+  const getRecordedBlob = useCallback(
+    (): Blob | null => blobFromCapture(rawCaptureRef.current),
+    [],
+  );
 
-  const getProtectedBlob = useCallback((): Blob | null => {
-    const buf = protectedCaptureRef.current;
-    if (!buf || buf.frames.length === 0) return null;
-    return pcmFramesToWavBlob(buf.frames, buf.sampleRate, buf.channels);
-  }, []);
+  const getProtectedBlob = useCallback(
+    (): Blob | null => blobFromCapture(protectedCaptureRef.current),
+    [],
+  );
 
   // getRecordedBlob()과 달리 복사가 없다 — rawCaptureRef.frames를 그대로 참조로 돌려준다.
-  // 채널 뷰 백필/온디맨드 확대처럼 세션이 길어져도 호출 비용이 늘면 안 되는 읽기 경로용.
+  // 채널 목록 확인과 신규 선택 채널의 초기 백필처럼 세션이 길어져도 호출 비용이 늘면 안 되는 읽기 경로용.
   const getCaptureSnapshot = useCallback((): CaptureSnapshot | null => {
     const raw = rawCaptureRef.current;
     if (!raw || raw.frames.length === 0) return null;

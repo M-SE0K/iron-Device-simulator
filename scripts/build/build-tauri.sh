@@ -1,14 +1,11 @@
 #!/usr/bin/env bash
-# build-tauri.sh — 데스크톱 Tauri v2 앱 패키징 (Electron과 병행하는 두 번째 셸, 별도 산출물)
+# build-tauri.sh — 데스크톱 Tauri v2 앱 패키징 (유일한 데스크톱 셸)
 #
-# build-static-local.sh(공용 코어, Electron 경로와 동일 로직)로 만든 out/을 Tauri
-# 번들러(tauri-bundler)로 패키징한다. 옵션 구조·헬퍼 빌드 순서는 build-electron.sh를
-# 그대로 따르지만, 근본적으로 다른 제약이 하나 있다:
+# build-static-local.sh(공용 코어)로 만든 out/을 Tauri 번들러(tauri-bundler)로 패키징한다.
+# 이 패키징 모델에는 electron-builder와 근본적으로 다른 제약이 하나 있다:
 #
-#   ⚠️ Tauri는 electron-builder와 달리 **호스트 OS = 타깃 OS**가 원칙이다
-#      (docs/TAURI_MIGRATION_PLAN.md 7.4 "크로스 패키징 매트릭스 변화" 참고). 이 스크립트는
-#      "정직하게 되는 것만 만든다"는 원칙을 유지한다 — WSL/mac 한 대에서 mac/win/linux를
-#      한 번에 뽑아내던 build-electron.sh와 달리, **이 스크립트는 실행당 최대 하나의
+#   ⚠️ Tauri는 electron-builder와 달리 **호스트 OS = 타깃 OS**가 원칙이다. 이 스크립트는
+#      "정직하게 되는 것만 만든다"는 원칙을 유지한다 — **이 스크립트는 실행당 최대 하나의
 #      타깃만 만든다.**
 #
 #      단, Windows 타깃 하나만은 예외로 WSL/Linux 호스트에서도 cargo-xwin(+ NSIS)를 쓰는
@@ -16,7 +13,7 @@
 #      명시한 경로다. 편의 기능이니 실제 배포 전에는 반드시 실기 Windows에서 한 번 더
 #      검증하는 것을 권장한다(아래 --windows-only 항목 참고).
 #
-# 그래서 옵션 없이 실행해도 electron처럼 "전부 빌드"가 아니라 **호스트 OS에 맞는
+# 그래서 옵션 없이 실행해도 electron-builder처럼 "전부 빌드"가 아니라 **호스트 OS에 맞는
 # 타깃 하나를 자동 선택**해서 빌드한다 — 나머지는 애초에 이 머신에서 만들 수 없다.
 #
 #   --mac-only      macOS 타깃 (Darwin 호스트 필수 — swiftc로 CoreAudio 헬퍼 컴파일).
@@ -33,8 +30,8 @@
 # 빌드할 때도 호스트가 Linux여도 CLI는 --target으로 지정한 타깃 OS 기준으로
 # tauri.windows.conf.json을 정상 병합한다(externalBin 포함) — merge 기준이 "실행 중인
 # OS"가 아니라 "빌드 타깃"이라는 뜻이다. 그래서 --config를 따로 넘길 필요가 없었다.
-# Linux는 병합 파일이 없으므로(계획서 5.9) externalBin 없는 기본 conf 그대로 빌드된다
-# = 헬퍼 없음(Electron Linux와 동일하게 unsupported-platform).
+# Linux는 병합 파일이 없으므로 externalBin 없는 기본 conf 그대로 빌드된다 = 헬퍼 없음
+# (Linux는 네이티브 오디오 헬퍼 자체가 아직 없다 — unsupported-platform).
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 
@@ -101,7 +98,7 @@ case "${1:-}" in
     ;;
 esac
 
-# 옵션이 없으면 호스트 OS에 맞는 타깃 하나를 자동 선택한다 — electron처럼 "전부"가
+# 옵션이 없으면 호스트 OS에 맞는 타깃 하나를 자동 선택한다 — electron-builder처럼 "전부"가
 # 원천적으로 불가능하므로, 여기서 침묵하고 아무것도 안 만드는 대신 명시적으로 알린다.
 if [[ "$MAC_ONLY" != "true" && "$WINDOWS_ONLY" != "true" && "$LINUX_ONLY" != "true" ]]; then
   case "$HOST_OS" in
@@ -118,20 +115,20 @@ fi
 
 ./scripts/build/build-static-local.sh
 
-# ===== 헬퍼 빌드 (build-electron.sh와 동일 로직/순서) =====
+# ===== 헬퍼 빌드 =====
 
 # CoreAudio HAL 헬퍼(mac 전용, swiftc 필요)를 mac 패키징 전에 컴파일한다. build-mac.sh는
 # arm64+x64 lipo universal 바이너리(native/macos/audio-device-helper/dist/audio-device-helper)를
-# 만든다 — Electron 빌드와 완전히 같은 산출물을 그대로 재사용한다.
+# 만든다 — 이 universal 바이너리 하나를 아래에서 두 사이드카 트리플 이름으로 복사해 재사용한다.
 if [[ "$MAC_ONLY" == "true" ]]; then
   ./native/macos/audio-device-helper/build-mac.sh
 fi
 
-# ASIO 헬퍼(Windows 전용) — build-electron.sh와 동일한 "낡은 exe가 조용히 패키징되는
-# 사고 방지" 원칙을 유지한다: 기본은 매번 새로 빌드하고, 실패 시 즉시 중단한다.
+# ASIO 헬퍼(Windows 전용) — "낡은 exe가 조용히 패키징되는 사고 방지" 원칙을 유지한다:
+# 기본은 매번 새로 빌드하고, 실패 시 즉시 중단한다.
 #
 # build-win.sh는 mingw-w64 크로스 컴파일러 전제다(원래 WSL/Linux 호스트에서 exe를 만들어
-# electron-builder가 그대로 win으로 크로스 패키징하는 흐름을 위해 작성됨) — WINDOWS_CROSS
+# 크로스 패키징하는 흐름을 위해 작성됨) — WINDOWS_CROSS
 # 경로(WSL/Linux 호스트)에서는 그대로 자연스럽게 맞아떨어진다. 네이티브 Windows 호스트에서
 # 이 단계를 통과시키려면 그 머신에도 mingw-w64가 설치돼 있어야 한다. 실무 흐름은 다음 중 하나:
 #   (a) Windows 머신에도 mingw-w64를 설치해두고 그대로 이 단계를 통과시키거나,
@@ -206,7 +203,7 @@ fi
 
 if [[ "$LINUX_ONLY" == "true" ]]; then
   echo "▶ Linux 타깃 — 사이드카 배치 없음 (기본 tauri.conf.json에 externalBin 자체가 없다," \
-    "현행 Electron Linux와 동일하게 audioDevice/audioCapture는 unsupported-platform)"
+    "Linux는 네이티브 오디오 헬퍼가 아직 없어 audioDevice/audioCapture는 unsupported-platform)"
 fi
 
 # ===== 플랫폼별 산출물 저장 디렉터리 초기화 =====
