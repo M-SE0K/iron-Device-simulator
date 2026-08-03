@@ -75,7 +75,7 @@ export class WorkerAnalysisSocket implements SocketLike {
     if (this.readyState !== WorkerAnalysisSocket.OPEN) return;
     if (typeof data === "string") {
       this.flushFrames();
-      this.worker.postMessage(data);
+      void this.sendControl(data);
     } else {
       this.pendingFrames.push(data);
       if (e2e.isActive()) this.pendingQueuedAt.push(performance.now());
@@ -83,6 +83,33 @@ export class WorkerAnalysisSocket implements SocketLike {
         this.flushScheduled = true;
         queueMicrotask(() => this.flushFrames());
       }
+    }
+  }
+
+  // "init" 컨트롤 메시지만 별도 처리한다 — 워커 안에서 openClientWasmSession()이 WASM을
+  // 로드할 때 암호화 배포(window.wasmAsset)가 필요한데, window는 이 메인 스레드에만 있고
+  // Worker 전역 스코프엔 없다(과거 ReferenceError: Can't find variable: window의 원인).
+  // 그래서 메인 스레드에서 미리 복호화해 init 페이로드에 실어 postMessage(transfer)로 넘긴다.
+  private async sendControl(data: string): Promise<void> {
+    let parsed: { type: string } & Record<string, unknown>;
+    try {
+      parsed = JSON.parse(data);
+    } catch {
+      this.worker.postMessage(data);
+      return;
+    }
+    if (parsed.type !== "init") {
+      this.worker.postMessage(data);
+      return;
+    }
+    const wasmBinary = typeof window !== "undefined"
+      ? await window.wasmAsset?.loadEngineBinary()
+      : undefined;
+    if (this.readyState === WorkerAnalysisSocket.CLOSED) return;
+    if (wasmBinary) {
+      this.worker.postMessage({ type: "init", initPayload: parsed, wasmBinary }, [wasmBinary.buffer]);
+    } else {
+      this.worker.postMessage({ type: "init", initPayload: parsed });
     }
   }
 

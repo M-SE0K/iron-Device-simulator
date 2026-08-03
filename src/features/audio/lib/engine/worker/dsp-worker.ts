@@ -27,7 +27,10 @@ function postJson(msg: unknown): void {
 
 interface FrameResultItem { json: string; bin: ArrayBuffer | null }
 
-async function handleControl(msg: { type: string } & Record<string, unknown>): Promise<void> {
+async function handleControl(
+  msg: { type: string } & Record<string, unknown>,
+  wasmBinary?: Uint8Array,
+): Promise<void> {
   if (msg.type === "init") {
     if (initialized) {
       postJson(createReadyMessage());
@@ -41,7 +44,9 @@ async function handleControl(msg: { type: string } & Record<string, unknown>): P
     };
 
     try {
-      session = await openClientWasmSession(config, { includeProcessedPcm: true });
+      // wasmBinary는 메인 스레드(worker-socket.ts)가 window.wasmAsset(Tauri IPC)로 미리
+      // 복호화해 init 메시지에 실어 보낸 것 — 이 파일(워커)은 window를 참조하지 않는다.
+      session = await openClientWasmSession(config, { includeProcessedPcm: true }, wasmBinary);
     } catch (err) {
       postJson(createErrorMessage(String(err)));
       return;
@@ -76,6 +81,13 @@ ctx.onmessage = (e: MessageEvent) => {
   const data = e.data as unknown;
   if (typeof data === "string") {
     void handleControl(JSON.parse(data));
+    return;
+  }
+  if (data && typeof data === "object" && (data as { type?: unknown }).type === "init") {
+    // worker-socket.ts(메인 스레드)가 "init" 컨트롤 메시지만 이 형태로 감싸 보낸다 —
+    // 암호화 WASM 바이너리(window.wasmAsset로 미리 복호화)를 함께 실어 나르기 위함.
+    const envelope = data as { initPayload: { type: string } & Record<string, unknown>; wasmBinary?: Uint8Array };
+    void handleControl(envelope.initPayload, envelope.wasmBinary);
     return;
   }
   if (data && typeof data === "object" && Array.isArray((data as { frames?: unknown }).frames)) {

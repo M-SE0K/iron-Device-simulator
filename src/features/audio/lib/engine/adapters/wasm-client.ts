@@ -155,9 +155,23 @@ function loadFactory(): Promise<FfProtFactory> {
 export async function openClientWasmSession(
   config: EngineRuntimeConfig = DEFAULT_ENGINE_CONFIG,
   opts: AnalysisFrameOptions = {},
+  wasmBinary?: Uint8Array,
 ): Promise<AnalysisSession> {
   const factory = await loadFactory();
-  const mod: FfProtInstance = await factory({ locateFile: (path: string) => `${WASM_DIR}/${path}` });
+
+  // WASM 알고리즘 암호화 배포(방법 5): Tauri 런타임에서는 평문 .wasm이 out/에 없다
+  // (scripts/build/stage-encrypted-wasm.sh가 패키징 전에 지운다) — 호출자(메인 스레드의
+  // LocalWasmSocket/WorkerAnalysisSocket)가 window.wasmAsset.loadEngineBinary()로 미리 복호화한
+  // bytes를 여기 wasmBinary로 넘겨주면 Module.wasmBinary로 먹여 글루의 자체 fetch를 우회한다.
+  // 이 함수는 메인 스레드뿐 아니라 Web Worker(dsp-worker.ts) 안에서도 실행되는데, Worker
+  // 전역 스코프엔 window가 없다 — 그래서 이 파일은 window를 직접 참조하지 않는다("바이너리를
+  // 어떻게 구하느냐"는 항상 호출부 책임). 브라우저/build:desktop 경로(wasmBinary 미전달)는
+  // 기존처럼 locateFile로 평문 .wasm을 fetch한다.
+  const moduleArg: Record<string, unknown> = { locateFile: (path: string) => `${WASM_DIR}/${path}` };
+  if (wasmBinary) {
+    moduleArg.wasmBinary = wasmBinary;
+  }
+  const mod: FfProtInstance = await factory(moduleArg);
 
   const bufPtr  = mod._malloc(frameBytes(config));
   const tempPtr = mod._malloc(CHANNELS * 4);

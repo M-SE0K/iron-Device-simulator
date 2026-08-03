@@ -87,7 +87,12 @@ class LocalWasmSocket implements SocketLike {
       };
 
       try {
-        this.session = await openClientWasmSession(this.connConfig, { includeProcessedPcm: true });
+        // 이 클래스는 항상 메인 스레드에서만 생성된다(Worker 경로는 WorkerAnalysisSocket) —
+        // window.wasmAsset(Tauri IPC, 암호화 WASM 복호화)에 직접 접근해도 안전하다.
+        const wasmBinary = typeof window !== "undefined"
+          ? await window.wasmAsset?.loadEngineBinary()
+          : undefined;
+        this.session = await openClientWasmSession(this.connConfig, { includeProcessedPcm: true }, wasmBinary);
       } catch (err) {
         this.emit(createErrorMessage(String(err)));
         return;
