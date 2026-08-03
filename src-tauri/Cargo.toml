@@ -2,6 +2,8 @@
 name = "iron-device-audio-simulator"
 version = "0.1.0"
 description = "Iron Device Audio Simulator desktop shell"
+authors = ["Iron Device Corporation", "JBNU-CILAB"]
+license = "GPL-3.0-only"
 edition = "2021"
 
 [build-dependencies]
@@ -14,6 +16,9 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 notify = "6"
 notify-debouncer-mini = "0.4"
+# WASM 엔진 암호화 배포(wasm_asset.rs)용 — 순수 Rust(RustCrypto) 크레이트로 골랐다.
+# Windows 타깃을 cargo-xwin으로 크로스 컴파일하므로 OpenSSL 링킹이 필요한 크레이트는 피한다.
+aes-gcm = "0.10"
 
 [[bin]]
 name = "iron-device-audio-simulator"

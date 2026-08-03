@@ -13,6 +13,11 @@ mod file_export;
 mod helper;
 mod local_folder;
 mod streaming;
+mod wasm_asset;
+// wasm_key.rs는 scripts/build/stage-encrypted-wasm.sh 가 빌드 시점에 생성하는 산출물이다
+// (git 제외) — 없으면 이 mod 선언에서 cargo build가 실패한다(externalBin 오디오 헬퍼 바이너리를
+// build-tauri.sh가 미리 배치해야 하는 것과 같은 패턴). wasm_asset.rs가 WASM_KEY를 참조한다.
+mod wasm_key;
 
 use std::sync::Arc;
 
@@ -59,6 +64,7 @@ fn main() {
             local_folder::local_folder_read_file,
             file_export::file_export_write_temp,
             file_export::file_export_save,
+            wasm_asset::wasm_asset_load,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

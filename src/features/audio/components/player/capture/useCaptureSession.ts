@@ -11,7 +11,6 @@ import { useErrorPopup } from "@/shared/components/error-popup/ErrorPopupContext
 import { pcmFramesToWavBlob } from "@/features/audio/lib/codec/wav-encoder";
 import { CHANNELS, SAMPLE_RATE, SAMPLES_PER_CH, BYTES_PER_SAMPLE } from "@/features/audio/lib/engine/core";
 import { decodeProcessedPcmMessage } from "@/features/audio/lib/engine/protocol/analysis";
-import { useLocale } from "@/shared/lib/i18n/LocaleProvider";
 import { useNativeCapture, type NativeRawCapture } from "./useNativeCapture";
 import { buildInitMessage } from "./build-init-message";
 import type { CaptureSnapshot, CaptureStreamEvent, CaptureStreamListener, UseCaptureSessionDeps } from "./types";
@@ -34,7 +33,6 @@ export function useCaptureSession(deps: UseCaptureSessionDeps) {
   } = deps;
   const { values: calibration } = useCalibration();
   const { showError } = useErrorPopup();
-  const { t } = useLocale();
 
   const [micError, setMicErrorState] = useState<string | null>(null);
   // 캡처/재생 세션 에러는 이 훅 한 곳에서만 세팅되므로, 여기서 전역
@@ -167,7 +165,7 @@ export function useCaptureSession(deps: UseCaptureSessionDeps) {
     };
 
     ws.onerror = () => {
-      setMicError(t.capture.socketError);
+      setMicError("An error occurred connecting to the analysis engine.");
       cleanup();
       onStatusChange("error");
     };
@@ -180,7 +178,7 @@ export function useCaptureSession(deps: UseCaptureSessionDeps) {
     };
 
     return ws;
-  }, [inputParams, onStatusChange, onStreamStart, onFrameReceived, cleanup, emitStreamEvent, setMicError, t]);
+  }, [inputParams, onStatusChange, onStreamStart, onFrameReceived, cleanup, emitStreamEvent, setMicError]);
 
   const { start: startNativeCapture } = useNativeCapture({
     nativeOffsRef, nativeActiveRef, playCaptureActiveRef, rawCaptureRef, recordingActiveRef, analysisActiveRef,

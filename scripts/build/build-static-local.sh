@@ -42,6 +42,13 @@ case "$WASM_MODE" in
   *)     WASM_OUT_DIR="public/wasm";       WASM_BUILD_CMD="wasm:build" ;;
 esac
 
+# 소스 난독화/빌드 하드닝(FF_PROT_HARDEN, native/wasm-engine/build-wasm.sh)은 실제 배포용인
+# normal 모드에서만 기본 ON — debug/dummy는 값 확인용 진단 빌드라 하드닝이 오히려 방해된다
+# (사용자가 명시적으로 FF_PROT_HARDEN=1을 지정하면 debug/dummy에도 그대로 적용됨).
+if [[ "$WASM_MODE" == "normal" ]]; then
+  export FF_PROT_HARDEN="${FF_PROT_HARDEN:-1}"
+fi
+
 if [[ "${SKIP_WASM_BUILD:-}" == "1" ]]; then
   echo "▶ WASM 컴파일 건너뜀 (SKIP_WASM_BUILD=1) — $WASM_OUT_DIR/의 기존 ff_prot.{js,wasm}를 그대로 씁니다"
   if [[ ! -f "$WASM_OUT_DIR/ff_prot.js" || ! -f "$WASM_OUT_DIR/ff_prot.wasm" ]]; then

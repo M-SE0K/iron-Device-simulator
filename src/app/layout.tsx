@@ -23,7 +23,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="ko">
+    <html lang="en">
       <body>
         {/* Tauri shim 설치 부트스트랩 — children(및 그 안의 모든 브리지 감지 useEffect)보다
             먼저 배치해 모듈 평가 시점에 window.audioDevice 등이 이미 채워져 있게 한다. */}

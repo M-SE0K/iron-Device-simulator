@@ -115,6 +115,11 @@ fi
 
 ./scripts/build/build-static-local.sh
 
+# WASM 알고리즘 암호화 배포(방법 5) — out/의 평문 ff_prot.wasm을 지우고 암호화된 사본을
+# src-tauri/resources/(bundle.resources, tauri.conf.json)로 옮긴다. mac/windows/linux 등
+# 아래 OS별 분기보다 먼저, 한 번만 실행하면 모든 타깃에 적용된다.
+./scripts/build/stage-encrypted-wasm.sh
+
 # ===== 헬퍼 빌드 =====
 
 # CoreAudio HAL 헬퍼(mac 전용, swiftc 필요)를 mac 패키징 전에 컴파일한다. build-mac.sh는

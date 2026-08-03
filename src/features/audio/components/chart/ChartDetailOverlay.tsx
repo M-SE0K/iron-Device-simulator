@@ -17,7 +17,6 @@ import { BYTES_PER_SAMPLE, INT16_SCALE } from "@/features/audio/lib/engine/core"
 import { yieldToMain } from "@/shared/lib/yield-to-main";
 import type { CaptureSnapshot, CaptureStreamEvent, CaptureStreamListener } from "@/features/audio/components/player/capture/types";
 import { channelLabel, channelColor } from "@/features/audio/lib/render/channel-meta";
-import { useLocale } from "@/shared/lib/i18n/LocaleProvider";
 import TemperatureChart from "./TemperatureChart";
 import ExcursionChart from "./ExcursionChart";
 import ChannelSelectDrawer, { type DrawerEntry } from "../channel/ChannelSelectDrawer";
@@ -97,9 +96,8 @@ export default function ChartDetailOverlay({
   sourceFile,
   onClose,
 }: Props) {
-  const { t } = useLocale();
   const isTemp = metric === "temperature";
-  const title = isTemp ? t.metrics.temperature : t.metrics.excursion;
+  const title = isTemp ? "Temperature" : "Excursion";
   const Icon = isTemp ? Thermometer : Activity;
   const accent = isTemp ? "#0B4171" : "#10B981";
 
@@ -333,18 +331,18 @@ export default function ChartDetailOverlay({
       ? [{
           id: PROTECT_ID,
           section: "metric",
-          name: t.chartDetail.protectionAttenuation,
-          role: t.chartDetail.beforeAfterCompare,
+          name: "Protection Attenuation",
+          role: "Before/After Compare",
           color: "#F59E0B",
           icon: ShieldAlert,
         }]
       : [];
     const channelEntries: DrawerEntry[] = Array.from({ length: channelCount }, (_, ch) => {
-      const { name, role } = channelLabel(ch, t.channelMeta);
+      const { name, role } = channelLabel(ch, { voltage: "V (Voltage)", current: "I (Current)", extended: "Extended" });
       return { id: channelId(ch), section: "channel", name, role, color: channelColor(ch) };
     });
     return [metricEntry, ...protectEntry, ...channelEntries];
-  }, [title, isTemp, accent, Icon, channelCount, getProtectedBlob, t]);
+  }, [title, isTemp, accent, Icon, channelCount, getProtectedBlob]);
 
   // 사용자가 드래그로 재배치한 항목 순서 — 기본값은 entries가 나열되는 순서(메인 차트 →
   // 채널 오름차순) 그대로다. 채널이 새로 발견되면(헤더 갱신) 기존 배치는 건드리지 않고
@@ -396,7 +394,7 @@ export default function ChartDetailOverlay({
             />
           ) : (
             <div className="flex items-center justify-center h-full text-xs text-iron-400">
-              {t.chartDetail.noCaptureSession}
+              No capture session — nothing to compare.
             </div>
           ),
           defaultHeight: 240,
@@ -456,7 +454,7 @@ export default function ChartDetailOverlay({
           />
         ) : (
           <div className="flex items-center justify-center h-full text-xs text-iron-400">
-            {channelError ? t.chartDetail.unableToLoadWaveform : t.chartDetail.loadingWaveform}
+            {channelError ? "Unable to load channel waveform." : "Loading channel waveform…"}
           </div>
         ),
         defaultHeight: 200,
@@ -472,7 +470,7 @@ export default function ChartDetailOverlay({
   ]);
 
   return (
-    <FullscreenOverlay show={show} ariaLabel={t.chartDetail.ariaLabel(title)}>
+    <FullscreenOverlay show={show} ariaLabel={`${title} detail view`}>
       {/* 상단 바 */}
       <header className="shrink-0 h-14 px-3 sm:px-5 flex items-center gap-3 border-b border-iron-100 bg-white">
         <div className="flex items-center gap-2 min-w-0">
@@ -485,15 +483,15 @@ export default function ChartDetailOverlay({
           type="button"
           onClick={() => setDrawerOpen((prev) => !prev)}
           aria-pressed={drawerOpen}
-          title={t.chartDetail.visibleItemsTitle}
-          aria-label={t.chartDetail.visibleItems}
+          title="Visible items (Ctrl/Cmd+B)"
+          aria-label="Visible items"
           className={cn(
             "ml-auto flex items-center gap-1.5 h-9 px-2.5 rounded-lg text-sm transition",
             drawerOpen ? "bg-brand-blue/10 text-brand-blue" : "text-iron-500 hover:bg-iron-100 hover:text-iron-900",
           )}
         >
           <Rows3 className="w-4 h-4" />
-          <span className="hidden sm:inline">{t.chartDetail.visibleItems}</span>
+          <span className="hidden sm:inline">Visible items</span>
           {selected.size > 0 && (
             <span className="px-1.5 py-0.5 rounded-full bg-brand-blue/15 text-[10px] font-semibold tabular-nums">
               {selected.size}
@@ -503,7 +501,7 @@ export default function ChartDetailOverlay({
         <button
           type="button"
           onClick={close}
-          aria-label={t.chartDetail.close}
+          aria-label="Close"
           className="flex items-center justify-center w-9 h-9 rounded-lg text-iron-400 hover:bg-iron-100 hover:text-iron-700 transition"
         >
           <X className="w-4 h-4" />
@@ -517,7 +515,7 @@ export default function ChartDetailOverlay({
         <ChannelStackView
           items={stackItems}
           onReorder={reorder}
-          emptyLabel={t.chartDetail.emptyLabel}
+          emptyLabel="Select a chart or channel from the items drawer to display it here."
         />
       </div>
 
