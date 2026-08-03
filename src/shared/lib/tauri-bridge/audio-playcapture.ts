@@ -1,5 +1,6 @@
 // audio-playcapture.ts — window.audioPlayCapture 브리지. 파일 재생 + 캡처
-// (electron/ipc/audio-playcapture.js → Rust audio_playcapture.rs)를 중계한다.
+// (과거 Electron IPC 모듈 electron/ipc/audio-playcapture.js, 현재는 제거됨 → Rust
+// audio_playcapture.rs)를 중계한다.
 //
 // startWrite/writeChunk/finalizeWrite/cancelWrite는 재생할 PCM을 4MB 청크로 나눠 미리
 // 업로드하는 핸드셰이크(useNativeCapture.ts의 uploadPlaybackRef 참조) — writeChunk만

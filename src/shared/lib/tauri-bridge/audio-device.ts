@@ -1,6 +1,6 @@
-// audio-device.ts — window.audioDevice 브리지. electron/ipc/audio-device.js를 Rust
-// audio_device.rs가 1:1 포팅한 4개 커맨드를 그대로 호출만 한다. getConfig/setConfig는
-// 렌더러 미사용(죽은 표면)이지만 d.ts 계약 유지를 위해 구현한다(계획서 5.2 참조).
+// audio-device.ts — window.audioDevice 브리지. 과거 Electron IPC 모듈(electron/ipc/audio-device.js,
+// 현재는 제거됨)을 Rust audio_device.rs가 1:1 포팅한 4개 커맨드를 그대로 호출만 한다.
+// getConfig/setConfig는 렌더러 미사용(죽은 표면)이지만 d.ts 계약 유지를 위해 구현한다.
 import { COMMANDS, ARG_KEYS } from "./contract";
 import { safeInvoke } from "./safe-invoke";
 import type { AudioDeviceConfigResult, AudioDeviceListResult, AudioDeviceQueryResult } from "./types";

@@ -2,7 +2,7 @@
 
 `native/macos/audio-device-helper/`(Swift/CoreAudio)와 **같은 CLI 계약을 구현하는
 형제 바이너리**다. 소스는 공유하지 않는다 — 공유되는 것은 argv와 한 줄 JSON stdout뿐이고,
-`electron/ipc/audio-device.js`가 `process.platform`으로 경로만 갈라 그대로 재사용한다.
+`src-tauri/src/audio_device.rs`가 타깃 OS로 경로만 갈라 그대로 재사용한다.
 계약의 단일 진실원은 macOS 쪽 README의 "명령어" 절이다.
 
 RtAudio를 쓰지 않고 Steinberg ASIO SDK 2.3을 직접 호출한다.
@@ -32,7 +32,7 @@ pause/resume/stop 라인 명령까지 miniDSP ASIO Driver로 확인했다.
 
 ## 빌드
 
-**보통은 직접 부를 일이 없다** — `npm run build:electron:windows`(→ `scripts/build/build-electron.sh`)가
+**보통은 직접 부를 일이 없다** — `npm run build:tauri:windows`(→ `scripts/build/build-tauri.sh`)가
 패키징 직전에 자동으로 호출한다. 헬퍼만 따로 빌드하려면:
 
 ```bash
@@ -45,7 +45,7 @@ ASIOSDK_DIR=/path/to/SDK ./build-win.sh
 
 ### 왜 MSVC가 아니라 mingw 크로스 컴파일인가
 
-패키징(`build-electron.sh` → electron-builder)이 **WSL에서 돌기 때문**이다. MSVC를 쓰려면
+패키징(`build-tauri.sh` → tauri build)이 **WSL에서도 돌기 때문**이다(cargo-xwin 크로스 경로). MSVC를 쓰려면
 소스를 Windows로 옮겨 빌드하고 산출물을 되가져와야 하는데, 그 왕복을 사람이 손으로 하는 한
 **exe가 소스보다 낡은 채로 패키징되는 사고**가 반복된다. 실제로 겪었다 — capture 구현이 통째로
 빠진 exe가 zip에 들어갔고, 앱에서는 `not-implemented(capture)` 에러로만 보여서 원인을 찾는 데
@@ -79,8 +79,9 @@ SDK에서 실제로 컴파일하는 것은 세 파일뿐이다 — `common/asio.
 
 ### ⚠️ 비트수
 
-64비트 헬퍼는 **64비트 ASIO 드라이버만** 보고 열 수 있다. Electron이 x64이므로 기본값 `x64`를
-유지한다. 32비트 드라이버만 설치된 장치는 목록에 아예 나타나지 않는다.
+64비트 헬퍼는 **64비트 ASIO 드라이버만** 보고 열 수 있다. Tauri 앱의 기본 빌드 타깃이
+x64(`x86_64-pc-windows-msvc`)이므로 기본값 `x64`를 유지한다. 32비트 드라이버만 설치된
+장치는 목록에 아예 나타나지 않는다.
 
 ## 실측값 (miniDSP ASIO Driver / MCHStreamer)
 

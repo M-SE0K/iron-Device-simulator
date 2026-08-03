@@ -1,4 +1,4 @@
-// Electron preload 또는 Tauri shim이 제공하며 일반 브라우저에서는 undefined다.
+// Tauri shim(src/shared/lib/tauri-bridge)이 제공하며 일반 브라우저에서는 undefined다.
 export {};
 
 interface AudioDeviceActual {
@@ -48,7 +48,7 @@ interface AudioDeviceQueryResult {
   error?: string;
 }
 
-// E2E 지연 실험(N1, src/features/audio/lib/perf-e2e/) 전용 — Electron main 또는 Tauri Rust core가 stdout 청크마다 별도
+// E2E 지연 실험(N1, src/features/audio/lib/perf-e2e/) 전용 — Tauri Rust core가 stdout 청크마다 별도
 // 채널로 보내는 Date.now() 타임스탬프.
 interface AudioE2EMark {
   sentAt: number;
@@ -175,6 +175,11 @@ declare global {
       unwatch: () => Promise<{ success: boolean }>;
       readFile: (filePath: string) => Promise<LocalFolderReadResult>;
       onChanged: (callback: (files: LocalAudioFileEntry[]) => void) => () => void;
+    };
+    // WASM 알고리즘 암호화 배포(방법 5) — src-tauri/src/wasm_asset.rs가 암호화된
+    // ff_prot.wasm.enc를 복호화해 돌려준다. wasm-client.ts가 Module.wasmBinary로 바로 먹인다.
+    wasmAsset?: {
+      loadEngineBinary: () => Promise<Uint8Array>;
     };
   }
 }

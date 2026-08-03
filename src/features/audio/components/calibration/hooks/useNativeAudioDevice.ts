@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import type { AudioInputDevice } from "@/shared/types/electron-bridge";
+import type { AudioInputDevice } from "@/shared/types/native-bridge";
 
 export interface DeviceInfo {
   device?: string;

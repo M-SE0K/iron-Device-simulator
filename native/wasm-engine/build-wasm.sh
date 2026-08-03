@@ -4,13 +4,13 @@
 #   ./build-wasm.sh      # ../../public/wasm/ff_prot.{js,wasm} 생성 (repo root 기준 public/wasm/)
 #
 # 요구: emcc(Emscripten) — 없으면 Docker(emscripten/emsdk 이미지)로 자동 폴백 (아래 참고).
-#   src/features/audio/lib/engine/adapters/wasm-client.ts 가 브라우저/Electron 렌더러
+#   src/features/audio/lib/engine/adapters/wasm-client.ts 가 브라우저/Tauri WebView
 #   안에서 fetch 로 로드해 서버 없이 직접 호출한다.
 # libirontune.so(koffi FFI, ELF x86-64 전용)와 달리 아키텍처 무관 — QEMU 불필요.
 #
-# 이 폴더(native/wasm-engine/)는 프로젝트 최상위 native/ 밑에 있고 Electron/Tauri
-# 어느 쪽에도 종속되지 않는다 — 산출물(public/wasm/ff_prot.{js,wasm})은 웹 전용
-# 빌드(build:desktop)에도 그대로 쓰인다.
+# 이 폴더(native/wasm-engine/)는 프로젝트 최상위 native/ 밑에 있고 특정 데스크톱 셸에
+# 종속되지 않는다 — 산출물(public/wasm/ff_prot.{js,wasm})은 웹 전용 빌드(build:desktop)에도
+# 그대로 쓰인다.
 #
 # 실험(debug) 빌드 — ff_prot.c의 FF_PROT_DEBUG_VI 가드 블록(V/I 값 printf 덤프)을 켠다.
 # 이 덤프는 프레임마다 대량 console 출력을 일으켜 N1(네이티브 IPC 릴레이) 등 E2E 지연

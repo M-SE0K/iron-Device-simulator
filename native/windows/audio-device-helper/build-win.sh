@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
 # build-win.sh — ASIO 헬퍼를 mingw-w64로 **크로스 컴파일**한다 (Linux/WSL 호스트에서).
-# macOS 쪽 build-mac.sh와 대칭이며, build-electron.sh가 Windows 타깃 패키징 직전에 호출한다.
+# macOS 쪽 build-mac.sh와 대칭이며, build-tauri.sh가 Windows 타깃 패키징 직전에 호출한다.
 #
 # ⚠️ 왜 build.ps1(MSVC/CMake)이 아니라 이쪽이 정식 경로인가
 #
-# 패키징(build-electron.sh → electron-builder)이 WSL에서 돌기 때문이다. 여기서 MSVC를 쓰려면
+# 패키징(build-tauri.sh → tauri build)이 WSL에서도 돌기 때문이다(cargo-xwin 크로스 경로).
+# 여기서 MSVC를 쓰려면
 # Windows로 소스를 옮겨 빌드하고 산출물을 되가져와야 하는데, 그 왕복을 사람이 손으로 하는 한
 # **exe가 소스보다 낡은 채로 패키징되는 사고**가 반복된다(실제로 겪었다 — capture 구현이
 # 통째로 빠진 exe가 zip에 들어갔고, 앱에서는 not-implemented 에러로만 보였다).
@@ -56,7 +57,7 @@ for f in src/main.cpp src/asio_backend.cpp; do
   "$CXX" -std=c++17 -O2 -Wall -Wextra -c "$f" -o "$OBJ/$(basename "$f" .cpp).o" "${INCLUDES[@]}"
 done
 
-# -static: VC++/mingw 런타임 DLL 의존을 없앤다. electron-builder가 exe 하나만 리소스로
+# -static: VC++/mingw 런타임 DLL 의존을 없앤다. Tauri 사이드카는 exe 하나만 리소스로
 #          복사하므로 DLL에 의존하면 사용자 PC에서 실행이 실패한다.
 "$CXX" -static -o dist/audio-device-helper.exe "$OBJ"/*.o \
   -lole32 -loleaut32 -luuid -luser32 -ladvapi32

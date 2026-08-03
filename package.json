@@ -2,7 +2,6 @@
   "name": "iron-device-simulator",
   "version": "0.1.0",
   "private": true,
-  "main": "electron-dist/main.js",
   "scripts": {
     "bootstrap": "bash scripts/setup/bootstrap.sh",
     "dev": "next dev",
@@ -16,20 +15,9 @@
     "build:desktop": "./scripts/build/build-static-local.sh && echo '✓ 데스크톱 독립 웹앱 빌드 완료: out/ (로컬 확인: npx serve out)'",
     "build:desktop:debug": "WASM_MODE=debug ./scripts/build/build-static-local.sh && echo '✓ 실험(debug) 데스크톱 웹앱 빌드 완료: out/ (V/I 값 printf 덤프 포함 WASM — 값 확인 전용, E2E 지연 측정에 쓰지 말 것)'",
     "build:desktop:dummy": "WASM_MODE=dummy ./scripts/build/build-static-local.sh && echo '✓ 실험(dummy) 데스크톱 웹앱 빌드 완료: out/ (pass B 감쇠 항상 미개입 WASM — Protected==Input 검증/무보호 temp·exc 확인용)'",
-    "build:electron": "./scripts/build/build-electron.sh",
-    "build:electron:mac": "./scripts/build/build-electron.sh --mac-only",
-    "build:electron:mac:debug": "WASM_MODE=debug ./scripts/build/build-electron.sh --mac-only",
-    "build:electron:mac:dummy": "WASM_MODE=dummy ./scripts/build/build-electron.sh --mac-only",
-    "build:electron:windows": "./scripts/build/build-electron.sh --windows-only",
-    "build:electron:linux": "./scripts/build/build-electron.sh --linux-only",
-    "build:electron:main": "webpack --config webpack.electron.config.js",
-    "electron:preview": "npm run build:electron:main && electron .",
     "wasm:preview": "./scripts/build/wasm-preview.sh",
     "wasm:preview:debug": "WASM_MODE=debug ./scripts/build/wasm-preview.sh",
     "wasm:preview:dummy": "WASM_MODE=dummy ./scripts/build/wasm-preview.sh",
-    "wasm:preview:tauri": "APP_SHELL=tauri ./scripts/build/wasm-preview.sh",
-    "wasm:preview:tauri:debug": "APP_SHELL=tauri WASM_MODE=debug ./scripts/build/wasm-preview.sh",
-    "wasm:preview:tauri:dummy": "APP_SHELL=tauri WASM_MODE=dummy ./scripts/build/wasm-preview.sh",
     "build:tauri": "./scripts/build/build-tauri.sh",
     "build:tauri:mac": "./scripts/build/build-tauri.sh --mac-only",
     "build:tauri:mac:debug": "WASM_MODE=debug ./scripts/build/build-tauri.sh --mac-only",
@@ -39,8 +27,7 @@
     "tauri:preview": "[ -d out ] || { echo 'out/ 이 없습니다 — 먼저 npm run build:desktop 을 실행하세요.' >&2; exit 1; } && npx tauri dev",
     "e2e:measure": "./scripts/실험용/measure-e2e-latency.sh",
     "e2e:summarize": "node scripts/실험용/summarize-e2e-latency.js",
-    "loopback:measure": "node scripts/실험용/measure-loopback-offline.js",
-    "e2e:sweep": "node scripts/실험용/sweep-sw-latency.js"
+    "loopback:measure": "node scripts/실험용/measure-loopback-offline.js"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.11.1",
@@ -58,16 +45,11 @@
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "autoprefixer": "^10.0.1",
-    "electron": "^43.0.0",
-    "electron-builder": "^26.15.3",
     "eslint": "^8",
     "eslint-config-next": "15.2.4",
     "knip": "^6.25.0",
-    "playwright": "^1.61.1",
     "postcss": "^8",
     "tailwindcss": "^3.4.1",
-    "typescript": "^5",
-    "webpack": "^5.108.4",
-    "webpack-cli": "^7.2.1"
+    "typescript": "^5"
   }
 }

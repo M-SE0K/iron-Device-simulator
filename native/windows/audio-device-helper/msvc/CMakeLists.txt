@@ -5,8 +5,8 @@
 # 소스는 상위 ../src/, SDK 기본값은 ../third_party/, 산출물은 ../dist/ (모두 헬퍼 루트 공유).
 #
 # 산출물: ../dist/audio-device-helper.exe
-#   electron/ipc/audio-device.js 의 AUDIO_HELPER_PATH(dev 폴백)와 electron-builder.yml 의
-#   win extraResources가 이 경로/이름 규칙을 전제한다. 바꾸면 양쪽을 같이 고쳐야 한다.
+#   src-tauri/src/helper.rs 의 helper_path()(dev 폴백)와 tauri.windows.conf.json 의
+#   externalBin 사이드카 배치가 이 경로/이름 규칙을 전제한다. 바꾸면 양쪽을 같이 고쳐야 한다.
 #
 # ASIO SDK는 재배포가 금지돼 리포에 커밋하지 않는다. 빌드하는 사람이 직접 배치하고
 # 아래 ASIO_SDK_DIR로 위치를 알려준다 (build.ps1이 환경변수 ASIOSDK_DIR도 읽는다).
@@ -61,7 +61,7 @@ if(MSVC)
   target_compile_options(audio-device-helper PRIVATE /W3 /permissive-)
   # SDK 소스가 90년대 코드라 strcpy/sprintf 경고가 쏟아진다. 우리 코드의 경고를 가리므로 끈다.
   target_compile_definitions(audio-device-helper PRIVATE _CRT_SECURE_NO_WARNINGS)
-  # 정적 CRT. electron-builder가 exe만 리소스로 복사하므로 VC++ 재배포 패키지에
+  # 정적 CRT. Tauri 사이드카는 exe만 리소스로 복사하므로 VC++ 재배포 패키지에
   # 의존하면 사용자 PC에서 실행이 실패한다.
   set_property(TARGET audio-device-helper PROPERTY MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
 endif()

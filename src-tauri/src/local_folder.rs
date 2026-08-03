@@ -1,4 +1,5 @@
-//! local_folder.rs — `electron/ipc/local-folder.js` 1:1 포팅 (워크스페이스 "로컬 폴더" 기능).
+//! local_folder.rs — 과거 Electron IPC 모듈(`electron/ipc/local-folder.js`, 현재는 제거됨)에서
+//! 1:1 포팅 (워크스페이스 "로컬 폴더" 기능).
 //!
 //! Electron 채널 → Tauri 커맨드/이벤트 매핑:
 //!   `local-folder:select`    → `local_folder_select`

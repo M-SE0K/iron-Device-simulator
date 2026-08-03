@@ -20,7 +20,7 @@ const FS_ERRNO_MESSAGES: Record<string, string> = {
 };
 
 /**
- * Electron IPC/네이티브 헬퍼가 그대로 돌려주는 짧은 에러 코드(예: "capture-already-running")나
+ * Tauri IPC/네이티브 헬퍼가 그대로 돌려주는 짧은 에러 코드(예: "capture-already-running")나
  * Node fs 에러 메시지(예: "ENOENT: no such file or directory, open '...'")를 사용자가 읽을 수
  * 있는 문장으로 바꾼다. 이미 사람이 쓴 문장(공백 포함)은 그대로 통과시키고, 알려지지 않은
  * 코드성 값만 원문을 노출하지 않고 `fallback`으로 대신하되 콘솔에는 원본을 남겨 디버깅은

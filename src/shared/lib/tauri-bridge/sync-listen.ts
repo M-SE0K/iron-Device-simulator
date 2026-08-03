@@ -1,5 +1,5 @@
 // sync-listen.ts — Tauri `listen()`은 Promise<UnlistenFn>을 반환하는 비동기 API지만,
-// 렌더러 계약(onEnded/onChanged, electron-bridge.d.ts)은 **동기적으로** unsubscribe 함수를
+// 렌더러 계약(onEnded/onChanged, native-bridge.d.ts)은 **동기적으로** unsubscribe 함수를
 // 반환해야 한다(계획서 5.7 규칙 1 — useLocalFolderConnection.ts:17이 반환값을 useEffect
 // cleanup으로 직접 리턴하는 등, 동기 함수를 기대하는 소비처가 있다).
 //

@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # build-mac.sh — CoreAudio HAL 헬퍼(src/mac.swift)를 arm64+x64 universal binary로 컴파일한다.
-# electron-builder mac 타깃이 [x64, arm64] 둘 다이므로 아키텍처 분기 없이 하나의 바이너리로 번들링한다.
-# macOS 호스트(swiftc 필요)에서만 실행 가능 — build-electron.sh에서 mac 타깃 빌드 전 호출된다.
+# Tauri mac 사이드카가 aarch64/x86_64 두 트리플을 요구하므로 아키텍처 분기 없이 하나의
+# universal 바이너리로 두 트리플 이름을 모두 만족시킨다(build-tauri.sh 참고).
+# macOS 호스트(swiftc 필요)에서만 실행 가능 — build-tauri.sh에서 mac 타깃 빌드 전 호출된다.
 set -euo pipefail
 cd "$(dirname "$0")"
 

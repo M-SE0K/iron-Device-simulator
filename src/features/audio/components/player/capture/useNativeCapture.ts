@@ -121,7 +121,7 @@ export function useNativeCapture(deps: NativeCaptureDeps) {
       bufferSize: params.bufferSize,
       channels:   captureChannels,
       deviceUID:  params.captureDeviceUID?.trim() || undefined,
-      // 켜져 있으면 Electron main 또는 Tauri Rust core가 stdout 청크마다 별도 채널로 Date.now() 타임스탬프를 추가로
+      // 켜져 있으면 Tauri Rust core가 stdout 청크마다 별도 채널로 Date.now() 타임스탬프를 추가로
       // 보낸다 — N1(네이티브 IPC 릴레이 지연) 측정용. 꺼져 있으면(기본) 추가 IPC 없음.
       e2e: e2eActive,
     };
@@ -205,7 +205,7 @@ export function useNativeCapture(deps: NativeCaptureDeps) {
       telemetry.markChunkArrival();
       telemetry.measureEncoding(() => reframe(chunk));
     });
-    // N1(네이티브 IPC 릴레이) — 데스크톱 셸 백엔드(Electron main 또는 Tauri Rust core)가 stdout 청크를 전달한 시각(Date.now(), baseOpts.e2e로
+    // N1(네이티브 IPC 릴레이) — 데스크톱 셸 백엔드(Tauri Rust core)가 stdout 청크를 전달한 시각(Date.now(), baseOpts.e2e로
     // 요청했을 때만 옴)과 이 렌더러 콜백이 실행된 시각의 차이. 프로세스 경계라 performance.now()는
     // 서로 다른 기준시각(process 시작 시각)을 쓰므로 비교 불가 — 반드시 Date.now()(벽시계)로 잰다.
     const offMark = e2eActive && bridge.onE2EMark

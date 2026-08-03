@@ -2,8 +2,8 @@
 # build-static-local.sh — 정적 export + 브라우저 WASM 엔진 빌드 (공용 코어)
 #
 # 정적 번들을 만든다. 분석은 항상 브라우저(WebView) 안의 WASM 엔진이 직접 수행한다
-# (engine/protocol/local-socket.ts). Electron 패키징(build-electron.sh)이 첫 단계로 호출하는
-# 코어 빌드 로직 — 산출물(out/)을 Electron 셸이 감싸 서빙한다.
+# (engine/protocol/local-socket.ts). Tauri 패키징(build-tauri.sh)이 첫 단계로 호출하는
+# 코어 빌드 로직 — 산출물(out/)을 Tauri 셸이 감싸 서빙한다.
 #
 # src/app/page.tsx 의 `export const dynamic = "force-dynamic"` 은 런타임 서버가 있는
 # 일반 배포용(USE_QUEUE를 재빌드 없이 재정의하기 위함)이라 정적 export와 호환되지
@@ -23,7 +23,7 @@
 # debug면 public/wasm-debug/, dummy면 public/wasm-dummy/)에 이미 놓아둔 ff_prot.{js,wasm}를
 # 그대로 쓴다 — 리포의 .c 소스가 아니라 직접 빌드/수정한 커스텀 WASM 산출물을 패키징에 쓸 때
 # (예: custom/ 드롭인 대신 이미 컴파일된 바이너리를 갖고 있는 경우) 미리 그 파일들을 대상
-# 디렉터리에 복사해두고 이 플래그로 실행한다. build-electron.sh의 SKIP_WIN_HELPER_BUILD와
+# 디렉터리에 복사해두고 이 플래그로 실행한다. build-tauri.sh의 SKIP_WIN_HELPER_BUILD와
 # 같은 패턴.
 set -euo pipefail
 cd "$(dirname "$0")/../.."

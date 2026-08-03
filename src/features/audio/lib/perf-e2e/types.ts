@@ -12,7 +12,7 @@ export interface E2ENodeMeta {
 }
 
 export const E2E_NODES: Record<E2ENodeId, E2ENodeMeta> = {
-  N1:  { label: "네이티브 IPC 릴레이",     desc: "헬퍼 stdout 수신(Electron main) → renderer bridge.onData 도착 (프로세스 경계, Electron 전용)" },
+  N1:  { label: "네이티브 IPC 릴레이",     desc: "헬퍼 stdout 수신(Tauri Rust core) → renderer bridge.onData 도착 (프로세스 경계, 네이티브 캡처가 있는 Tauri 앱 전용)" },
   N2:  { label: "리프레이밍/인코딩",       desc: "원시 캡처 청크 → 분석 프레임 재구성 (reframeNativeChunk / encodeToInt16)" },
   N3:  { label: "송신→워커 진입",          desc: "ws.send() → dsp-worker onmessage 진입 (메인→워커 스레드 경계, 워커 엔진 경로 전용)" },
   N4:  { label: "워커 배치 큐잉",          desc: "워커 소켓 pendingFrames 적재 → 실제 flush(postMessage) 실행까지 대기 (워커 엔진 경로 전용)" },

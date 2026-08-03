@@ -1,4 +1,4 @@
-import type { LocalAudioFileEntry } from "@/shared/types/electron-bridge";
+import type { LocalAudioFileEntry } from "@/shared/types/native-bridge";
 
 export type { LocalAudioFileEntry };
 
