@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!--
+	  hardened runtime에서 마이크(오디오 입력)를 열려면 반드시 필요하다. 없으면 CoreAudio가
+	  에러 대신 **무음(전 샘플 0)** 을 흘려보내서, 앱에서는 캡처가 도는 것처럼 보이는데 채널
+	  파형만 "no signal (all zeros)"로 뜬다(ChannelRowHeader.tsx). 실제로 IOProc을 여는 건
+	  사이드카 헬퍼(audio-device-helper) 프로세스이고, entitlement 검사는 바이너리 단위라
+	  앱 본체와 사이드카 **둘 다** 이 entitlement로 서명돼야 한다 — build-tauri.sh가 빌드
+	  직후 그걸 검증한다.
+	-->
+	<key>com.apple.security.device.audio-input</key>
+	<true/>
+</dict>
+</plist>

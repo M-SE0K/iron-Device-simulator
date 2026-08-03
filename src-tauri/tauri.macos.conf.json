@@ -4,7 +4,8 @@
     "externalBin": ["binaries/audio-device-helper"],
     "macOS": {
       "minimumSystemVersion": "10.15",
-      "signingIdentity": "-"
+      "signingIdentity": "-",
+      "entitlements": "Entitlements.plist"
     }
   }
 }

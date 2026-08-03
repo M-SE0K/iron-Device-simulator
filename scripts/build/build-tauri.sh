@@ -231,6 +231,37 @@ if [[ "$MAC_ONLY" == "true" ]]; then
   # 대신 `npx tauri build --target <triple>`을 타깃별로 직접 두 번 실행하면 된다(추후 과제).
   rm -rf dist-tauri/mac/* 2>/dev/null || true
   npx tauri build
+
+  # ── 오디오 입력 entitlement 검증 (앱 본체 + 사이드카) ──────────────────────────
+  # tauri.macos.conf.json에 signingIdentity가 있으면 Tauri는 hardened runtime
+  # (--options runtime)으로 서명한다. 그 상태에서 com.apple.security.device.audio-input이
+  # 없으면 CoreAudio는 **에러 대신 무음(전 샘플 0)** 을 준다 — 앱은 멀쩡히 돌고 캡처도 도는
+  # 것처럼 보이는데 채널 파형만 "no signal (all zeros)"가 된다(ChannelRowHeader.tsx).
+  # 실제로 IOProc을 여는 건 사이드카 헬퍼 프로세스이고 entitlement 검사는 바이너리 단위라,
+  # 앱 본체에만 붙어서는 소용이 없다 — 그래서 둘 다 확인한다.
+  #
+  # 여기서 조용히 재서명하지 않고 빌드를 세우는 이유: 이 시점엔 .dmg가 이미 같은 서명으로
+  # 만들어진 뒤라 .app만 고쳐봐야 dmg는 그대로 마이크가 먹통인 채로 남는다. 설정이 깨진
+  # 것을 그때그때 덮는 대신 즉시 드러내는 편이 낫다(ASIO 헬퍼 재빌드 실패 처리와 같은 원칙).
+  BUNDLE_APP="$(find src-tauri/target/release/bundle/macos -maxdepth 1 -type d -name "*.app" | head -1)"
+  if [[ -n "$BUNDLE_APP" ]]; then
+    MISSING=""
+    for BIN in "$BUNDLE_APP" "$BUNDLE_APP/Contents/MacOS/audio-device-helper"; do
+      [[ -e "$BIN" ]] || continue
+      if ! codesign -d --entitlements - --xml "$BIN" 2>/dev/null | grep -q "com.apple.security.device.audio-input"; then
+        MISSING="${MISSING} $(basename "$BIN")"
+      fi
+    done
+    if [[ -n "$MISSING" ]]; then
+      echo "✗ 오디오 입력 entitlement 누락:${MISSING}" >&2
+      echo "  hardened runtime에서 이게 빠지면 마이크 입력이 전부 0으로 들어와 채널 파형이" >&2
+      echo "  'no signal (all zeros)'로만 뜹니다(에러는 안 납니다)." >&2
+      echo "  src-tauri/Entitlements.plist 와 tauri.macos.conf.json 의 macOS.entitlements 설정을 확인하세요." >&2
+      exit 1
+    fi
+    echo "✓ 오디오 입력 entitlement 확인: 앱 본체 + 사이드카(audio-device-helper)"
+  fi
+
   find src-tauri/target/release/bundle/dmg -maxdepth 1 -type f -name "*.dmg" -exec cp {} dist-tauri/mac/ \; 2>/dev/null || true
   find src-tauri/target/release/bundle/macos -maxdepth 1 -type d -name "*.app" -exec cp -R {} dist-tauri/mac/ \; 2>/dev/null || true
   echo ""
