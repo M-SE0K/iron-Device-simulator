@@ -58,24 +58,23 @@ ASIOSDK_DIR=/path/to/SDK ./build-win.sh
 > 산출물(`../dist/`)은 모두 헬퍼 루트를 공유한다. 요구사항: Visual Studio 2019+ (C++ 데스크톱
 > 워크로드), CMake 3.15+.
 
-> `dist/`는 `.gitignore`로 제외된다 — 산출물(`audio-device-helper.exe`)이 GPLv3/독점 듀얼
-> 라이선스인 ASIO SDK를 링크한 바이너리라, Steinberg와 별도 독점 라이선스 계약이 확인되기
-> 전까지는 커밋하지 않기로 했다(아래 "ASIO SDK 취득"의 라이선스 절 참고). 이전에는 macOS
-> 헬퍼와 대칭을 맞추려 커밋했었으나 라이선스 확인 전까지 보류한다. 패키징 시엔 매번
+> `dist/`는 `.gitignore`로 제외된다 — 산출물(`audio-device-helper.exe`)은 GPLv3 ASIO SDK를
+> 링크한 생성 파일이며, 패키징 시 매번
 > `build-win.sh`로 새로 빌드하므로 `SKIP_WIN_HELPER_BUILD=1`로 재사용은 못 한다.
 > SDK를 푸는 `third_party/`와 CMake 작업 폴더 `build-*/`도 `.gitignore`로 제외된다.
 
 ### ASIO SDK 취득
 
-SDK는 **재배포가 금지돼 리포에 커밋하지 않는다.** [Steinberg 개발자 포털](https://www.steinberg.net/developers/)에서
-ASIO SDK 2.3을 받아 `common\`과 `host\`가 보이도록 풀고 위 방법으로 경로를 지정한다.
+이 프로젝트는 [Steinberg의 ASIO 공개 GPLv3 배포판](https://www.steinberg.net/developers/asiosdk-open/)을
+사용한다. SDK는 버전과 원문 라이선스를 빌드 환경에서 명확히 통제하기 위해 리포에 vendoring하지
+않으며, 개발자 포털에서 받은 SDK를 `common\`과 `host\`가 보이도록 풀고 위 방법으로 경로를 지정한다.
 
 SDK에서 실제로 컴파일하는 것은 세 파일뿐이다 — `common/asio.cpp`, `host/asiodrivers.cpp`,
 `host/pc/asiolist.cpp`. `driver/` 밑은 ASIO 드라이버를 *만들* 때 쓰는 코드라 호스트인 우리는
 **포함하면 안 된다**(`DllMain` 등이 딸려와 링크가 깨진다).
 
-> 라이선스: ASIO SDK 2.3.4는 GPLv3 / 독점 듀얼 라이선스다. 앱을 비공개로 배포할 계획이면
-> GPLv3 경로는 소스 공개 의무가 걸리므로 Steinberg와 별도 라이선스 계약이 필요하다.
+> 라이선스: 프로젝트와 Windows ASIO 헬퍼는 `GPL-3.0-only`로 배포한다. 배포 시 이 저장소의
+> 대응 소스, 루트 `LICENSE`, ASIO SDK의 저작권·라이선스 고지를 함께 제공해야 한다.
 
 ### ⚠️ 비트수
 

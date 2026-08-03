@@ -66,9 +66,12 @@ sudo apt install nsis clang lld llvm    # makensis + the linker/codegen bits car
 
 The first cross-build downloads the MS CRT/SDK into `~/.cache` (network required, a few minutes); subsequent builds reuse the cache.
 
-Both shells produce **unsigned builds** (intended for internal team distribution, not app-store/public release). First launch requires one manual step, same for either shell:
+The macOS build uses a complete **ad-hoc signature** so Apple Silicon does not
+misclassify browser-downloaded builds as damaged. It is still intended for
+internal distribution and is not Developer ID notarized. First launch requires
+one manual step:
 
-- **macOS**: right-click the app → Open (Gatekeeper blocks unsigned apps opened by double-click)
+- **macOS**: after the first blocked launch, open System Settings → Privacy & Security → Open Anyway
 - **Windows**: click "More info" → "Run anyway" on the SmartScreen warning
 - **Linux**: `chmod +x *.AppImage` then run directly — no warning
 
@@ -111,4 +114,8 @@ npm run tauri:preview       # npx tauri dev — runs against the current out/, n
 
 ## License
 
-Jeonbuk National University SW Industry-Academic Collaboration Project — Redistribution and public disclosure prohibited.
+Copyright (C) 2026 Iron Device Corporation and JBNU-CILAB.
+
+This project is free and open-source software licensed under the
+[GNU General Public License v3.0 only](LICENSE) (`GPL-3.0-only`).
+Third-party components remain subject to their respective licenses.

@@ -66,9 +66,11 @@ sudo apt install nsis clang lld llvm    # makensis + cargo-xwin이 필요로 하
 
 첫 크로스 빌드는 MS CRT/SDK를 `~/.cache`에 내려받습니다(네트워크 필요, 수 분 소요) — 이후 빌드는 캐시를 재사용합니다.
 
-두 셸 모두 **서명되지 않은 빌드**입니다(앱스토어/공개 배포용이 아니라 팀 내부 배포용). 최초 실행 시 다음 한 단계가 필요하며, 셸에 상관없이 동일합니다.
+macOS 빌드는 Apple Silicon이 브라우저에서 받은 앱을 “손상됨”으로 잘못
+판정하지 않도록 앱 전체에 **ad-hoc 서명**을 적용합니다. 다만 Developer ID 공증
+빌드는 아니며 팀 내부 배포용입니다. 최초 실행 시 다음 한 단계가 필요합니다.
 
-- **macOS**: 앱을 우클릭 → 열기 (더블클릭으로 실행하면 Gatekeeper가 서명되지 않은 앱을 차단합니다)
+- **macOS**: 최초 실행이 차단된 뒤 시스템 설정 → 개인정보 보호 및 보안 → ‘그래도 열기’ 승인
 - **Windows**: SmartScreen 경고에서 "추가 정보" → "실행" 클릭
 - **Linux**: `chmod +x *.AppImage` 후 바로 실행 — 별도 경고 없음
 
@@ -111,4 +113,8 @@ npm run tauri:preview       # npx tauri dev — 현재 out/ 기준 실행, 패�
 
 ## 라이선스
 
-전북대학교 SW 산학협력 프로젝트 — 재배포 및 공개 금지.
+Copyright (C) 2026 Iron Device Corporation and JBNU-CILAB.
+
+이 프로젝트는 [GNU General Public License v3.0 only](LICENSE)
+(`GPL-3.0-only`)로 배포되는 자유·오픈소스 소프트웨어입니다.
+서드파티 구성요소에는 각 구성요소의 라이선스가 그대로 적용됩니다.

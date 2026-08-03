@@ -1,10 +1,10 @@
-# ASIO SDK는 재배포가 금지돼 있다 — 여기에 풀더라도 절대 커밋하지 않는다.
+# ASIO SDK는 빌드 입력으로 로컬 관리한다. 공개 GPLv3 배포판을 사용하더라도
+# 버전·원문 라이선스를 명확히 통제하기 위해 이 저장소에는 vendoring하지 않는다.
 third_party/
 
 # CMake 작업 폴더 (build.ps1 -Arch 별로 생김)
 build-*/
 
-# dist/ 산출물(audio-device-helper.exe)은 ASIO SDK(GPLv3/독점 듀얼 라이선스)를 링크한
-# 바이너리다. Steinberg와 별도 독점 라이선스 계약이 확인되기 전까지는 커밋하지 않는다.
-# (예전엔 macOS 헬퍼와 대칭을 맞추려 커밋했었다 — 라이선스 확인 전까지 보류)
+# dist/ 산출물(audio-device-helper.exe)은 GPLv3 ASIO SDK를 링크한 생성 파일이다.
+# 패키징 때 소스에서 재현하므로 저장소에는 커밋하지 않는다.
 dist/
