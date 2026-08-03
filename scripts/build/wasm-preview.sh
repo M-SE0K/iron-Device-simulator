@@ -55,4 +55,9 @@ fi
 cp "public/$WASM_DIR_NAME/ff_prot.js" "public/$WASM_DIR_NAME/ff_prot.wasm" "$OUT_WASM_DIR/"
 echo "✓ $OUT_WASM_DIR 갱신 완료"
 
+# WASM 알고리즘 암호화 배포(방법 5) — 이 프리뷰도 `npx tauri dev`로 뜨므로, 실제 패키징
+# (build-tauri.sh)과 동일하게 out/의 평문 .wasm을 지우고 암호화 리소스를 스테이징한다.
+# "패키징해봐야만 복호화 경로 버그를 발견"하는 상황을 방지하기 위함.
+./scripts/build/stage-encrypted-wasm.sh
+
 npx tauri dev

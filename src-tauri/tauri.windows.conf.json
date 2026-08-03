@@ -1,6 +1,12 @@
 {
   "bundle": {
     "targets": ["nsis"],
-    "externalBin": ["binaries/audio-device-helper"]
+    "externalBin": ["binaries/audio-device-helper"],
+    "windows": {
+      "nsis": {
+        "displayLanguageSelector": true,
+        "languages": ["English", "Korean"]
+      }
+    }
   }
 }

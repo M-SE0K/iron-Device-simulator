@@ -17,6 +17,13 @@ node_modules/
 /src-tauri/gen/
 /dist-tauri/
 
+# WASM 알고리즘 암호화 배포(방법 5, scripts/build/stage-encrypted-wasm.sh) — 빌드마다
+# 재생성되는 키/암호화 리소스. native/wasm-engine/.wasm-key 는 머신당 1회 생성되어 로컬에만
+# 남는다(README/plan 참고 — git에 올리는 순간 "암호화"의 의미가 없어진다).
+/src-tauri/resources/
+/src-tauri/src/wasm_key.rs
+/native/wasm-engine/.wasm-key
+
 # WASM 빌드 산출물 — npm run wasm:build 로 재생성 (public/의 소스 파일(mic-processor.js)은 커밋 대상)
 /public/wasm/
 /public/wasm-debug/
@@ -62,6 +69,9 @@ build.log
 
 # 로컬 전용 도구/실험 디렉터리 (프로젝트와 무관)
 im-not-ai/
+# /humanize-korean 스킬의 회차별 작업 폴더(입력 원문 + 윤문 결과) — 최종본은 각 도메인
+# README.md로 이미 커밋되므로 중간 산출물 자체는 추적하지 않는다.
+_workspace/
 
 #CLAUDE & iron-device
 CLAUDE.md

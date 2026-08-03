@@ -90,7 +90,7 @@ export default function WorkspaceFolderSection() {
       <span className="text-sm font-medium text-iron-400">Folder</span>
       {connected && (
         <div className="flex items-center gap-2">
-          <CountBadge count={count} suffix="files" />
+          <CountBadge count={count} suffix=" files" />
           <button
             type="button"
             onClick={onDisconnect}

@@ -185,13 +185,18 @@ pub async fn local_folder_select(
 }
 
 #[tauri::command]
-pub fn local_folder_unwatch(state: State<'_, LocalFolderState>) -> Value {
+pub async fn local_folder_unwatch(
+    state: State<'_, LocalFolderState>,
+) -> Result<Value, String> {
     stop_watching_folder(&state);
-    serde_json::json!({ "success": true })
+    Ok(serde_json::json!({ "success": true }))
 }
 
+/// 오디오 파일 전체를 읽어 raw bytes로 돌려준다 — 수십 MB가 될 수 있는 동기 디스크 읽기라
+/// UI 스레드(sync 커맨드가 실행되는 곳)에서 하면 그동안 창이 멈춘다. `async fn`으로 두어
+/// tokio 워커에서 블로킹하게 한다.
 #[tauri::command]
-pub fn local_folder_read_file(
+pub async fn local_folder_read_file(
     state: State<'_, LocalFolderState>,
     path: String,
 ) -> Result<Response, String> {

@@ -257,7 +257,14 @@ function CalibrationDrawer({ projectName, onApply }: Props) {
                 devices={nativeDevices.map((d) => ({
                   value: d.uid,
                   label: d.name || "Unnamed",
-                  hint: `${d.probed === false ? "In Use" : `${d.inputChannels}ch`}${d.isDefault ? " · Default" : ""}`,
+                  // probed일 때만 채널 수를 띄운다(macOS/CoreAudio). Windows는
+                  // audio_device_list가 `--no-probe`로 돌아 probed=false인데, 예전처럼 그걸
+                  // "In Use"로 표시하면 멀쩡한 장치를 전부 점유 중이라고 거짓말하게 된다 —
+                  // 채널 수는 장치를 고른 뒤 아래 정보 패널이 query 결과로 보여준다.
+                  hint: [
+                    d.probed ? `${d.inputChannels}ch` : null,
+                    d.isDefault ? "Default" : null,
+                  ].filter(Boolean).join(" · ") || undefined,
                 }))}
                 placeholderLabel="OS Default Input"
                 savedLabel="Saved Device"
@@ -309,14 +316,11 @@ function CalibrationDrawer({ projectName, onApply }: Props) {
               )}
               {deviceInfo?.outputChannels === 0 && (
                 <p className="text-[11px] text-amber-600 leading-relaxed">
-                  This device has no output channels, so file playback (single-IOProc duplex)
-                  is unavailable.
+                  This device has no output channels, so file playback (single-IOProc duplex) is unavailable.
                 </p>
               )}
               <p className="text-[10px] text-iron-300 leading-relaxed">
-                ⚠️ Buffer Size is per-client (TN2321), so this query only shows the device default.
-                Pressing &ldquo;Apply&rdquo; briefly opens and closes the microphone to confirm the actual
-                applied value (this fails if the microphone is already recording).
+                ⚠️ Buffer Size is per-client (TN2321), so this query only shows the device default. Pressing “Apply” briefly opens and closes the microphone to confirm the actual applied value (this fails if the microphone is already recording).
               </p>
             </section>
           )}

@@ -1,23 +1,28 @@
 "use client";
 
-// 차트 상세(자세히 보기) 뷰 — 대시보드에서 특정 차트의 확대 버튼을 누르면 전체 화면 페이지처럼
-// 전환된다(별도 라우트가 아니라 DashboardClient가 소유한 라이브 데이터를 그대로 재사용하는
-// 오버레이 — 정적 export/데스크톱 셸에서도 동작하고 재생 중 실시간 갱신을 유지한다).
-// 메인 차트(Temperature/Excursion)와 캡처된 오디오의 채널들을 "표시 항목" 드로어에서 동일하게
-// 체크/해제(추가·제거) + 리사이즈할 수 있는 하나의 스택으로 구성한다 — ChannelSelectDrawer가
-// 항목 목록을, ChannelStackView가 실제 스택 렌더링을 맡는다.
+// 차트 상세(자세히 보기) 뷰 — 대시보드에서 특정 차트의 확대 버튼을 누르면 좌측 Sidebar 옆에서
+// 슬라이드로 열리는 드로어로 전환된다(별도 라우트가 아니라 DashboardClient가 소유한 라이브
+// 데이터를 그대로 재사용하는 드로어 — 정적 export/데스크톱 셸에서도 동작하고 재생 중 실시간
+// 갱신을 유지한다). 메인 차트(Temperature/Excursion)와 캡처된 오디오의 채널들을 "표시 항목"
+// 드로어에서 동일하게 체크/해제(추가·제거) + 리사이즈할 수 있는 하나의 스택으로 구성한다 —
+// ChannelSelectDrawer가 항목 목록을, ChannelStackView가 실제 스택 렌더링을 맡는다.
+//
+// V(ch0)/I(ch1)는 세션에 캡처 채널이 잡히는 즉시 자동으로 선택된다(autoSelectedVIRef) — 예전엔
+// "표시 항목" 드로어를 직접 열어 체크하기 전까지 아무 채널도 안 보여서, 열자마자 보이는 건
+// 온도/변위 차트뿐이었다. 데이터 경로 자체는 정상이었지만 기본값이 숨겨서 "V/I가 안 보인다"는
+// 인상을 줬다 — 채널 헤더 확인도 표시 항목 드로어가 열려야만 하던 걸 이 뷰가 열리는 시점으로
+// 앞당겨(아래 getChannelsSnapshot 이펙트) 채널 수를 먼저 파악하고 곧바로 자동 선택한다.
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Activity, Rows3, ShieldAlert, Thermometer, X } from "lucide-react";
 import type { ChartStore } from "@/features/audio/lib/render/chart-store";
 import { cn } from "@/shared/lib/utils";
-import { useOverlayTransition } from "@/shared/hooks/useOverlayTransition";
+import { useEscapeKey } from "@/shared/hooks/useEscapeKey";
 import { useCtrlBToggle } from "@/shared/hooks/useCtrlBToggle";
-import FullscreenOverlay from "@/shared/components/overlay/FullscreenOverlay";
+import SideDrawer from "@/shared/components/overlay/SideDrawer";
 import { BYTES_PER_SAMPLE, INT16_SCALE } from "@/features/audio/lib/engine/core";
 import { yieldToMain } from "@/shared/lib/yield-to-main";
 import type { CaptureSnapshot, CaptureStreamEvent, CaptureStreamListener } from "@/features/audio/components/player/capture/types";
 import { channelLabel, channelColor } from "@/features/audio/lib/render/channel-meta";
-import { useLocale } from "@/shared/lib/i18n/LocaleProvider";
 import TemperatureChart from "./TemperatureChart";
 import ExcursionChart from "./ExcursionChart";
 import ChannelSelectDrawer, { type DrawerEntry } from "../channel/ChannelSelectDrawer";
@@ -53,7 +58,12 @@ interface ChannelHeader {
 export type DetailMetric = "temperature" | "excursion";
 
 interface Props {
-  metric: DetailMetric;
+  open: boolean;
+  /**
+   * null이면 닫히는 애니메이션 동안 보여줄 게 없다는 뜻 — displayMetric이 직전 값을
+   * 그대로 유지해 슬라이드아웃 중에도 콘텐츠가 빈 화면으로 깜빡이지 않는다.
+   */
+  metric: DetailMetric | null;
   /** 대시보드와 같은 표시 데이터 스토어 — 상세 뷰의 차트도 여기에 직접 구독한다. */
   store: ChartStore;
   isActive: boolean;
@@ -85,6 +95,7 @@ interface Props {
 }
 
 export default function ChartDetailOverlay({
+  open,
   metric,
   store,
   isActive,
@@ -97,19 +108,26 @@ export default function ChartDetailOverlay({
   sourceFile,
   onClose,
 }: Props) {
-  const { t } = useLocale();
-  const isTemp = metric === "temperature";
-  const title = isTemp ? t.metrics.temperature : t.metrics.excursion;
+  // 닫히는 슬라이드 동안에도 직전 metric으로 계속 그린다 — SideDrawer는 open=false가 된
+  // 뒤에도 트랜지션이 끝날 때까지 마운트를 유지하는 패턴이라, metric이 곧장 null이 되면
+  // 닫히는 도중 콘텐츠가 먼저 사라져 보인다.
+  const [lastMetric, setLastMetric] = useState<DetailMetric>(metric ?? "temperature");
+  useEffect(() => { if (metric) setLastMetric(metric); }, [metric]);
+  const displayMetric = metric ?? lastMetric;
+
+  const isTemp = displayMetric === "temperature";
+  const title = isTemp ? "Temperature" : "Excursion";
   const Icon = isTemp ? Thermometer : Activity;
   const accent = isTemp ? "#0B4171" : "#10B981";
 
-  // 진입/이탈 애니메이션 + ESC 닫기 — FullscreenOverlay 공용 셸과 함께 사용한다.
-  const { show, close } = useOverlayTransition(onClose);
+  useEscapeKey(onClose, open);
 
   // ── 표시 항목 드로어 — 메인 차트(metric) + 캡처 버퍼의 채널들을 같은 방식으로 체크/해제한다.
-  // 기본값은 메인 차트만 선택된 상태(기존 동작과 동일하게 열자마자 차트가 보인다).
   const [drawerOpen, setDrawerOpen] = useState(false);
+  // 기본은 메인 차트만 선택 — V(ch0)/I(ch1)는 세션 채널 수가 확인되는 즉시 아래 이펙트가
+  // 자동으로 추가한다(자동 선택은 세션당 한 번만 — autoSelectedVIRef).
   const [selected, setSelected] = useState<Set<string>>(() => new Set([METRIC_ID]));
+  const autoSelectedVIRef = useRef(false);
 
   const wantedChannels = useMemo(
     // 채널이 아닌 항목(메인 차트·보호 비교)은 parseChannelId에 넘기면 NaN이 된다 — 먼저 뺀다.
@@ -201,6 +219,7 @@ export default function ChartDetailOverlay({
       storesRef.current.forEach((waveStore) => waveStore.reset());
       setChannelError(null);
       setHeader({ channels: ev.channels, sampleRate: ev.sampleRate });
+      autoSelectedVIRef.current = false; // 새 세션에서도 V/I를 다시 자동 선택한다
       return;
     }
     // "protected"(보호 감쇠 PCM)는 이 뷰의 관심사가 아니다 — 원본 채널 파형만 그린다.
@@ -208,20 +227,24 @@ export default function ChartDetailOverlay({
     handleChunk(ev.chunk, ev.channels, ev.sampleRate);
   }, [handleChunk]);
 
-  // 채널 뷰가 필요한 동안(드로어가 열려 있거나 채널이 선택돼 있는 동안) 원본 캡처 청크
-  // 스트림을 구독한다 — 더 이상 setInterval로 Blob을 다시 열어보지 않는다.
+  // 채널 뷰가 필요한 동안(이 상세 뷰 자체가 열려 있거나, 표시 항목 드로어가 열려 있거나,
+  // 채널이 선택돼 있는 동안) 원본 캡처 청크 스트림을 구독한다 — 더 이상 setInterval로 Blob을
+  // 다시 열어보지 않는다. 구독 기준을 `open`까지 넓힌 건(예전엔 drawerOpen만) V/I 자동 선택
+  // 때문 — 채널 헤더가 있어야 채널 수를 알 수 있고, 채널 수를 알아야 ch0/ch1을 자동으로
+  // 선택할 수 있다. drawerOpen을 열기 전까지 기다리면 자동 선택 자체가 성립하지 않는다.
   useEffect(() => {
     if (!subscribeChannelStream) return;
-    if (!drawerOpen && !hasSelectedChannel) return;
+    if (!open && !drawerOpen && !hasSelectedChannel) return;
     return subscribeChannelStream(handleStreamEvent);
-  }, [subscribeChannelStream, drawerOpen, hasSelectedChannel, handleStreamEvent]);
+  }, [subscribeChannelStream, open, drawerOpen, hasSelectedChannel, handleStreamEvent]);
 
-  // 드로어를 열었을 때 채널 목록/길이를 즉시 보여주기 위한 1회성 헤더 확인 — 그 뒤로는
+  // 상세 뷰를 열었을 때 채널 목록/길이를 즉시 보여주기 위한 1회성 헤더 확인 — 그 뒤로는
   // 위 구독이 청크가 들어올 때마다 header를 계속 최신으로 유지한다. 스냅샷은 복사 없이
   // ref를 그대로 읽으므로(useCaptureSession.getCaptureSnapshot) 동기로 끝난다 — 더 이상
-  // Blob을 만들고 WAV 헤더를 비동기로 파싱할 필요가 없다.
+  // Blob을 만들고 WAV 헤더를 비동기로 파싱할 필요가 없다. 예전엔 drawerOpen(표시 항목
+  // 드로어)에 걸려 있어서, 사용자가 그 드로어를 직접 열기 전까진 채널 수 자체를 몰랐다.
   useEffect(() => {
-    if (!drawerOpen || !getChannelsSnapshot) return;
+    if (!open || !getChannelsSnapshot) return;
     const snap = getChannelsSnapshot();
     if (!snap) return;
     if (totalFramesRef.current === 0) totalFramesRef.current = snap.totalFrames;
@@ -230,7 +253,21 @@ export default function ChartDetailOverlay({
         ? prev
         : { channels: snap.channels, sampleRate: snap.sampleRate }
     ));
-  }, [drawerOpen, getChannelsSnapshot]);
+  }, [open, getChannelsSnapshot]);
+
+  // V(ch0)/I(ch1)가 확인되는 즉시 자동으로 표시 목록에 추가한다 — 세션당 한 번만(사용자가
+  // 이후 직접 해제하면 그대로 존중하고 다시 켜지 않는다).
+  useEffect(() => {
+    if (autoSelectedVIRef.current) return;
+    if (!header || header.channels < 2) return;
+    autoSelectedVIRef.current = true;
+    setSelected((prev) => {
+      const next = new Set(prev);
+      next.add(channelId(0));
+      next.add(channelId(1));
+      return next;
+    });
+  }, [header]);
 
   // 채널을 새로 선택한 순간 — 청크 스트림에는 "지금부터"만 쌓이므로, 세션 시작부터 지금까지를
   // getChannelsSnapshot()에서 딱 한 번 백필한다. 스토어는 버킷을 절대 시각으로 찾으므로 백필이
@@ -312,8 +349,10 @@ export default function ChartDetailOverlay({
     });
   }, []);
 
-  // Ctrl/Cmd+B — 표시 항목 드로어 열림/숨김 토글 (기존 우측 드로어들과 동일한 단축키 규약)
-  useCtrlBToggle(() => setDrawerOpen((prev) => !prev));
+  // Ctrl/Cmd+B — 표시 항목 드로어 열림/숨김 토글 (기존 우측 드로어들과 동일한 단축키 규약).
+  // 이 컴포넌트는 이제 항상 마운트돼 있으므로(닫힘 트랜지션 유지 목적) open이 아닐 때도
+  // 단축키가 걸려 있으면 안 보이는 드로어를 몰래 열어버린다 — open일 때만 반응한다.
+  useCtrlBToggle(() => { if (open) setDrawerOpen((prev) => !prev); });
 
   const channelCount = header?.channels ?? 0;
 
@@ -333,18 +372,18 @@ export default function ChartDetailOverlay({
       ? [{
           id: PROTECT_ID,
           section: "metric",
-          name: t.chartDetail.protectionAttenuation,
-          role: t.chartDetail.beforeAfterCompare,
+          name: "Protection Attenuation",
+          role: "Before/After Compare",
           color: "#F59E0B",
           icon: ShieldAlert,
         }]
       : [];
     const channelEntries: DrawerEntry[] = Array.from({ length: channelCount }, (_, ch) => {
-      const { name, role } = channelLabel(ch, t.channelMeta);
+      const { name, role } = channelLabel(ch, { voltage: "V (Voltage)", current: "I (Current)", extended: "Extended" });
       return { id: channelId(ch), section: "channel", name, role, color: channelColor(ch) };
     });
     return [metricEntry, ...protectEntry, ...channelEntries];
-  }, [title, isTemp, accent, Icon, channelCount, getProtectedBlob, t]);
+  }, [title, isTemp, accent, Icon, channelCount, getProtectedBlob]);
 
   // 사용자가 드래그로 재배치한 항목 순서 — 기본값은 entries가 나열되는 순서(메인 차트 →
   // 채널 오름차순) 그대로다. 채널이 새로 발견되면(헤더 갱신) 기존 배치는 건드리지 않고
@@ -396,7 +435,7 @@ export default function ChartDetailOverlay({
             />
           ) : (
             <div className="flex items-center justify-center h-full text-xs text-iron-400">
-              {t.chartDetail.noCaptureSession}
+              No capture session — nothing to compare.
             </div>
           ),
           defaultHeight: 240,
@@ -456,7 +495,7 @@ export default function ChartDetailOverlay({
           />
         ) : (
           <div className="flex items-center justify-center h-full text-xs text-iron-400">
-            {channelError ? t.chartDetail.unableToLoadWaveform : t.chartDetail.loadingWaveform}
+            {channelError ? "Unable to load channel waveform." : "Loading channel waveform…"}
           </div>
         ),
         defaultHeight: 200,
@@ -471,56 +510,77 @@ export default function ChartDetailOverlay({
     subscribeChannelStream, getProtectedBlob, sourceFile,
   ]);
 
-  return (
-    <FullscreenOverlay show={show} ariaLabel={t.chartDetail.ariaLabel(title)}>
-      {/* 상단 바 */}
-      <header className="shrink-0 h-14 px-3 sm:px-5 flex items-center gap-3 border-b border-iron-100 bg-white">
-        <div className="flex items-center gap-2 min-w-0">
-          <Icon size={16} style={{ color: accent }} className="shrink-0" />
-          <div className="flex flex-col min-w-0">
-            <span className="text-sm font-semibold text-iron-900 truncate">{title}</span>
-          </div>
+  const customHeader = (
+    <header className="shrink-0 h-14 px-3 sm:px-5 flex items-center gap-3 border-b border-iron-100 bg-white">
+      <div className="flex items-center gap-2 min-w-0">
+        <Icon size={16} style={{ color: accent }} className="shrink-0" />
+        <div className="flex flex-col min-w-0">
+          <span className="text-sm font-semibold text-iron-900 truncate">{title}</span>
         </div>
-        <button
-          type="button"
-          onClick={() => setDrawerOpen((prev) => !prev)}
-          aria-pressed={drawerOpen}
-          title={t.chartDetail.visibleItemsTitle}
-          aria-label={t.chartDetail.visibleItems}
-          className={cn(
-            "ml-auto flex items-center gap-1.5 h-9 px-2.5 rounded-lg text-sm transition",
-            drawerOpen ? "bg-brand-blue/10 text-brand-blue" : "text-iron-500 hover:bg-iron-100 hover:text-iron-900",
-          )}
-        >
-          <Rows3 className="w-4 h-4" />
-          <span className="hidden sm:inline">{t.chartDetail.visibleItems}</span>
-          {selected.size > 0 && (
-            <span className="px-1.5 py-0.5 rounded-full bg-brand-blue/15 text-[10px] font-semibold tabular-nums">
-              {selected.size}
-            </span>
-          )}
-        </button>
-        <button
-          type="button"
-          onClick={close}
-          aria-label={t.chartDetail.close}
-          className="flex items-center justify-center w-9 h-9 rounded-lg text-iron-400 hover:bg-iron-100 hover:text-iron-700 transition"
-        >
-          <X className="w-4 h-4" />
-        </button>
-      </header>
-
-      {/* 표시 항목 스택 — 메인 차트/채널 모두 동일한 방식으로 추가·제거·리사이즈된다.
-          하단 패딩은 재생 중에도 그대로 보이는 플로팅 플레이어 독(elevated)에 가리지 않기 위함
-          (대시보드 main의 pb-28 lg:pb-32와 동일한 여백). */}
-      <div className="flex-1 min-h-0 p-3 sm:p-5 pb-28 lg:pb-32">
-        <ChannelStackView
-          items={stackItems}
-          onReorder={reorder}
-          emptyLabel={t.chartDetail.emptyLabel}
-        />
       </div>
+      <button
+        type="button"
+        onClick={() => setDrawerOpen((prev) => !prev)}
+        aria-pressed={drawerOpen}
+        title="Visible items (Ctrl/Cmd+B)"
+        aria-label="Visible items"
+        className={cn(
+          "ml-auto flex items-center gap-1.5 h-9 px-2.5 rounded-lg text-sm transition",
+          drawerOpen ? "bg-brand-blue/10 text-brand-blue" : "text-iron-500 hover:bg-iron-100 hover:text-iron-900",
+        )}
+      >
+        <Rows3 className="w-4 h-4" />
+        <span className="hidden sm:inline">Visible items</span>
+        {selected.size > 0 && (
+          <span className="px-1.5 py-0.5 rounded-full bg-brand-blue/15 text-[10px] font-semibold tabular-nums">
+            {selected.size}
+          </span>
+        )}
+      </button>
+      <button
+        type="button"
+        onClick={onClose}
+        aria-label="Close"
+        className="flex items-center justify-center w-9 h-9 rounded-lg text-iron-400 hover:bg-iron-100 hover:text-iron-700 transition"
+      >
+        <X className="w-4 h-4" />
+      </button>
+    </header>
+  );
 
+  return (
+    <>
+      <SideDrawer
+        open={open}
+        onClose={onClose}
+        ariaLabel={`${title} detail view`}
+        side="left"
+        widthClassName="w-[70vw] max-w-[960px]"
+        header={customHeader}
+        bodyClassName="p-0 flex flex-col"
+      >
+        {/* 표시 항목 스택 — 메인 차트/채널 모두 동일한 방식으로 추가·제거·리사이즈된다.
+            하단 패딩은 재생 중에도 그대로 보이는 플로팅 플레이어 독(elevated)에 가리지 않기 위함
+            (대시보드 main의 pb-28 lg:pb-32와 동일한 여백). */}
+        <div className="flex-1 min-h-0 p-3 sm:p-5 pb-28 lg:pb-32">
+          <ChannelStackView
+            items={stackItems}
+            onReorder={reorder}
+            emptyLabel="Select a chart or channel from the items drawer to display it here."
+          />
+        </div>
+      </SideDrawer>
+
+      {/*
+        위 SideDrawer의 <aside>는 슬라이드 트랜지션을 위해 transform을 상시 적용한다
+        (translate-x-0/-full) — CSS 스펙상 transform이 걸린 조상은 position:fixed 자손의
+        containing block이 돼 버린다. ChannelSelectDrawer는 항상 "뷰포트 우측 끝"에 붙는
+        fixed 드로어를 기대하는데, 그 안에 중첩돼 있으면 containing block이 뷰포트가 아니라
+        이 70vw짜리 <aside>가 되고, 그 사이의 overflow-auto 바디 래퍼가 fixed 자손을 자기
+        경계로 잘라버린다 — 그래서 X를 눌러 닫아도(translate-x-full) 잘린 좌표계 안에서만
+        이동해 화면에서 사라지지 않는 것처럼 보였다. 여기서 SideDrawer 바깥, transform이 안
+        걸린 형제 위치로 빼내 진짜 뷰포트 기준 fixed로 되돌린다.
+      */}
       <ChannelSelectDrawer
         open={drawerOpen}
         onClose={() => setDrawerOpen(false)}
@@ -529,6 +589,6 @@ export default function ChartDetailOverlay({
         onToggle={toggle}
         error={channelError}
       />
-    </FullscreenOverlay>
+    </>
   );
 }

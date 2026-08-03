@@ -69,7 +69,9 @@ impl Default for PlayCaptureState {
 
 /// 렌더러가 재생 파일 PCM을 청크로 잘라 보내기 시작 — 임시 파일에 대한 쓰기 스트림을 연다.
 #[tauri::command]
-pub fn audio_playcapture_start_write(state: State<'_, PlayCaptureState>) -> Value {
+pub async fn audio_playcapture_start_write(
+    state: State<'_, PlayCaptureState>,
+) -> Result<Value, String> {
     let seq = state.write_seq.fetch_add(1, Ordering::SeqCst);
     let write_id = format!("{}-{seq}", std::process::id());
     let ref_path = std::env::temp_dir().join(format!("iron-playcap-ref-{write_id}.f32"));
@@ -83,13 +85,20 @@ pub fn audio_playcapture_start_write(state: State<'_, PlayCaptureState>) -> Valu
                     writer: BufWriter::new(file),
                 },
             );
-            serde_json::json!({ "success": true, "writeId": write_id })
+            Ok(serde_json::json!({ "success": true, "writeId": write_id }))
         }
-        Err(err) => serde_json::json!({ "success": false, "error": err.to_string() }),
+        Err(err) => Ok(serde_json::json!({ "success": false, "error": err.to_string() })),
     }
 }
 
 /// 청크 하나를 파일에 쓴다 — raw invoke body(`InvokeBody::Raw`) + `x-write-id` 헤더로 세션을 찾는다.
+///
+/// ⚠️ 이 커맨드만 sync로 남는다 — 형제 커맨드들과 달리 `async fn`으로 못 바꾼다.
+/// `Request<'a>`가 invoke 호출 스택 프레임을 빌리는 타입이라 `tokio::spawn`이 요구하는
+/// `'static`과 맞지 않기 때문이다(file_export.rs 상단 주석과 동일한 제약, 거기서도 raw body를
+/// 받는 커맨드만 sync로 남겼다). 즉 청크 write는 여전히 UI 스레드를 잡는다.
+/// 옮기려면 시그니처를 바꿔 body를 `Vec<u8>`로 먼저 복사해 소유해야 한다 — 청크당 4MB 추가
+/// 복사가 생기므로 별도 판단이 필요해 이번 변경 범위에서는 제외했다.
 #[tauri::command]
 pub fn audio_playcapture_write_chunk(
     state: State<'_, PlayCaptureState>,
@@ -121,42 +130,42 @@ pub fn audio_playcapture_write_chunk(
 
 /// 마지막 청크 후 스트림을 닫고, 완성된 경로를 finalizedRefs로 옮긴다 — `start`가 그걸 소비한다.
 #[tauri::command]
-pub fn audio_playcapture_finalize_write(
+pub async fn audio_playcapture_finalize_write(
     state: State<'_, PlayCaptureState>,
     write_id: String,
-) -> Value {
+) -> Result<Value, String> {
     let session = state.write_sessions.lock().unwrap().remove(&write_id);
     let Some(session) = session else {
-        return serde_json::json!({ "success": false, "error": "unknown-write-id" });
+        return Ok(serde_json::json!({ "success": false, "error": "unknown-write-id" }));
     };
     let WriteSession { path, mut writer } = session;
     match writer.flush() {
         Ok(()) => {
             drop(writer); // 파일 핸들을 닫는다 — start()가 곧바로 헬퍼에 읽기용으로 넘긴다.
             state.finalized_refs.lock().unwrap().insert(write_id, path);
-            serde_json::json!({ "success": true })
+            Ok(serde_json::json!({ "success": true }))
         }
         Err(err) => {
             drop(writer);
             let _ = std::fs::remove_file(&path);
-            serde_json::json!({ "success": false, "error": err.to_string() })
+            Ok(serde_json::json!({ "success": false, "error": err.to_string() }))
         }
     }
 }
 
 /// 업로드 실패/재생 취소 시 진행 중이거나 완료된 세션을 정리해 임시 파일이 남지 않게 한다.
 #[tauri::command]
-pub fn audio_playcapture_cancel_write(
+pub async fn audio_playcapture_cancel_write(
     state: State<'_, PlayCaptureState>,
     write_id: String,
-) -> Value {
+) -> Result<Value, String> {
     if let Some(session) = state.write_sessions.lock().unwrap().remove(&write_id) {
         let _ = std::fs::remove_file(&session.path);
     }
     if let Some(path) = state.finalized_refs.lock().unwrap().remove(&write_id) {
         let _ = std::fs::remove_file(&path);
     }
-    serde_json::json!({ "success": true })
+    Ok(serde_json::json!({ "success": true }))
 }
 
 #[derive(Deserialize)]
@@ -190,20 +199,23 @@ pub struct PlayCaptureStartOptions {
 // 참고: `Channel`은 `Deserialize`가 없어 `Option<Channel<_>>`을 커맨드 인자로 못 쓴다
 // (audio_capture.rs 상단 주석 참고 — `cargo check`로 실측). `mark`는 항상 필수 인자로 받고
 // 실제 전송 여부만 `opts.e2e`로 가른다.
+// audio_capture_start와 같은 이유로 `async fn` + `Result` — 재생 버튼의 가장 큰 프리즈가
+// 여기였다. `run_streaming_helper`가 헬퍼의 첫 줄 JSON을 기다리는 동안(프로세스 생성 → ASIO
+// 드라이버 로드 → ASIOInit → 버퍼 생성) sync 커맨드는 UI 스레드를 통째로 잡고 있었다.
 #[tauri::command]
-pub fn audio_playcapture_start(
+pub async fn audio_playcapture_start(
     app: AppHandle,
     state: State<'_, PlayCaptureState>,
     opts: PlayCaptureStartOptions,
     data: Channel<InvokeResponseBody>,
     mark: Channel<InvokeResponseBody>,
-) -> Value {
+) -> Result<Value, String> {
     if !is_supported_platform() {
-        return serde_json::json!({ "success": false, "error": "unsupported-platform" });
+        return Ok(serde_json::json!({ "success": false, "error": "unsupported-platform" }));
     }
     let controller = state.controller.clone();
     if controller.is_running() {
-        return serde_json::json!({ "success": false, "error": "play-capture-already-running" });
+        return Ok(serde_json::json!({ "success": false, "error": "play-capture-already-running" }));
     }
 
     // refWriteId가 없거나, 있어도 finalize-write를 거치지 않았으면(=finalizedRefs에 없으면)
@@ -213,7 +225,7 @@ pub fn audio_playcapture_start(
         None => None,
     };
     let Some(ref_path) = ref_path else {
-        return serde_json::json!({ "success": false, "error": "missing-ref-write-id" });
+        return Ok(serde_json::json!({ "success": false, "error": "missing-ref-write-id" }));
     };
 
     let mut base_args = vec![
@@ -250,7 +262,7 @@ pub fn audio_playcapture_start(
         let _ = std::fs::remove_file(&cleanup_path);
     });
 
-    run_streaming_helper(
+    Ok(run_streaming_helper(
         app,
         controller,
         helper_path(),
@@ -259,25 +271,31 @@ pub fn audio_playcapture_start(
         "audio-playcapture:ended".to_string(),
         mark_channel,
         Some(cleanup),
-    )
+    ))
 }
 
 /// pause/resume — 헬퍼 stdin 라인 명령으로 중계. stop은 별도 커맨드(stdin EOF→유예→kill).
 #[tauri::command]
-pub fn audio_playcapture_control(state: State<'_, PlayCaptureState>, action: String) -> Value {
+pub async fn audio_playcapture_control(
+    state: State<'_, PlayCaptureState>,
+    action: String,
+) -> Result<Value, String> {
     if !state.controller.is_running() {
-        return serde_json::json!({ "success": false, "error": "not-running" });
+        return Ok(serde_json::json!({ "success": false, "error": "not-running" }));
     }
     if action != "pause" && action != "resume" {
-        return serde_json::json!({ "success": false, "error": format!("unknown-action: {action}") });
+        return Ok(serde_json::json!({ "success": false, "error": format!("unknown-action: {action}") }));
     }
     match state.controller.write_stdin_line(&format!("{action}\n")) {
-        Ok(()) => serde_json::json!({ "success": true }),
-        Err(err) => serde_json::json!({ "success": false, "error": err }),
+        Ok(()) => Ok(serde_json::json!({ "success": true })),
+        Err(err) => Ok(serde_json::json!({ "success": false, "error": err })),
     }
 }
 
+/// audio_capture_stop과 동일 — stdin EOF 후 최대 200ms 유예 폴링 + reap이라 UI 스레드에서 뺀다.
 #[tauri::command]
-pub fn audio_playcapture_stop(state: State<'_, PlayCaptureState>) -> Value {
-    state.controller.stop()
+pub async fn audio_playcapture_stop(
+    state: State<'_, PlayCaptureState>,
+) -> Result<Value, String> {
+    Ok(state.controller.stop())
 }

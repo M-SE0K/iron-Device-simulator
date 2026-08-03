@@ -47,13 +47,23 @@ function ProtectedComparePanelImpl({
 }) {
   const { showError } = useErrorPopup();
   const [channelMode, setChannelMode] = useState<ChannelMode>("Both");
+  // 시리즈별(Input/Protected × L/R) 개별 on/off — uPlot 기본 범례(체크박스형 마커)를 걷어내고
+  // 라벨 클릭 하나로 뚜렷함/흐릿함만으로 상태를 드러내는 커스텀 토글로 대체한다.
+  const [hiddenSeries, setHiddenSeries] = useState<Set<number>>(() => new Set());
+  const toggleSeries = useCallback((i: number) => {
+    setHiddenSeries((prev) => {
+      const next = new Set(prev);
+      if (next.has(i)) next.delete(i);
+      else next.add(i);
+      return next;
+    });
+  }, []);
   const [original, setOriginal] = useState<{ envL: BucketEnvelope; envR: BucketEnvelope; durationSec: number } | null>(null);
   const [decodeError, setDecodeError] = useState<string | null>(null);
   const [decoding, setDecoding] = useState(false);
 
   const protectedEnvRefs = useRef<[BucketEnvelope, BucketEnvelope]>([new BucketEnvelope(BUCKETS), new BucketEnvelope(BUCKETS)]);
   const sampleRateRef   = useRef(0);
-  const totalSamplesRef = useRef(0);
   const [version, setVersion] = useState(0);
 
   const rafRef       = useRef<number | null>(null);
@@ -124,7 +134,6 @@ function ProtectedComparePanelImpl({
   useEffect(() => {
     protectedEnvRefs.current[0].clear();
     protectedEnvRefs.current[1].clear();
-    totalSamplesRef.current = 0;
     readyRef.current = false;
     pendingProtectedRef.current = [];
     backfillTokenRef.current += 1;
@@ -148,7 +157,13 @@ function ProtectedComparePanelImpl({
   const applyProtectedEvent = useCallback((ev: ProtectedEvent, durationSec: number) => {
     sampleRateRef.current = ev.sampleRate;
     const [envL, envR] = protectedEnvRefs.current;
-    const base = totalSamplesRef.current;
+    const samplesPerFrame = ev.processed.length / CHANNELS;
+    // ⚠️ 이벤트가 실어 보내는 frameIndex를 기준점으로 쓴다 — 이 값은 "재생 시작으로부터 몇 번째
+    // 프레임인가"이다(엔진이 워밍업 동안 분석하지 못한 프레임도 번호는 소비하므로 재생 위치와
+    // 1:1). 예전엔 이 필드를 무시하고 자체 누산기로 0부터 쌓았는데, 그러면 엔진 준비가 늦어진
+    // 만큼 측정 파형이 통째로 왼쪽(원본보다 앞)으로 밀려 그려졌다. 절대 위치를 쓰면 중간에
+    // 프레임이 유실돼도 그 뒤가 따라 밀리지 않는다는 이점도 있다.
+    const base = ev.frameIndex * samplesPerFrame;
     const perBucketSec = durationSec / BUCKETS;
 
     for (let ch = 0; ch < CHANNELS; ch++) {
@@ -158,7 +173,6 @@ function ProtectedComparePanelImpl({
         env.add(Math.floor(t / perBucketSec), ev.processed[i] / INT16_SCALE);
       }
     }
-    totalSamplesRef.current = base + ev.processed.length / CHANNELS;
 
     dirtyRef.current = true;
     if (rafRef.current === null) rafRef.current = requestAnimationFrame(flush);
@@ -192,7 +206,6 @@ function ProtectedComparePanelImpl({
                   envL.add(b, dataL[s]);
                   envR.add(b, dataR[s]);
                 }
-                totalSamplesRef.current = dataL.length;
               }
             }
           }
@@ -220,7 +233,6 @@ function ProtectedComparePanelImpl({
       if (ev.type === "reset") {
         protectedEnvRefs.current[0].clear();
         protectedEnvRefs.current[1].clear();
-        totalSamplesRef.current = 0;
         pendingProtectedRef.current = [];
         backfillTokenRef.current += 1; // 진행 중이던 백필 결과를 무효화 — 새 세션은 0부터 라이브로만 채운다
         readyRef.current = true;
@@ -280,6 +292,7 @@ function ProtectedComparePanelImpl({
       label, stroke: color, width: 1.8, spanGaps: true, points: { size: 4, fill: color },
     });
     return {
+      legend: { show: false },
       cursor: { drag: { x: true, y: false } },
       series: [
         {},
@@ -301,7 +314,27 @@ function ProtectedComparePanelImpl({
     };
   }, [original]);
 
-  const seriesShow = useMemo(() => [showL, showR, showL, showR], [showL, showR]);
+  const seriesShow = useMemo(
+    () => [
+      showL && !hiddenSeries.has(0),
+      showR && !hiddenSeries.has(1),
+      showL && !hiddenSeries.has(2),
+      showR && !hiddenSeries.has(3),
+    ],
+    [showL, showR, hiddenSeries],
+  );
+
+  // 커스텀 범례 항목 — 체크박스 없이 라벨 자체를 토글 버튼으로 쓴다: 켜짐은 원래 색+실선
+  // 스타일 그대로 "뚜렷하게", 꺼짐은 같은 라벨을 옅게(흐릿하게) 눌러 보여준다.
+  const legendItems = useMemo(
+    () => [
+      { label: "Input L", color: COLOR_INPUT_L, dashed: true, enabled: showL },
+      { label: "Input R", color: COLOR_INPUT_R, dashed: true, enabled: showR },
+      { label: "Protected L", color: COLOR_PROTECTED_L, dashed: false, enabled: showL },
+      { label: "Protected R", color: COLOR_PROTECTED_R, dashed: false, enabled: showR },
+    ],
+    [showL, showR],
+  );
 
   const placeholder = decodeError
     ? "Unable to load original waveform."
@@ -329,15 +362,41 @@ function ProtectedComparePanelImpl({
         />
       </div>
 
-      <div className="chart-body flex-1 p-2 min-h-[160px]">
+      <div className="chart-body flex-1 flex flex-col min-h-[160px] p-2">
         {options && chartData && yRange && !placeholder ? (
-          <UPlotChart
-            options={options}
-            data={chartData}
-            yRange={yRange}
-            xRange={[0, original!.durationSec]}
-            seriesShow={seriesShow}
-          />
+          <>
+            <div className="flex items-center gap-3 flex-wrap px-1 pb-1.5 shrink-0">
+              {legendItems.map((item, i) => {
+                const active = item.enabled && !hiddenSeries.has(i);
+                return (
+                  <button
+                    key={item.label}
+                    type="button"
+                    onClick={() => toggleSeries(i)}
+                    disabled={!item.enabled}
+                    aria-pressed={active}
+                    className={cn(
+                      "text-xs tracking-tight transition-opacity disabled:cursor-not-allowed",
+                      item.dashed ? "font-normal" : "font-bold",
+                      active ? "opacity-100" : "opacity-35",
+                    )}
+                    style={{ color: item.color }}
+                  >
+                    {item.label}
+                  </button>
+                );
+              })}
+            </div>
+            <div className="flex-1 min-h-0">
+              <UPlotChart
+                options={options}
+                data={chartData}
+                yRange={yRange}
+                xRange={[0, original!.durationSec]}
+                seriesShow={seriesShow}
+              />
+            </div>
+          </>
         ) : (
           <div className="chart-empty-state h-full flex items-center justify-center text-xs text-iron-300">
             {placeholder ?? "Once analysis starts, the protected waveform will overlay here."}

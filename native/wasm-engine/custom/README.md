@@ -54,3 +54,29 @@ int ff_prot_stop_exec(void) { return my_algo_teardown(); }
 - 파일명에 `selftest`가 들어가면 빌드에서 제외됩니다(자체 `main` 보유 테스트용 관례).
 - 특정 파일만 골라 빌드: `FF_PROT_SRCS="custom/a.c custom/b.c" ./build-wasm.sh`
   (`FF_PROT_SRCS`는 custom/ 자동 감지보다 우선).
+
+## 정품 알고리즘 도착 시 소스 난독화 켜기
+
+이 폴더에 정품 vendor 알고리즘을 드롭인하는 순간부터는 지킬 가치가 있는 소스가 된다.
+`FF_PROT_HARDEN=1 ./build-wasm.sh`(또는 `FF_PROT_HARDEN=1 npm run wasm:build`)로 빌드하면
+`../build-wasm.sh`가 자동으로 다음을 적용한다:
+
+1. **소스 레벨 난독화**(`../obfuscate-source.sh`, 이 항목) — Tigress가 PATH에 있을 때만.
+2. Emscripten 하드닝 플래그(`-flto -g0 --closure 1`)
+3. `wasm-opt` 스트립/재최적화
+4. JS 글루 코드 난독화(javascript-obfuscator)
+
+1번(Tigress)은 별도 설치가 필요하다 — 자동 설치되지 않고, 없어도 2~4는 정상 진행된다:
+
+```bash
+# https://tigress.wtf 에서 라이선스 등록 후 다운로드/설치 (자동화 불가)
+which tigress   # PATH에 잡히는지 확인
+
+FF_PROT_HARDEN=1 npm run wasm:build
+```
+
+`../obfuscate-source.sh`는 `InitOpaque`/`Flatten`/`EncodeArithmetic`/`AddOpaque` 조합을
+쓰고, **export 심볼 4개(`ff_prot_init`/`set_param`/`start_exec`/`stop_exec`)는 Flatten
+대상에서 제외**한다 — 이름 자체가 바뀌는 변환은 없으니 계약은 안 깨지지만, 함수 export
+심볼이 바뀌면 `wasm-client.ts`가 못 찾으므로 커스텀 알고리즘 쪽에서 함수명을 직접
+바꾸지 않는 한 안전하다. 다른 `--Transform` 조합을 쓰고 싶으면 이 파일을 직접 수정한다.

@@ -15,7 +15,7 @@
 //! 내보내지 않도록 억제하기 위해서다.
 
 use std::io::{Read, Write};
-use std::process::{Child, Command, Stdio};
+use std::process::{Child, Stdio};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
@@ -189,7 +189,7 @@ pub fn run_streaming_helper(
     mark_channel: Option<Channel<InvokeResponseBody>>,
     on_exit_cleanup: Option<Box<dyn FnOnce() + Send + 'static>>,
 ) -> Value {
-    let mut command = Command::new(&helper_path);
+    let mut command = crate::helper::helper_command(&helper_path);
     command
         .args(&args)
         .stdin(Stdio::piped())

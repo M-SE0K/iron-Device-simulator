@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { ArrowLeft, AudioLines, X } from "lucide-react";
 import { getWorkspacePayload, type WorkspaceItemMeta } from "@/features/audio/lib/cache/workspace";
 import { decodeAudioChannels, type DecodedChannels } from "@/features/audio/lib/codec/wav-decoder";
-import { channelLabel, channelColor } from "@/features/audio/lib/render/channel-meta";
+import { channelLabel, channelColor, type ChannelRoleLabels } from "@/features/audio/lib/render/channel-meta";
 import { ChannelWaveformCanvas } from "@/features/audio/components/channel/ChannelWaveformCanvas";
 import { ChannelWaveStore } from "@/features/audio/lib/render/wave-store";
 import { channelStats } from "@/features/audio/lib/render/waveform";
@@ -19,10 +19,16 @@ interface Props {
   onClose: () => void;
 }
 
+const CHANNEL_ROLE_LABELS: ChannelRoleLabels = {
+  voltage: "V (Voltage)",
+  current: "I (Current)",
+  extended: "Extended",
+};
+
 /**
  * 저장된(정지된) 채널 하나의 파형 — 라이브 채널 뷰와 같은 표현을 쓰기 위해 디코딩된 전체
- * 샘플을 스토어에 한 번에 넣는다. 기본 화면은 파일 전체 엔벨로프이고, 확대하면 그 구간만
- * 원본 배열에서 잘라 원본 해상도로 보여준다.
+ * 샘플을 스토어에 한 번에 넣는다. Temperature/ExcursionChart와 동일하게 세션(파일) 전체
+ * 엔벨로프만 보여준다 — 확대해도 원본 재조회는 하지 않는다.
  */
 function StaticChannelWave({ color, data, sampleRate }: { color: string; data: Float32Array; sampleRate: number }) {
   const store = useMemo(() => {
@@ -32,19 +38,7 @@ function StaticChannelWave({ color, data, sampleRate }: { color: string; data: F
     return next;
   }, [data, sampleRate]);
 
-  return (
-    <ChannelWaveformCanvas
-      color={color}
-      sampleRate={sampleRate}
-      store={store}
-      fetchRange={async (s, e) =>
-        data.subarray(
-          Math.max(0, Math.round(s * sampleRate)),
-          Math.min(data.length, Math.round(e * sampleRate)),
-        )
-      }
-    />
-  );
+  return <ChannelWaveformCanvas color={color} sampleRate={sampleRate} store={store} />;
 }
 
 export default function ChannelViewerOverlay({ item, onClose }: Props) {
@@ -119,7 +113,7 @@ export default function ChannelViewerOverlay({ item, onClose }: Props) {
         {decoded && (
           <div className="flex flex-col gap-3 max-w-5xl mx-auto">
             {decoded.channels.map((data, ch) => {
-              const { name, role } = channelLabel(ch);
+              const { name, role } = channelLabel(ch, CHANNEL_ROLE_LABELS);
               const color = channelColor(ch);
               const { peak, rms } = channelStats(data);
               return (

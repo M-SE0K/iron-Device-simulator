@@ -38,7 +38,7 @@ export default function ErrorPopupModal({ message, variant, queuedCount, onClose
         <h2 className="text-sm font-semibold text-iron-900">{label}</h2>
         <p className="text-sm text-iron-600 leading-relaxed break-words">{message}</p>
         {queuedCount > 0 && (
-          <span className="text-[11px] text-iron-400">+{queuedCount} more waiting</span>
+          <span className="text-[11px] text-iron-400">{`+${queuedCount} more waiting`}</span>
         )}
         <button
           type="button"

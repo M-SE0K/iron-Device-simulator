@@ -3,7 +3,9 @@
     "targets": ["app", "dmg"],
     "externalBin": ["binaries/audio-device-helper"],
     "macOS": {
-      "minimumSystemVersion": "10.15"
+      "minimumSystemVersion": "10.15",
+      "signingIdentity": "-",
+      "entitlements": "Entitlements.plist"
     }
   }
 }

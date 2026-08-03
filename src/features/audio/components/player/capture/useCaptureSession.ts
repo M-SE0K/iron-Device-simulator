@@ -11,7 +11,6 @@ import { useErrorPopup } from "@/shared/components/error-popup/ErrorPopupContext
 import { pcmFramesToWavBlob } from "@/features/audio/lib/codec/wav-encoder";
 import { CHANNELS, SAMPLE_RATE, SAMPLES_PER_CH, BYTES_PER_SAMPLE } from "@/features/audio/lib/engine/core";
 import { decodeProcessedPcmMessage } from "@/features/audio/lib/engine/protocol/analysis";
-import { useLocale } from "@/shared/lib/i18n/LocaleProvider";
 import { useNativeCapture, type NativeRawCapture } from "./useNativeCapture";
 import { buildInitMessage } from "./build-init-message";
 import type { CaptureSnapshot, CaptureStreamEvent, CaptureStreamListener, UseCaptureSessionDeps } from "./types";
@@ -34,7 +33,6 @@ export function useCaptureSession(deps: UseCaptureSessionDeps) {
   } = deps;
   const { values: calibration } = useCalibration();
   const { showError } = useErrorPopup();
-  const { t } = useLocale();
 
   const [micError, setMicErrorState] = useState<string | null>(null);
   // 캡처/재생 세션 에러는 이 훅 한 곳에서만 세팅되므로, 여기서 전역
@@ -120,7 +118,21 @@ export function useCaptureSession(deps: UseCaptureSessionDeps) {
         const decoded = decodeProcessedPcmMessage(e.data);
         if (decoded) {
           const buf = protectedCaptureRef.current;
-          if (buf) buf.frames.push(decoded.processed.slice().buffer);
+          if (buf) {
+            // 보호 감쇠 PCM은 엔진이 준비된 뒤부터만 나온다 — 워밍업 동안 재생된 앞구간이
+            // 통째로 비어 있다. frameIndex는 이제 재생 위치와 1:1이므로, 첫 프레임이 0이
+            // 아니면 그만큼을 무음으로 메워 frames 배열의 인덱스가 곧 재생 위치가 되게 한다.
+            // 이래야 (a) 뒤늦게 열린 비교 패널의 백필과 (b) 내보낸 Protected WAV가 원본/녹음
+            // WAV와 같은 시간축에 놓인다 — 예전엔 둘 다 앞구간이 없는 채로 0부터 시작해
+            // 원본보다 앞서 그려졌다.
+            if (buf.frames.length === 0 && decoded.frameIndex > 0) {
+              const silentFrame = new Int16Array(decoded.processed.length);
+              for (let i = 0; i < decoded.frameIndex; i++) {
+                buf.frames.push(silentFrame.slice().buffer);
+              }
+            }
+            buf.frames.push(decoded.processed.slice().buffer);
+          }
           emitStreamEvent({
             type: "protected",
             frameIndex: decoded.frameIndex,
@@ -137,6 +149,16 @@ export function useCaptureSession(deps: UseCaptureSessionDeps) {
       const msg: Record<string, any> = JSON.parse(e.data);
 
       if (msg.type === "ready") {
+        // 계측: 엔진(WASM) 로드가 끝나기 전에 흘러간 재생 구간의 크기. 그동안 도착한 프레임은
+        // 분석할 세션이 없어 버려지므로, 이 값이 곧 "측정 결과가 비어 있는 앞구간"의 길이다.
+        // 플랫폼 비교용 — Windows 패키지 빌드에서는 IRON_REMOTE_DEBUG_PORT를 띄우고 CDP로
+        // 붙으면 이 줄을 볼 수 있다(src-tauri/src/main.rs).
+        const dropped = typeof msg.warmupDroppedFrames === "number" ? msg.warmupDroppedFrames : 0;
+        console.info(
+          `[engine] warm-up dropped ${dropped} frame(s) = ` +
+          `${((dropped * samplesPerCh) / actualRate * 1000).toFixed(1)}ms of playback ` +
+          `(samplesPerCh=${samplesPerCh}, sampleRate=${actualRate})`,
+        );
         isActiveRef.current = true;
         analysisActiveRef.current = true;
         frameCountRef.current = 0;
@@ -167,7 +189,7 @@ export function useCaptureSession(deps: UseCaptureSessionDeps) {
     };
 
     ws.onerror = () => {
-      setMicError(t.capture.socketError);
+      setMicError("An error occurred connecting to the analysis engine.");
       cleanup();
       onStatusChange("error");
     };
@@ -180,7 +202,7 @@ export function useCaptureSession(deps: UseCaptureSessionDeps) {
     };
 
     return ws;
-  }, [inputParams, onStatusChange, onStreamStart, onFrameReceived, cleanup, emitStreamEvent, setMicError, t]);
+  }, [inputParams, onStatusChange, onStreamStart, onFrameReceived, cleanup, emitStreamEvent, setMicError]);
 
   const { start: startNativeCapture } = useNativeCapture({
     nativeOffsRef, nativeActiveRef, playCaptureActiveRef, rawCaptureRef, recordingActiveRef, analysisActiveRef,
