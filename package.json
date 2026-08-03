@@ -55,5 +55,8 @@
     "tailwindcss": "^3.4.1",
     "typescript": "^5",
     "wasm-opt": "^1.4.0"
+  },
+  "allowScripts": {
+    "wasm-opt@1.4.0": true
   }
 }

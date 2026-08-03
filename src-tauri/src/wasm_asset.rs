@@ -29,7 +29,7 @@ const ENCRYPTED_RESOURCE_NAME: &str = "ff_prot.wasm.enc";
 const NONCE_LEN: usize = 12;
 
 #[tauri::command]
-pub fn wasm_asset_load(app: AppHandle) -> Result<Response, String> {
+pub async fn wasm_asset_load(app: AppHandle) -> Result<Response, String> {
     let resource_path = app
         .path()
         .resolve(ENCRYPTED_RESOURCE_NAME, BaseDirectory::Resource)

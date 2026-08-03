@@ -81,8 +81,8 @@ export function decodeProcessedPcmMessage(
   };
 }
 
-export function createReadyMessage(): WsServerMessage {
-  return { type: "ready" };
+export function createReadyMessage(warmupDroppedFrames = 0): WsServerMessage {
+  return { type: "ready", warmupDroppedFrames };
 }
 
 export function createErrorMessage(message: string): WsServerMessage {

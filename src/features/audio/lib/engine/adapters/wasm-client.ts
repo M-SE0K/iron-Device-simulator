@@ -155,21 +155,37 @@ function loadFactory(): Promise<FfProtFactory> {
 export async function openClientWasmSession(
   config: EngineRuntimeConfig = DEFAULT_ENGINE_CONFIG,
   opts: AnalysisFrameOptions = {},
-  wasmBinary?: Uint8Array,
+  wasmBinary?: Uint8Array<ArrayBuffer>,
 ): Promise<AnalysisSession> {
   const factory = await loadFactory();
 
   // WASM 알고리즘 암호화 배포(방법 5): Tauri 런타임에서는 평문 .wasm이 out/에 없다
   // (scripts/build/stage-encrypted-wasm.sh가 패키징 전에 지운다) — 호출자(메인 스레드의
   // LocalWasmSocket/WorkerAnalysisSocket)가 window.wasmAsset.loadEngineBinary()로 미리 복호화한
-  // bytes를 여기 wasmBinary로 넘겨주면 Module.wasmBinary로 먹여 글루의 자체 fetch를 우회한다.
+  // bytes를 여기 wasmBinary로 넘겨주면 그걸로 직접 인스턴스화해 글루의 자체 fetch를 우회한다.
   // 이 함수는 메인 스레드뿐 아니라 Web Worker(dsp-worker.ts) 안에서도 실행되는데, Worker
   // 전역 스코프엔 window가 없다 — 그래서 이 파일은 window를 직접 참조하지 않는다("바이너리를
   // 어떻게 구하느냐"는 항상 호출부 책임). 브라우저/build:desktop 경로(wasmBinary 미전달)는
   // 기존처럼 locateFile로 평문 .wasm을 fetch한다.
   const moduleArg: Record<string, unknown> = { locateFile: (path: string) => `${WASM_DIR}/${path}` };
   if (wasmBinary) {
-    moduleArg.wasmBinary = wasmBinary;
+    // Module.wasmBinary를 쓰면 안 된다 — emcc 6.x가 만드는 글루에는 그 필드를 읽는 분기 자체가
+    // 없어서(난독화된 문자열 테이블에도 "wasmBinary"가 없다) 넘겨준 bytes가 조용히 무시되고
+    // locateFile fetch로 떨어진다. 패키징된 Tauri 앱에는 평문 .wasm이 없으므로 그 fetch는
+    // HTML(404 폴백)을 받아오고, 결국 "expected magic word 00 61 73 6d, found 3c 21 44 4f"
+    // (3c 21 44 4f == "<!DO")로 터졌다. 글루가 실제로 존중하는 훅은 instantiateWasm뿐이다.
+    //
+    // compile을 먼저 해두는 이유: instantiateWasm 콜백 안에서 실패하면 글루가 감싼 Promise가
+    // 영영 resolve되지 않아 앱이 조용히 멈춘다. 바이너리가 깨졌을 때 여기서 즉시 throw시켜
+    // 호출부(local-socket.ts / dsp-worker.ts)의 try/catch에 잡히게 한다.
+    const compiled = await WebAssembly.compile(wasmBinary);
+    moduleArg.instantiateWasm = (
+      imports: WebAssembly.Imports,
+      success: (instance: WebAssembly.Instance, module: WebAssembly.Module) => void,
+    ) => {
+      void WebAssembly.instantiate(compiled, imports).then((instance) => success(instance, compiled));
+      return {}; // 비동기 완료를 알리는 emscripten 규약(반환값 대신 success 콜백으로 넘긴다)
+    };
   }
   const mod: FfProtInstance = await factory(moduleArg);
 

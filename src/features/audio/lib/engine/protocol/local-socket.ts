@@ -31,7 +31,12 @@ class LocalWasmSocket implements SocketLike {
   private session: AnalysisSession | null = null;
   private engineParams: EngineParams = { ampOutputPower: null, speakerModel: "", ambientTemp: DEFAULT_AMBIENT_TEMP };
   private connConfig: EngineRuntimeConfig = DEFAULT_ENGINE_CONFIG;
+  // ⚠️ frameCount는 **도착한 모든 프레임**이 소비한다(엔진 준비 전에 버린 것 포함). 이 번호가
+  // 그대로 frame 메시지의 time(analysis.ts)과 보호 감쇠 PCM의 위치가 되므로, 재생 시작으로부터의
+  // 절대 위치여야 한다. 그래서 init 시점에 0으로 되돌리지 않는다 — 소켓은 세션마다 새로
+  // 만들어지므로(createAnalysisSocket) 선언 시 초기화만으로 충분하다.
   private frameCount = 0;
+  private warmupDroppedFrames = 0;
   private initialized = false;
 
   constructor() {
@@ -99,8 +104,7 @@ class LocalWasmSocket implements SocketLike {
       }
 
       this.initialized = true;
-      this.frameCount  = 0;
-      this.emit(createReadyMessage());
+      this.emit(createReadyMessage(this.warmupDroppedFrames));
 
     } else if (msg.type === "stop") {
       this.session?.close();
@@ -110,10 +114,18 @@ class LocalWasmSocket implements SocketLike {
   }
 
   private handleFrame(data: ArrayBuffer): void {
-    if (!this.initialized || !this.session) return;
     if (data.byteLength < frameBytes(this.connConfig)) return;
 
+    // 준비 여부와 무관하게 번호를 먼저 소비한다. 예전엔 준비 전 프레임을 번호도 안 세고 버린
+    // 뒤 준비 시점에 frameCount를 0으로 되돌려서, frameIndex=0이 실제로는 "재생이 이미
+    // warmupDroppedFrames만큼 진행된 지점"의 오디오를 가리켰다 — 그만큼 온도/변위 차트와
+    // Input/Protected 파형이 통째로 앞당겨져 그려졌다.
     const currentFrame = this.frameCount++;
+
+    if (!this.initialized || !this.session) {
+      this.warmupDroppedFrames++;
+      return;
+    }
 
     try {
       const out = processAnalysisFrame(this.session, data, this.engineParams, this.connConfig, currentFrame);

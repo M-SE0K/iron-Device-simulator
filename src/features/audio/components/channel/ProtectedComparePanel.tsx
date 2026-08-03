@@ -64,7 +64,6 @@ function ProtectedComparePanelImpl({
 
   const protectedEnvRefs = useRef<[BucketEnvelope, BucketEnvelope]>([new BucketEnvelope(BUCKETS), new BucketEnvelope(BUCKETS)]);
   const sampleRateRef   = useRef(0);
-  const totalSamplesRef = useRef(0);
   const [version, setVersion] = useState(0);
 
   const rafRef       = useRef<number | null>(null);
@@ -135,7 +134,6 @@ function ProtectedComparePanelImpl({
   useEffect(() => {
     protectedEnvRefs.current[0].clear();
     protectedEnvRefs.current[1].clear();
-    totalSamplesRef.current = 0;
     readyRef.current = false;
     pendingProtectedRef.current = [];
     backfillTokenRef.current += 1;
@@ -159,7 +157,13 @@ function ProtectedComparePanelImpl({
   const applyProtectedEvent = useCallback((ev: ProtectedEvent, durationSec: number) => {
     sampleRateRef.current = ev.sampleRate;
     const [envL, envR] = protectedEnvRefs.current;
-    const base = totalSamplesRef.current;
+    const samplesPerFrame = ev.processed.length / CHANNELS;
+    // ⚠️ 이벤트가 실어 보내는 frameIndex를 기준점으로 쓴다 — 이 값은 "재생 시작으로부터 몇 번째
+    // 프레임인가"이다(엔진이 워밍업 동안 분석하지 못한 프레임도 번호는 소비하므로 재생 위치와
+    // 1:1). 예전엔 이 필드를 무시하고 자체 누산기로 0부터 쌓았는데, 그러면 엔진 준비가 늦어진
+    // 만큼 측정 파형이 통째로 왼쪽(원본보다 앞)으로 밀려 그려졌다. 절대 위치를 쓰면 중간에
+    // 프레임이 유실돼도 그 뒤가 따라 밀리지 않는다는 이점도 있다.
+    const base = ev.frameIndex * samplesPerFrame;
     const perBucketSec = durationSec / BUCKETS;
 
     for (let ch = 0; ch < CHANNELS; ch++) {
@@ -169,7 +173,6 @@ function ProtectedComparePanelImpl({
         env.add(Math.floor(t / perBucketSec), ev.processed[i] / INT16_SCALE);
       }
     }
-    totalSamplesRef.current = base + ev.processed.length / CHANNELS;
 
     dirtyRef.current = true;
     if (rafRef.current === null) rafRef.current = requestAnimationFrame(flush);
@@ -203,7 +206,6 @@ function ProtectedComparePanelImpl({
                   envL.add(b, dataL[s]);
                   envR.add(b, dataR[s]);
                 }
-                totalSamplesRef.current = dataL.length;
               }
             }
           }
@@ -231,7 +233,6 @@ function ProtectedComparePanelImpl({
       if (ev.type === "reset") {
         protectedEnvRefs.current[0].clear();
         protectedEnvRefs.current[1].clear();
-        totalSamplesRef.current = 0;
         pendingProtectedRef.current = [];
         backfillTokenRef.current += 1; // 진행 중이던 백필 결과를 무효화 — 새 세션은 0부터 라이브로만 채운다
         readyRef.current = true;

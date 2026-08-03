@@ -10,14 +10,18 @@ interface AudioDeviceActual {
 export interface AudioInputDevice {
   uid: string;
   name: string;
-  // probed=false면 이 두 값은 미상이다(0 / null) — "능력이 0"이 아니라 "읽지 못했다".
+  // ⚠️ 이 두 값은 현재 항상 미상(0 / null)이다 — audio_device_list가 `--no-probe`로 돌기
+  // 때문이다(audio_device.rs 참고: 프로브는 설치된 드라이버를 전부 여는 동작이라 Windows/ASIO
+  // 에서 장치 목록 로딩이 수 초씩 걸렸다). 실제 채널 수/샘플레이트가 필요하면 사용자가 장치를
+  // 고른 뒤 audioDevice.query()로 그 장치 하나만 조회한다.
   inputChannels: number;
   sampleRate: number | null;
   isDefault: boolean; // OS 기본 입력 장치 여부
-  // 헬퍼가 드라이버를 실제로 열어 능력을 읽었는지. Windows/ASIO는 드라이버가 배타적이라
-  // 다른 프로세스(우리 자신의 capture 포함)가 점유 중이면 열지 못한다 — 그래도 목록에서
-  // 빼지 않는다(드롭다운에서 사라지면 선택 자체가 불가능해지므로). macOS(CoreAudio)는
-  // 열기가 배타적이지 않아 항상 true다.
+  // 헬퍼가 드라이버를 실제로 열어 능력을 읽었는지. `--no-probe`로 호출하는 지금은 항상
+  // false/미설정이므로 **"다른 앱이 점유 중"으로 해석하면 안 된다** — 그냥 "안 읽었다"는 뜻이다.
+  // (프로브를 켤 경우에만: Windows/ASIO는 드라이버 열기가 배타적이라 다른 프로세스가 점유
+  // 중이면 false가 되고, macOS(CoreAudio)는 배타적이지 않아 항상 true다. 어느 쪽이든 열기에
+  // 실패한 장치도 목록에서 빼지 않는다 — 드롭다운에서 사라지면 선택 자체가 불가능해지므로.)
   probed?: boolean;
 }
 
@@ -177,9 +181,12 @@ declare global {
       onChanged: (callback: (files: LocalAudioFileEntry[]) => void) => () => void;
     };
     // WASM 알고리즘 암호화 배포(방법 5) — src-tauri/src/wasm_asset.rs가 암호화된
-    // ff_prot.wasm.enc를 복호화해 돌려준다. wasm-client.ts가 Module.wasmBinary로 바로 먹인다.
+    // ff_prot.wasm.enc를 복호화해 돌려준다. wasm-client.ts가 Module.instantiateWasm 훅으로
+    // 바로 인스턴스화한다(Module.wasmBinary는 emcc 6.x 글루가 읽지 않는다).
+    // ArrayBuffer로 좁혀둔다 — 출처가 항상 tauri invoke 응답(ArrayBuffer) 위의 뷰라
+    // SharedArrayBuffer가 될 수 없고, WebAssembly.compile(BufferSource)에 그대로 넘겨야 한다.
     wasmAsset?: {
-      loadEngineBinary: () => Promise<Uint8Array>;
+      loadEngineBinary: () => Promise<Uint8Array<ArrayBuffer>>;
     };
   }
 }

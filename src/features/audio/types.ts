@@ -56,6 +56,9 @@ export type AppStatus =
 
 
 export type WsServerMessage =
-  | { type: "ready" }
+  // warmupDroppedFrames: 엔진(WASM) 로드가 끝나기 전에 도착해 분석하지 못한 프레임 수.
+  // 재생은 그동안에도 흘러가므로 이 값 × samplesPerCh / sampleRate 초만큼이 "측정 결과가
+  // 비어 있는 앞구간"이다 — 플랫폼별 워밍업 비용을 재는 계측치.
+  | { type: "ready"; warmupDroppedFrames?: number }
   | { type: "frame"; frameIndex: number; time: number; temperature: number; excursion: number; processingMs: number; engineExecMs?: number }
   | { type: "error"; message: string };
