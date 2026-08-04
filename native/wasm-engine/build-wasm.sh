@@ -86,17 +86,17 @@ if [[ ${#SRCS[@]} -eq 0 ]]; then
 fi
 echo "→ 컴파일 대상: ${SRCS[*]}"
 
-# ── 하드닝(FF_PROT_HARDEN=1) — 방법 1(소스 난독화, 있으면)+2(빌드 플래그) ──────────────
+# ── 하드닝(FF_PROT_HARDEN=1) — 방법 2(빌드 플래그) ────────────────────────────────
 # 배포용 빌드(scripts/build/build-static-local.sh)는 기본으로 이 플래그를 켠다.
 # npm run wasm:build 단독 실행(custom/*.c 반복 수정 중)은 기본 꺼짐 — 디버깅 편의 유지.
+#
+# ※ 방법 1(C 소스 레벨 난독화, 옛 obfuscate-source.sh/Tigress)은 폐기했다 — Tigress는
+#   상용 라이선스 협의가 필요하고, PATH에 없으면 어차피 no-op이라 실효도 낮았다. 그 역할은
+#   아래 방법 3~5.5의 WASM 바이너리 레벨 처리(전부 Apache/BSD 무료 도구)로 대체한다:
+#   제어흐름/구조 변형은 wasm-mutate(방법 3.5), 상수 은닉은 obfuscate-wasm-consts.js(5.5).
 HARDEN_FLAGS=()
 if [[ "${FF_PROT_HARDEN:-}" == "1" ]]; then
   echo "→ 하드닝 빌드: FF_PROT_HARDEN=1"
-  SRCS_OBF=()
-  while IFS= read -r line; do
-    SRCS_OBF+=("$line")
-  done < <(./obfuscate-source.sh "${SRCS[@]}")
-  SRCS=("${SRCS_OBF[@]}")
   # -flto: 링크타임 최적화로 함수 경계를 흐린다. -g0: 디버그 정보 명시적 배제.
   # --closure 1: Closure Compiler로 글루 JS(ff_prot.js) 식별자/구조 압축(Java 필요 —
   # Docker(emscripten/emsdk) 폴백에는 이미 포함되어 있다).
@@ -116,7 +116,7 @@ fi
 echo "✓ 브라우저 빌드 완료: $WASM_OUT_DIR/ff_prot.js + ff_prot.wasm"
 ls -la "$WASM_OUT_DIR/ff_prot.js" "$WASM_OUT_DIR/ff_prot.wasm"
 
-# ── 하드닝(FF_PROT_HARDEN=1) — 방법 3(바이너리 스트립)+4(글루 JS 난독화)+5.5(상수 난독화) ──
+# ── 하드닝(FF_PROT_HARDEN=1) — 방법 3(바이너리 스트립)+3.5(구조 변형)+4(글루 JS 난독화)+5.5(상수 난독화) ──
 if [[ "${FF_PROT_HARDEN:-}" == "1" ]]; then
   echo "→ wasm-opt 스트립/재최적화..."
   # --all-features: emcc -O3 산출물이 쓰는 확장(nontrapping-fptoint 등)을 wasm-opt가 모르는
@@ -125,10 +125,51 @@ if [[ "${FF_PROT_HARDEN:-}" == "1" ]]; then
     --strip-debug --strip-producers --strip-target-features \
     -o "$WASM_OUT_DIR/ff_prot.wasm"
 
+  # ── 방법 3.5: 구조 변형 (wasm-mutate, 옛 Tigress Flatten/AddOpaque 대체) ──────────────
+  # wasm-mutate(bytecodealliance/wasm-tools, Apache-2.0)는 의미를 보존하면서 명령/제어흐름을
+  # 무작위 변형해 함수 형태와 경계를 흐린다. export 함수의 관찰 가능한 동작은 보존하므로
+  # _ff_prot_* 4개 심볼 계약은 안 깨진다. 한 번 호출당 변형 1개라, 출력을 되먹여 N회 누적한다.
+  #
+  # ⚠️ 반드시 obfuscate-wasm-consts.js(상수 XOR, 아래) "이전"에 돌린다 — 상수 난독화가 항상
+  #    마지막 WASM 변형이어야 XOR 패턴이 이후 패스에 원복되지 않는다. wasm-mutate는 옵티마이저가
+  #    아니라 상수 폴딩을 하지 않지만, 순서 불변식을 지켜 안전 마진을 둔다.
+  #
+  # 도구 부재 시 비파괴적으로 건너뛴다(옛 Tigress 훅과 동일 정책) — cargo install wasm-tools
+  # (권장) 또는 standalone wasm-mutate 바이너리를 PATH에 두면 활성화된다.
+  MUTATE_ITERS="${FF_PROT_MUTATE_ITERS:-1000}"
+  if command -v wasm-tools >/dev/null 2>&1; then
+    MUTATE=(wasm-tools mutate)
+  elif command -v wasm-mutate >/dev/null 2>&1; then
+    MUTATE=(wasm-mutate)
+  else
+    MUTATE=()
+    echo "→ wasm-tools/wasm-mutate 미설치 — 구조 변형(방법 3.5) 건너뜀 (cargo install wasm-tools)"
+  fi
+  if [[ ${#MUTATE[@]} -gt 0 && "$MUTATE_ITERS" -gt 0 ]]; then
+    echo "→ 구조 변형 중 ($MUTATE_ITERS회 누적, ${MUTATE[*]})..."
+    # 빌드마다 다른 체인이 나오도록 base seed는 난수, 각 반복 seed는 base+i(빌드 내 결정적).
+    BASE_SEED="$(node -e 'process.stdout.write(String(require("crypto").randomBytes(4).readUInt32LE()))')"
+    TMP_MUT="$(mktemp)"
+    i=0
+    while [[ "$i" -lt "$MUTATE_ITERS" ]]; do
+      SEED=$(( (BASE_SEED + i) % 2147483647 ))
+      if ! "${MUTATE[@]}" "$WASM_OUT_DIR/ff_prot.wasm" --seed "$SEED" --preserve-semantics -o "$TMP_MUT" 2>/dev/null; then
+        # 특정 seed에서 적용 가능한 변형이 없으면 non-zero로 끝날 수 있다 — 그 회차만 건너뛴다.
+        i=$(( i + 1 )); continue
+      fi
+      mv "$TMP_MUT" "$WASM_OUT_DIR/ff_prot.wasm"
+      i=$(( i + 1 ))
+    done
+    rm -f "$TMP_MUT"
+    echo "✓ 구조 변형 완료"
+  fi
+
   echo "→ 모델링 상수 난독화 (obfuscate-wasm-consts.js)..."
   # C 소스(custom/*.c)는 건드리지 않는다 — 컴파일이 끝난 .wasm 산출물만 후처리해서
-  # f64.const/f32.const 리터럴을 mask+masked-value XOR 쌍으로 바꿔치기한다. 소스 소유권이
-  # 없는 사용자가 custom/에 자기 알고리즘을 드롭인해도 값 이름/의미를 몰라도 자동 적용된다.
+  # f64/f32/i32/i64.const 리터럴을 mask+masked-value XOR 쌍으로 바꿔치기한다(정수 상수는
+  # 함수 본문 코드에 한해, 사소한 작은 값은 임계치·샘플링으로 건너뛴다 — obfuscate-wasm-consts.js
+  # 헤더 참고). 소스 소유권이 없는 사용자가 custom/에 자기 알고리즘을 드롭인해도 값 이름/의미를
+  # 몰라도 자동 적용된다.
   # 반드시 이 단계 이후로는 .wasm에 어떤 최적화 패스도 돌리지 않는다 — 그러면 XOR 패턴이
   # 상수 폴딩으로 원래 리터럴로 되돌아가 난독화가 무력화된다(아래 글루 JS 난독화는 .js만
   # 건드리므로 순서 무관).

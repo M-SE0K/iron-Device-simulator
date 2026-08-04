@@ -55,28 +55,43 @@ int ff_prot_stop_exec(void) { return my_algo_teardown(); }
 - 특정 파일만 골라 빌드: `FF_PROT_SRCS="custom/a.c custom/b.c" ./build-wasm.sh`
   (`FF_PROT_SRCS`는 custom/ 자동 감지보다 우선).
 
-## 정품 알고리즘 도착 시 소스 난독화 켜기
+## 정품 알고리즘 도착 시 난독화 켜기
 
 이 폴더에 정품 vendor 알고리즘을 드롭인하는 순간부터는 지킬 가치가 있는 소스가 된다.
 `FF_PROT_HARDEN=1 ./build-wasm.sh`(또는 `FF_PROT_HARDEN=1 npm run wasm:build`)로 빌드하면
 `../build-wasm.sh`가 자동으로 다음을 적용한다:
 
-1. **소스 레벨 난독화**(`../obfuscate-source.sh`, 이 항목) — Tigress가 PATH에 있을 때만.
-2. Emscripten 하드닝 플래그(`-flto -g0 --closure 1`)
-3. `wasm-opt` 스트립/재최적화
-4. JS 글루 코드 난독화(javascript-obfuscator)
+1. Emscripten 하드닝 플래그(`-flto -g0 --closure 1`)
+2. `wasm-opt` 스트립/재최적화 (Binaryen, Apache-2.0)
+3. **구조 변형**: `wasm-mutate`로 제어흐름/명령을 의미 보존하며 무작위 변형(기본 200회 누적)
+4. **상수 난독화**: `../obfuscate-wasm-consts.js`가 `.wasm` 산출물의 `f64/f32/i32/i64.const`
+   리터럴을 XOR 마스킹으로 은닉 (wabt, Apache-2.0)
+5. JS 글루 코드 난독화(javascript-obfuscator, BSD-2)
 
-1번(Tigress)은 별도 설치가 필요하다 — 자동 설치되지 않고, 없어도 2~4는 정상 진행된다:
+> 과거엔 여기에 **C 소스 레벨 난독화(Tigress)** 가 있었으나 폐기했다 — 상용 라이선스 협의가
+> 필요하고, PATH에 없으면 어차피 no-op이라 실효가 낮았다. 그 역할(제어흐름 평탄화·불투명
+> 조건문·산술 인코딩)은 위 3(wasm-mutate)+4(상수 XOR)의 **WASM 바이너리 레벨 처리**로
+> 대체했다. 모두 무료(Apache/BSD)이고, C 소스는 전혀 건드리지 않으므로 어떤 알고리즘을
+> 드롭인해도 값/함수 이름을 몰라도 자동 적용된다.
+
+**구조 변형(3)만 도구 설치가 필요**하다 — 없으면 비파괴적으로 건너뛰고 나머지는 정상 진행된다.
+`wasm-mutate`가 export 함수의 관찰 가능한 동작을 보존하므로 `ff_prot_*` 4개 심볼 계약은
+안 깨진다:
 
 ```bash
-# https://tigress.wtf 에서 라이선스 등록 후 다운로드/설치 (자동화 불가)
-which tigress   # PATH에 잡히는지 확인
+# 권장: cargo install wasm-tools  (standalone wasm-mutate 바이너리도 인식)
+cargo install wasm-tools
+which wasm-tools   # PATH에 잡히는지 확인
 
 FF_PROT_HARDEN=1 npm run wasm:build
 ```
 
-`../obfuscate-source.sh`는 `InitOpaque`/`Flatten`/`EncodeArithmetic`/`AddOpaque` 조합을
-쓰고, **export 심볼 4개(`ff_prot_init`/`set_param`/`start_exec`/`stop_exec`)는 Flatten
-대상에서 제외**한다 — 이름 자체가 바뀌는 변환은 없으니 계약은 안 깨지지만, 함수 export
-심볼이 바뀌면 `wasm-client.ts`가 못 찾으므로 커스텀 알고리즘 쪽에서 함수명을 직접
-바꾸지 않는 한 안전하다. 다른 `--Transform` 조합을 쓰고 싶으면 이 파일을 직접 수정한다.
+조정 노브(전부 선택):
+
+- `FF_PROT_MUTATE_ITERS`(기본 200) — 구조 변형 누적 횟수. 0이면 이 단계 생략.
+- `FF_PROT_OBF_INT`(기본 on) — 정수 상수 XOR 치환 on/off. 실수(f64/f32)는 항상 치환.
+- `FF_PROT_OBF_INT_MIN`(기본 8) — 절댓값이 이 미만인 사소한 정수(오프셋·인덱스류)는 건너뜀.
+- `FF_PROT_OBF_INT_RATE`(기본 0.5) — 남은 정수 중 치환 비율(바이너리 팽창·성능 절충용).
+
+⚠️ 상수 난독화(4)는 반드시 마지막 WASM 변형이어야 한다 — 이후 어떤 최적화 패스도 돌리면
+XOR 패턴이 상수 폴딩으로 원복된다. `../build-wasm.sh`가 3→4 순서를 강제한다.

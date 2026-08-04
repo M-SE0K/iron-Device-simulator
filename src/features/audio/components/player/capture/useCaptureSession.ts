@@ -152,7 +152,9 @@ export function useCaptureSession(deps: UseCaptureSessionDeps) {
         // 계측: 엔진(WASM) 로드가 끝나기 전에 흘러간 재생 구간의 크기. 그동안 도착한 프레임은
         // 분석할 세션이 없어 버려지므로, 이 값이 곧 "측정 결과가 비어 있는 앞구간"의 길이다.
         // 플랫폼 비교용 — Windows 패키지 빌드에서는 IRON_REMOTE_DEBUG_PORT를 띄우고 CDP로
-        // 붙으면 이 줄을 볼 수 있다(src-tauri/src/main.rs).
+        // 붙으면 이 줄을 볼 수 있다. 단 배포 빌드는 DevTools/원격 디버깅이 차단돼 있어
+        // `npm run build:tauri:windows -- --devtools` 로 뽑은 측정용 빌드여야 한다
+        // (src-tauri/src/main.rs의 configure_devtools_access).
         const dropped = typeof msg.warmupDroppedFrames === "number" ? msg.warmupDroppedFrames : 0;
         console.info(
           `[engine] warm-up dropped ${dropped} frame(s) = ` +

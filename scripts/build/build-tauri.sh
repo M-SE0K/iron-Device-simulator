@@ -47,6 +47,24 @@ case "$HOST_UNAME" in
   *) HOST_OS=unknown ;;
 esac
 
+# ── --devtools (측정 전용 빌드) ──────────────────────────────────────────────
+# 기본 배포 빌드에는 DevTools(WebView 인스펙터)가 아예 컴파일되지 않는다(src-tauri/Cargo.toml의
+# [features] devtools, src-tauri/src/main.rs의 configure_devtools_access 참고). 패키징된 앱에서
+# window.__ironPerf(5단계 지연 측정)를 콘솔로 호출해야 할 때만 이 플래그로 되살린다:
+#   npm run build:tauri:mac -- --devtools
+# 위치 무관하게 받도록 먼저 걸러내고, 나머지 인자만 아래 OS 선택 로직에 넘긴다.
+TAURI_FEATURES=()
+_ARGS=()
+for _arg in "$@"; do
+  if [[ "$_arg" == "--devtools" ]]; then
+    TAURI_FEATURES=(--features devtools)
+    echo "▶ --devtools 지정 → DevTools를 포함한 측정 전용 빌드입니다 (배포용으로 쓰지 마세요)."
+  else
+    _ARGS+=("$_arg")
+  fi
+done
+set -- ${_ARGS[@]+"${_ARGS[@]}"}
+
 MAC_ONLY=false
 WINDOWS_ONLY=false
 LINUX_ONLY=false
@@ -230,7 +248,7 @@ if [[ "$MAC_ONLY" == "true" ]]; then
   # 싶으면 `rustup target add aarch64-apple-darwin x86_64-apple-darwin` 후 이 스크립트
   # 대신 `npx tauri build --target <triple>`을 타깃별로 직접 두 번 실행하면 된다(추후 과제).
   rm -rf dist-tauri/mac/* 2>/dev/null || true
-  npx tauri build
+  npx tauri build ${TAURI_FEATURES[@]+"${TAURI_FEATURES[@]}"}
 
   # ── 오디오 입력 entitlement 검증 (앱 본체 + 사이드카) ──────────────────────────
   # tauri.macos.conf.json에 signingIdentity가 있으면 Tauri는 hardened runtime
@@ -295,10 +313,10 @@ if [[ "$WINDOWS_ONLY" == "true" ]]; then
     # 이후 실행은 캐시를 재사용해 훨씬 빠르다. lld-link가 PDB 심볼을 못 찾는다는
     # "failed to load reference ...pdb" 경고가 다수 나오는데, 이는 xwin이 전체 디버그
     # 심볼까지는 내려받지 않기 때문이며 빌드 결과물에는 영향 없다(무해).
-    npx tauri build --runner cargo-xwin --target x86_64-pc-windows-msvc --bundles nsis
+    npx tauri build ${TAURI_FEATURES[@]+"${TAURI_FEATURES[@]}"} --runner cargo-xwin --target x86_64-pc-windows-msvc --bundles nsis
     BUNDLE_DIR="src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis"
   else
-    npx tauri build
+    npx tauri build ${TAURI_FEATURES[@]+"${TAURI_FEATURES[@]}"}
     BUNDLE_DIR="src-tauri/target/release/bundle/nsis"
   fi
   find "$BUNDLE_DIR" -maxdepth 1 -type f -name "*.exe" -exec cp {} dist-tauri/windows/ \; 2>/dev/null || true
@@ -320,7 +338,7 @@ rm -rf dist-tauri/linux/* 2>/dev/null || true
 # FUSE로 마운트를 못 한다(Phase 6에서 실측). APPIMAGE_EXTRACT_AND_RUN=1은 그 대신 self-extract
 # 방식으로 돌게 하는 표준 플래그 — FUSE가 있는 환경에서도 무해하다.
 export APPIMAGE_EXTRACT_AND_RUN=1
-npx tauri build
+npx tauri build ${TAURI_FEATURES[@]+"${TAURI_FEATURES[@]}"}
 find src-tauri/target/release/bundle/appimage -maxdepth 1 -type f -name "*.AppImage" -exec cp {} dist-tauri/linux/ \; 2>/dev/null || true
 echo ""
 echo "✓ Tauri 패키징 완료 (linux 전용): dist-tauri/linux/"

@@ -10,23 +10,50 @@
 //! 복호화해 IPC로 넘기면, 프런트(wasm-client.ts)가 emcc 글루의 `Module.wasmBinary`로 바로
 //! 먹여 자체 fetch를 우회한다.
 //!
-//! ⚠️ 서버가 없는 구조라 복호화 키(wasm_key.rs, gitignore)가 결국 이 바이너리 안에 있어야
-//! 한다 — 이건 진짜 암호학적 안전성이 아니라 "평문 .wasm 파일 하나를 파일탐색기로 그냥
-//! 꺼내가는 것"을 막는 수준의 방어다. 목표는 완전 차단이 아니라 리버싱 비용을 올리는 것.
+//! ⚠️ 서버가 없는 구조라 복호화에 필요한 재료가 결국 이 바이너리 안에 있어야 한다 — 이건
+//! 진짜 암호학적 안전성이 아니라 "리버싱 비용을 올리는" 방어다(실행 중 메모리에서 파생된
+//! 키를 덤프하는 동적 공격까지 막지는 못한다). v2에서는 아래 세 축으로 정적 분석 비용을
+//! 끌어올렸다:
+//!   1) 키를 상수로 두지 않는다 — root = SEED_A XOR SEED_B → HKDF-SHA256(salt)로 런타임
+//!      파생(derive_key). 바이너리에 "키처럼 보이는" 32바이트 연속 고엔트로피 상수가 없다.
+//!   2) GCM에 AAD(배포 문맥)를 바인딩 — AAD 없이 "그냥 복호화"하면 태그 검증 실패.
+//!   3) Cargo release 프로파일 strip으로 aes-gcm/hkdf 제네릭 심볼을 제거(스킴 은닉).
+//! encrypt-wasm.js / derive-wasm-key.js 와 알고리즘·상수가 반드시 일치해야 한다.
 //!
 //! local_folder.rs의 local_folder_read_file(raw-response, tauri::ipc::Response)과 동일한
 //! 패턴을 따른다.
 
-use aes_gcm::aead::{Aead, KeyInit};
+use aes_gcm::aead::{Aead, KeyInit, Payload};
 use aes_gcm::{Aes256Gcm, Key, Nonce};
+use hkdf::Hkdf;
+use sha2::Sha256;
 use tauri::ipc::Response;
 use tauri::path::BaseDirectory;
 use tauri::{AppHandle, Manager};
 
-use crate::wasm_key::WASM_KEY;
+use crate::wasm_key::{WASM_SALT, WASM_SEED_A, WASM_SEED_B};
 
 const ENCRYPTED_RESOURCE_NAME: &str = "ff_prot.wasm.enc";
 const NONCE_LEN: usize = 12;
+
+// derive-wasm-key.js 와 문자열 단위로 동일해야 한다 — 하나라도 다르면 복호 실패.
+const HKDF_INFO: &[u8] = b"iron-device/ff_prot/wasm-key/v2";
+const AAD_CONTEXT: &[u8] = b"com.irondevice.audiosim.desktop/ff_prot.wasm.enc";
+
+/// root = SEED_A XOR SEED_B 를 HKDF-SHA256(salt=SALT, info=HKDF_INFO)로 확장해 32바이트
+/// AES-256 키를 파생한다. seed 재료는 wasm_key.rs(빌드 산출물)에 있고 키 자체는 어디에도
+/// 저장되지 않는다.
+fn derive_key() -> [u8; 32] {
+    let mut root = [0u8; 32];
+    for i in 0..32 {
+        root[i] = WASM_SEED_A[i] ^ WASM_SEED_B[i];
+    }
+    let hk = Hkdf::<Sha256>::new(Some(WASM_SALT.as_slice()), &root);
+    let mut okm = [0u8; 32];
+    hk.expand(HKDF_INFO, &mut okm)
+        .expect("hkdf expand (32B okm는 SHA-256 상한 내)");
+    okm
+}
 
 #[tauri::command]
 pub async fn wasm_asset_load(app: AppHandle) -> Result<Response, String> {
@@ -40,11 +67,18 @@ pub async fn wasm_asset_load(app: AppHandle) -> Result<Response, String> {
     }
     let (nonce_bytes, ciphertext) = blob.split_at(NONCE_LEN);
 
-    let key = Key::<Aes256Gcm>::from_slice(&WASM_KEY);
+    let derived = derive_key();
+    let key = Key::<Aes256Gcm>::from_slice(&derived);
     let cipher = Aes256Gcm::new(key);
     let nonce = Nonce::from_slice(nonce_bytes);
     let plaintext = cipher
-        .decrypt(nonce, ciphertext)
+        .decrypt(
+            nonce,
+            Payload {
+                msg: ciphertext,
+                aad: AAD_CONTEXT,
+            },
+        )
         .map_err(|_| "wasm-decrypt-failed".to_string())?;
 
     Ok(Response::new(plaintext))
