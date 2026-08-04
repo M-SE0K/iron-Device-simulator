@@ -4,13 +4,15 @@
 // (메인 차트가 ChartStore를 source로 구독하는 것과 같은 경로 — React 커밋 없이 rAF로 커밋).
 // 줌은 Temperature/ExcursionChart와 동일하게 기본 zoomPlugin()(휠/드래그/더블클릭, 전체범위
 // = 현재 로드된 데이터 extent)만 쓴다 — 확대 시 원본 해상도를 별도로 재조회하지 않는다.
-import { useEffect, useMemo, useState } from "react";
+import { useMemo } from "react";
 import type uPlot from "uplot";
 import UPlotChart, { type UPlotDataSource, type UPlotOptions } from "@/shared/components/UPlotChart";
 import { buildTimeAxis, buildValueAxis, timeDecimalsForInterval } from "@/features/audio/lib/render/uplot-option";
-import { tooltipPlugin, zoomPlugin } from "@/features/audio/lib/render/uplot-plugins";
+import { annotatePlugin, tooltipPlugin, zoomPlugin } from "@/features/audio/lib/render/uplot-plugins";
+import type { AnnotationStore } from "@/features/audio/lib/render/annotation-store";
 import type { ChannelWaveStore } from "@/features/audio/lib/render/wave-store";
 import { ChannelLevelBadge } from "./ChannelRowHeader";
+import { useThrottledStoreSnapshot } from "@/features/audio/components/chart/hooks/useThrottledStoreSnapshot";
 
 const Y_SCALE_PADDING = 1.1;
 const Y_MIN_SPAN = 0.01;
@@ -27,41 +29,36 @@ function symmetricYRange(peak: number): [number, number] {
  */
 const READOUT_INTERVAL_MS = 100;
 
+const selectWaveSnapshot = (snapshot: ReturnType<ChannelWaveStore["snapshot"]>) => snapshot;
+const isSameWaveSnapshot = (
+  previous: ReturnType<ChannelWaveStore["snapshot"]>,
+  next: ReturnType<ChannelWaveStore["snapshot"]>,
+) => previous === next;
+
 function useWaveReadout(store: ChannelWaveStore) {
-  const [snap, setSnap] = useState(() => store.snapshot());
-
-  useEffect(() => {
-    let timer: number | null = null;
-    let lastVersion = -1;
-
-    const sync = () => {
-      timer = null;
-      const next = store.snapshot();
-      if (next.version === lastVersion) return;
-      lastVersion = next.version;
-      setSnap(next);
-    };
-    const onUpdate = () => { if (timer === null) timer = window.setTimeout(sync, READOUT_INTERVAL_MS); };
-
-    const off = store.subscribe(onUpdate);
-    sync(); // 늦게 마운트된 뷰가 현재 상태를 즉시 반영하도록
-    return () => {
-      off();
-      if (timer !== null) window.clearTimeout(timer);
-    };
-  }, [store]);
-
-  return snap;
+  const [snapshot] = useThrottledStoreSnapshot(
+    store,
+    selectWaveSnapshot,
+    isSameWaveSnapshot,
+    READOUT_INTERVAL_MS,
+  );
+  return snapshot;
 }
 
 export function ChannelWaveformCanvas({
   color,
   sampleRate,
   store,
+  annotations,
+  isDrawEnabled,
 }: {
   color: string;
   sampleRate: number;
   store: ChannelWaveStore;
+  /** 점 잇기 주석 스토어 — 연필 토글은 부모 카드가 소유하고 여기는 플러그인만 단다. */
+  annotations?: AnnotationStore;
+  /** 그리기 모드 getter — 반드시 안정된 참조여야 한다(옵션 재생성 방지). */
+  isDrawEnabled?: () => boolean;
 }) {
   // Temperature/ExcursionChart와 같은 source 경로 — 스토어가 들고 있는 엔벨로프를 그대로
   // 커밋한다. 확대해도 별도 원본 재조회 없이 zoomPlugin()의 기본 동작(휠/드래그/더블클릭,
@@ -98,8 +95,11 @@ export function ChannelWaveformCanvas({
     plugins: [
       zoomPlugin(),
       tooltipPlugin({ unit: "", decimals: 4, timeDecimals }),
+      ...(annotations && isDrawEnabled
+        ? [annotatePlugin({ store: annotations, isEnabled: isDrawEnabled })]
+        : []),
     ],
-  }), [color, timeDecimals]);
+  }), [color, timeDecimals, annotations, isDrawEnabled]);
 
   return <UPlotChart options={options} source={source} />;
 }

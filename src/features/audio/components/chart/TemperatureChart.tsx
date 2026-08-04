@@ -4,10 +4,12 @@ import { useMemo } from "react";
 import { DEFAULT_TEMP_WARN, DEFAULT_TEMP_DANGER } from "@/features/audio/lib/render/detect-events";
 import { computeTemperatureYRange } from "@/features/audio/lib/render/chart-window";
 import type { ChartStore } from "@/features/audio/lib/render/chart-store";
+import type { AnnotationStore } from "@/features/audio/lib/render/annotation-store";
 import { buildMetricChartOptions } from "@/features/audio/lib/render/metric-chart-options";
-import { thresholdsPlugin } from "@/features/audio/lib/render/uplot-plugins";
+import { annotatePlugin, thresholdsPlugin } from "@/features/audio/lib/render/uplot-plugins";
 import { useMetricChartRuntime } from "./hooks/useMetricChartRuntime";
 import { useMetricChartSource } from "./hooks/useMetricChartSource";
+import { useDrawMode } from "./hooks/useDrawMode";
 import MetricChartCard from "./MetricChartCard";
 
 interface Props {
@@ -17,9 +19,12 @@ interface Props {
   streaming?: boolean;
   audioDuration?: number | null;
   perfTrack?: boolean;
-  onExpand?: () => void;
   warnThreshold?: number;
   dangerThreshold?: number;
+  /** 점 잇기 주석 스토어 — 넘기면 정지 상태(canAnnotate)에서 헤더 연필 토글이 나타난다. */
+  annotations?: AnnotationStore;
+  /** 정지/재생 종료 상태 여부 — 재생 중에는 그리기 모드에 들어갈 수 없다. */
+  canAnnotate?: boolean;
 }
 
 const TEMP_COLOR = "#0B4171";
@@ -30,10 +35,12 @@ export default function TemperatureChart({
   streaming = false,
   audioDuration,
   perfTrack = false,
-  onExpand,
   warnThreshold = DEFAULT_TEMP_WARN,
   dangerThreshold = DEFAULT_TEMP_DANGER,
+  annotations,
+  canAnnotate = false,
 }: Props) {
+  const { isEnabled, draw } = useDrawMode(annotations, canAnnotate);
   const {
     current: currentTemp,
     timeDecimals,
@@ -71,19 +78,19 @@ export default function TemperatureChart({
     axisSize: 52,
     tooltipUnit: "°C",
     tooltipDecimals: 1,
-    extraPlugins: [thresholdsPlugin([
-      { y: warnThreshold,   color: "#F59E0B", label: "WARN" },
-      { y: dangerThreshold, color: "#EF4444", label: "DANGER" },
-    ])],
-  }), [timeDecimals, warnThreshold, dangerThreshold]);
+    extraPlugins: [
+      thresholdsPlugin([
+        { y: warnThreshold,   color: "#F59E0B", label: "WARN" },
+        { y: dangerThreshold, color: "#EF4444", label: "DANGER" },
+      ]),
+      ...(annotations ? [annotatePlugin({ store: annotations, isEnabled })] : []),
+    ],
+  }), [timeDecimals, warnThreshold, dangerThreshold, annotations, isEnabled]);
 
   return (
     <MetricChartCard
       id="temperature-chart"
       title="Temperature"
-      expandAriaLabel="Temperature chart detail view"
-      expandHoverClassName="hover:text-brand-blue hover:bg-brand-blue/5"
-      onExpand={onExpand}
       valueId="current-temperature-value"
       valueLabel={currentTemp !== null ? currentTemp.toFixed(1) : null}
       valueUnit="°C"
@@ -94,6 +101,7 @@ export default function TemperatureChart({
       options={options}
       source={source}
       onRender={onRender}
+      draw={draw}
     />
   );
 }

@@ -17,7 +17,6 @@ interface Props {
   onSave?: () => void;
   canSave?: boolean;
   onReset?: () => void;
-  elevated?: boolean;
   /** 가운데 슬롯 — DuplexFilePlayer의 진행바. */
   children: ReactNode;
 }
@@ -35,16 +34,12 @@ export default function PlayerBar({
   onSave,
   canSave = false,
   onReset,
-  elevated = false,
   children,
 }: Props) {
   return (
     <div
       id="waveform-player"
-      className={cn(
-        "absolute left-1/2 -translate-x-1/2 flex items-center gap-3 bg-white rounded-full shadow-[0_12px_40px_rgba(15,23,42,0.16)] py-2 pl-2 pr-4 sm:pr-7 w-[calc(100%-1.5rem)] sm:w-[640px] max-w-[640px]",
-        elevated ? "z-[65]" : "z-30",
-      )}
+      className="absolute left-1/2 -translate-x-1/2 z-30 flex items-center gap-3 bg-white rounded-full shadow-[0_12px_40px_rgba(15,23,42,0.16)] py-2 pl-2 pr-4 sm:pr-7 w-[calc(100%-1.5rem)] sm:w-[640px] max-w-[640px]"
       style={{ bottom: "calc(28px + env(safe-area-inset-bottom))" }}
     >
       <button

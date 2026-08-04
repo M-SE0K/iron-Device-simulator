@@ -3,7 +3,11 @@
 // getConfig/setConfig는 렌더러 미사용(죽은 표면)이지만 d.ts 계약 유지를 위해 구현한다.
 import { COMMANDS, ARG_KEYS } from "./contract";
 import { safeInvoke } from "./safe-invoke";
-import type { AudioDeviceConfigResult, AudioDeviceListResult, AudioDeviceQueryResult } from "./types";
+import type {
+  AudioDeviceConfigResult,
+  AudioDeviceListResult,
+  AudioDeviceQueryResult,
+} from "@/shared/types/native-bridge";
 
 export function createAudioDeviceBridge(): NonNullable<Window["audioDevice"]> {
   return {

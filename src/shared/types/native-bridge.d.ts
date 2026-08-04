@@ -1,7 +1,7 @@
 // Tauri shim(src/shared/lib/tauri-bridge)이 제공하며 일반 브라우저에서는 undefined다.
 export {};
 
-interface AudioDeviceActual {
+export interface AudioDeviceActual {
   sampleRate: number | null;
   bufferSize: number | null;
 }
@@ -10,28 +10,22 @@ interface AudioDeviceActual {
 export interface AudioInputDevice {
   uid: string;
   name: string;
-  // ⚠️ 이 두 값은 현재 항상 미상(0 / null)이다 — audio_device_list가 `--no-probe`로 돌기
-  // 때문이다(audio_device.rs 참고: 프로브는 설치된 드라이버를 전부 여는 동작이라 Windows/ASIO
-  // 에서 장치 목록 로딩이 수 초씩 걸렸다). 실제 채널 수/샘플레이트가 필요하면 사용자가 장치를
-  // 고른 뒤 audioDevice.query()로 그 장치 하나만 조회한다.
+  // Windows/ASIO 목록은 --no-probe로 호출되어 inputChannels/sampleRate가 0/null이고
+  // probed=false다. macOS/CoreAudio 목록은 속성에서 실제 값을 읽지만 현재 probed 키는 보내지
+  // 않는다. 확정된 장치 능력은 audioDevice.query()로 조회한다.
   inputChannels: number;
   sampleRate: number | null;
   isDefault: boolean; // OS 기본 입력 장치 여부
-  // 헬퍼가 드라이버를 실제로 열어 능력을 읽었는지. `--no-probe`로 호출하는 지금은 항상
-  // false/미설정이므로 **"다른 앱이 점유 중"으로 해석하면 안 된다** — 그냥 "안 읽었다"는 뜻이다.
-  // (프로브를 켤 경우에만: Windows/ASIO는 드라이버 열기가 배타적이라 다른 프로세스가 점유
-  // 중이면 false가 되고, macOS(CoreAudio)는 배타적이지 않아 항상 true다. 어느 쪽이든 열기에
-  // 실패한 장치도 목록에서 빼지 않는다 — 드롭다운에서 사라지면 선택 자체가 불가능해지므로.)
   probed?: boolean;
 }
 
-interface AudioDeviceListResult {
+export interface AudioDeviceListResult {
   success: boolean;
   devices?: AudioInputDevice[];
   error?: string;
 }
 
-interface AudioDeviceConfigResult {
+export interface AudioDeviceConfigResult {
   success: boolean;
   device?: string;
   deviceUID?: string;
@@ -40,7 +34,7 @@ interface AudioDeviceConfigResult {
   error?: string;
 }
 
-interface AudioDeviceQueryResult {
+export interface AudioDeviceQueryResult {
   success: boolean;
   device?: string;
   deviceUID?: string;
@@ -54,11 +48,11 @@ interface AudioDeviceQueryResult {
 
 // E2E 지연 실험(N1, src/features/audio/lib/perf-e2e/) 전용 — Tauri Rust core가 stdout 청크마다 별도
 // 채널로 보내는 Date.now() 타임스탬프.
-interface AudioE2EMark {
+export interface AudioE2EMark {
   sentAt: number;
 }
 
-interface AudioCaptureStartResult {
+export interface AudioCaptureStartResult {
   success: boolean;
   device?: string;
   deviceUID?: string;
@@ -86,7 +80,7 @@ interface PlayCaptureStartOpts {
 interface PlayCaptureStartWriteOpts {
   totalBytes: number;
 }
-interface PlayCaptureWriteHandshakeResult {
+export interface PlayCaptureWriteHandshakeResult {
   success: boolean;
   writeId?: string;
   error?: string;
@@ -98,13 +92,13 @@ interface PlayCaptureWriteChunkOpts {
 interface PlayCaptureWriteIdOpts {
   writeId: string;
 }
-interface PlayCaptureWriteAckResult {
+export interface PlayCaptureWriteAckResult {
   success: boolean;
   error?: string;
 }
 
 // play-capture 헤더 = capture 헤더 + 재생 메타 (mode/refLen/playbackChannel)
-interface PlayCaptureStartResult extends AudioCaptureStartResult {
+export interface PlayCaptureStartResult extends AudioCaptureStartResult {
   mode?: "play-capture";
   refLen?: number; // 재생 총 프레임 수 (테일 제외)
   playbackChannel?: number; // ref(L)가 실제로 나간 출력 채널 — start opts의 outputChannel 요청값을 헬퍼가 그대로 echo
@@ -118,14 +112,14 @@ export interface LocalAudioFileEntry {
   mtimeMs: number;
 }
 
-interface LocalFolderSelectResult {
+export interface LocalFolderSelectResult {
   canceled: boolean;
   folderPath?: string;
   files?: LocalAudioFileEntry[];
   error?: string;
 }
 
-interface LocalFolderReadResult {
+export interface LocalFolderReadResult {
   success: boolean;
   data?: Uint8Array;
   mime?: string;

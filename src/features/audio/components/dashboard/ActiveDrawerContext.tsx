@@ -2,7 +2,7 @@
 
 import { createContext, useCallback, useContext, useMemo, useState, type ReactNode } from "react";
 
-export type DrawerKey = "workspace" | "records" | "calibration";
+export type DrawerKey = "view" | "workspace" | "records" | "calibration";
 
 interface ActiveDrawerCtx {
   active: DrawerKey | null;
@@ -30,4 +30,13 @@ export function useActiveDrawer(): ActiveDrawerCtx {
   const ctx = useContext(Ctx);
   if (!ctx) throw new Error("useActiveDrawer must be used within ActiveDrawerProvider");
   return ctx;
+}
+
+export function useDrawerState(key: DrawerKey): { open: boolean; setOpen: (open: boolean) => void } {
+  const { active, openDrawer, closeDrawer } = useActiveDrawer();
+  const setOpen = useCallback(
+    (open: boolean) => (open ? openDrawer(key) : closeDrawer()),
+    [key, openDrawer, closeDrawer],
+  );
+  return { open: active === key, setOpen };
 }

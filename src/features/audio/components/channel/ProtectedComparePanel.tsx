@@ -24,16 +24,17 @@ type ChannelMode = "L" | "R" | "Both";
 // 예전엔 Input L/R이 둘 다 무채색(회색 계열)이라 서로 거의 구분이 안 됐다. 지금은 L=파랑,
 // R=주황 계열을 Input까지 일관되게 써서, Both 모드에서도 어느 라인이 어느 채널인지 색만
 // 보고 바로 알 수 있게 한다.
-const COLOR_INPUT_L     = "#93c5fd"; // blue-300 (옅음 — 원본 참고선)
-const COLOR_PROTECTED_L = "#2563eb"; // blue-600 (진함 — 보호 감쇠 후 신호)
-const COLOR_INPUT_R     = "#fcd34d"; // amber-300 (옅음 — 원본 참고선)
-const COLOR_PROTECTED_R = "#d97706"; // amber-600 (진함 — 보호 감쇠 후 신호)
+export const COLOR_INPUT_L     = "#93c5fd"; // blue-300 (옅음 — 원본 참고선)
+export const COLOR_PROTECTED_L = "#2563eb"; // blue-600 (진함 — 보호 감쇠 후 신호)
+export const COLOR_INPUT_R     = "#fcd34d"; // amber-300 (옅음 — 원본 참고선)
+export const COLOR_PROTECTED_R = "#d97706"; // amber-600 (진함 — 보호 감쇠 후 신호)
 
 function ProtectedComparePanelImpl({
   subscribeCaptureStream,
   sourceFile,
   getProtectedBlob,
   bare = false,
+  hiddenSeries,
 }: {
   subscribeCaptureStream: (fn: CaptureStreamListener) => () => void;
   sourceFile?: File | null;
@@ -44,20 +45,11 @@ function ProtectedComparePanelImpl({
    */
   getProtectedBlob?: () => Blob | null;
   bare?: boolean;
+  /** 시리즈별(0=Input L, 1=Input R, 2=Protected L, 3=Protected R) on/off — View 탭이 소유한다. */
+  hiddenSeries: Set<number>;
 }) {
   const { showError } = useErrorPopup();
   const [channelMode, setChannelMode] = useState<ChannelMode>("Both");
-  // 시리즈별(Input/Protected × L/R) 개별 on/off — uPlot 기본 범례(체크박스형 마커)를 걷어내고
-  // 라벨 클릭 하나로 뚜렷함/흐릿함만으로 상태를 드러내는 커스텀 토글로 대체한다.
-  const [hiddenSeries, setHiddenSeries] = useState<Set<number>>(() => new Set());
-  const toggleSeries = useCallback((i: number) => {
-    setHiddenSeries((prev) => {
-      const next = new Set(prev);
-      if (next.has(i)) next.delete(i);
-      else next.add(i);
-      return next;
-    });
-  }, []);
   const [original, setOriginal] = useState<{ envL: BucketEnvelope; envR: BucketEnvelope; durationSec: number } | null>(null);
   const [decodeError, setDecodeError] = useState<string | null>(null);
   const [decoding, setDecoding] = useState(false);
@@ -179,8 +171,8 @@ function ProtectedComparePanelImpl({
   }, [flush]);
 
   // 원본 디코드가 끝나면(= x축 durationSec 확보) 지금까지 캡처된 보호 감쇠 PCM을 한 번
-  // 백필한다 — ChartDetailOverlay의 getChannelsSnapshot() 백필과 같은 목적. 백필이 끝나기
-  // 전에 들어온 라이브 프레임은 pendingProtectedRef에 쌓아뒀다가 이어서 적용한다.
+  // 백필한다. 백필이 끝나기 전에 들어온 라이브 프레임은 pendingProtectedRef에 쌓아뒀다가
+  // 이어서 적용한다.
   useEffect(() => {
     if (!original) return;
     const token = ++backfillTokenRef.current;
@@ -324,18 +316,6 @@ function ProtectedComparePanelImpl({
     [showL, showR, hiddenSeries],
   );
 
-  // 커스텀 범례 항목 — 체크박스 없이 라벨 자체를 토글 버튼으로 쓴다: 켜짐은 원래 색+실선
-  // 스타일 그대로 "뚜렷하게", 꺼짐은 같은 라벨을 옅게(흐릿하게) 눌러 보여준다.
-  const legendItems = useMemo(
-    () => [
-      { label: "Input L", color: COLOR_INPUT_L, dashed: true, enabled: showL },
-      { label: "Input R", color: COLOR_INPUT_R, dashed: true, enabled: showR },
-      { label: "Protected L", color: COLOR_PROTECTED_L, dashed: false, enabled: showL },
-      { label: "Protected R", color: COLOR_PROTECTED_R, dashed: false, enabled: showR },
-    ],
-    [showL, showR],
-  );
-
   const placeholder = decodeError
     ? "Unable to load original waveform."
     : (decoding ? "Preparing original waveform…" : null)
@@ -364,39 +344,15 @@ function ProtectedComparePanelImpl({
 
       <div className="chart-body flex-1 flex flex-col min-h-[160px] p-2">
         {options && chartData && yRange && !placeholder ? (
-          <>
-            <div className="flex items-center gap-3 flex-wrap px-1 pb-1.5 shrink-0">
-              {legendItems.map((item, i) => {
-                const active = item.enabled && !hiddenSeries.has(i);
-                return (
-                  <button
-                    key={item.label}
-                    type="button"
-                    onClick={() => toggleSeries(i)}
-                    disabled={!item.enabled}
-                    aria-pressed={active}
-                    className={cn(
-                      "text-xs tracking-tight transition-opacity disabled:cursor-not-allowed",
-                      item.dashed ? "font-normal" : "font-bold",
-                      active ? "opacity-100" : "opacity-35",
-                    )}
-                    style={{ color: item.color }}
-                  >
-                    {item.label}
-                  </button>
-                );
-              })}
-            </div>
-            <div className="flex-1 min-h-0">
-              <UPlotChart
-                options={options}
-                data={chartData}
-                yRange={yRange}
-                xRange={[0, original!.durationSec]}
-                seriesShow={seriesShow}
-              />
-            </div>
-          </>
+          <div className="flex-1 min-h-0">
+            <UPlotChart
+              options={options}
+              data={chartData}
+              yRange={yRange}
+              xRange={[0, original!.durationSec]}
+              seriesShow={seriesShow}
+            />
+          </div>
         ) : (
           <div className="chart-empty-state h-full flex items-center justify-center text-xs text-iron-300">
             {placeholder ?? "Once analysis starts, the protected waveform will overlay here."}

@@ -1,10 +1,10 @@
 "use client";
 
-import { memo, useCallback, useEffect } from "react";
+import { memo, useEffect } from "react";
 import { RefreshCw, RotateCcw, X } from "lucide-react";
 import AnimatedSelect from "@/shared/components/ui/AnimatedSelect";
 import DeviceSelectField from "./DeviceSelectField";
-import { useActiveDrawer } from "@/features/audio/components/dashboard/ActiveDrawerContext";
+import { useDrawerState } from "@/features/audio/components/dashboard/ActiveDrawerContext";
 import { CALIBRATION_EMPTY, useCalibration } from "./CalibrationContext";
 import type { CalibrationValues } from "@/features/audio/types";
 import { useNativeAudioDevice } from "./hooks/useNativeAudioDevice";
@@ -88,12 +88,7 @@ interface Props {
 
 function CalibrationDrawer({ projectName, onApply }: Props) {
   const { values, setValues } = useCalibration();
-  const activeDrawer = useActiveDrawer();
-  const open = activeDrawer.active === "calibration";
-  const setOpen = useCallback(
-    (v: boolean) => (v ? activeDrawer.openDrawer("calibration") : activeDrawer.closeDrawer()),
-    [activeDrawer],
-  );
+  const { open, setOpen } = useDrawerState("calibration");
   const { draft, setDraft, set } = useCalibrationDraft(open, values);
 
   const {
@@ -257,10 +252,9 @@ function CalibrationDrawer({ projectName, onApply }: Props) {
                 devices={nativeDevices.map((d) => ({
                   value: d.uid,
                   label: d.name || "Unnamed",
-                  // probed일 때만 채널 수를 띄운다(macOS/CoreAudio). Windows는
-                  // audio_device_list가 `--no-probe`로 돌아 probed=false인데, 예전처럼 그걸
-                  // "In Use"로 표시하면 멀쩡한 장치를 전부 점유 중이라고 거짓말하게 된다 —
-                  // 채널 수는 장치를 고른 뒤 아래 정보 패널이 query 결과로 보여준다.
+                  // d.probed가 true인 응답에서만 채널 수를 띄운다. Windows 목록은 --no-probe라
+                  // false이고, 현재 macOS 목록은 probed를 보내지 않으므로 확정 채널 수는 선택 후
+                  // query 정보 패널에서 보여준다.
                   hint: [
                     d.probed ? `${d.inputChannels}ch` : null,
                     d.isDefault ? "Default" : null,

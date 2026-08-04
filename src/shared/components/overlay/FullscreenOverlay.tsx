@@ -10,7 +10,7 @@ interface FullscreenOverlayProps {
 }
 
 /**
- * 전체 화면 오버레이(ChartDetailOverlay / ChannelViewerOverlay)의 공용 루트 셸.
+ * 전체 화면 오버레이(ChannelViewerOverlay)의 공용 루트 셸.
  * 진입/이탈 전환·ESC 닫기 로직은 useOverlayTransition이 담당하고, 여기서는 그
  * `show`를 받아 루트 컨테이너의 트랜지션 클래스와 safe-area 여백만 그린다.
  * 헤더/본문은 오버레이마다 달라 children으로 받는다.
