@@ -1,11 +1,12 @@
 "use client";
 
 import { memo } from "react";
-import { LayoutDashboard, FolderOpen, History, SlidersHorizontal } from "lucide-react";
+import { LayoutDashboard, LayoutGrid, FolderOpen, History, SlidersHorizontal } from "lucide-react";
 
-type SidebarDrawerKey = "workspace" | "records" | "calibration";
+type SidebarDrawerKey = "view" | "workspace" | "records" | "calibration";
 
 const NAV_ITEMS: { key: SidebarDrawerKey; icon: typeof FolderOpen; label: string }[] = [
+  { key: "view",        icon: LayoutGrid,          label: "View" },
   { key: "workspace",   icon: FolderOpen,          label: "Workspace" },
   { key: "records",     icon: History,             label: "Records" },
   { key: "calibration", icon: SlidersHorizontal,   label: "Calibration" },

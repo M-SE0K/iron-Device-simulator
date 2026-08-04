@@ -4,9 +4,12 @@ import { useMemo } from "react";
 import { toMm, MM_DECIMALS } from "@/features/audio/lib/units";
 import { computeExcursionYRange } from "@/features/audio/lib/render/chart-window";
 import type { ChartStore } from "@/features/audio/lib/render/chart-store";
+import type { AnnotationStore } from "@/features/audio/lib/render/annotation-store";
 import { buildMetricChartOptions } from "@/features/audio/lib/render/metric-chart-options";
+import { annotatePlugin } from "@/features/audio/lib/render/uplot-plugins";
 import { useMetricChartRuntime } from "./hooks/useMetricChartRuntime";
 import { useMetricChartSource } from "./hooks/useMetricChartSource";
+import { useDrawMode } from "./hooks/useDrawMode";
 import MetricChartCard from "./MetricChartCard";
 
 interface Props {
@@ -16,14 +19,26 @@ interface Props {
   streaming?: boolean;
   audioDuration?: number | null;
   perfTrack?: boolean;
-  onExpand?: () => void;
+  /** 점 잇기 주석 스토어 — 넘기면 정지 상태(canAnnotate)에서 헤더 연필 토글이 나타난다. */
+  annotations?: AnnotationStore;
+  /** 정지/재생 종료 상태 여부 — 재생 중에는 그리기 모드에 들어갈 수 없다. */
+  canAnnotate?: boolean;
 }
 
 const SCALE_PADDING = 1.15;
 
 const EXC_COLOR = "#10B981";
 
-export default function ExcursionChart({ store, isActive, streaming = false, audioDuration, perfTrack = false, onExpand }: Props) {
+export default function ExcursionChart({
+  store,
+  isActive,
+  streaming = false,
+  audioDuration,
+  perfTrack = false,
+  annotations,
+  canAnnotate = false,
+}: Props) {
+  const { isEnabled, draw } = useDrawMode(annotations, canAnnotate);
   const {
     current: currentExc,
     timeDecimals,
@@ -69,15 +84,13 @@ export default function ExcursionChart({ store, isActive, streaming = false, aud
     axisFormatter: (v: number) => v.toFixed(MM_DECIMALS),
     tooltipUnit: "mm",
     tooltipDecimals: MM_DECIMALS,
-  }), [timeDecimals]);
+    extraPlugins: annotations ? [annotatePlugin({ store: annotations, isEnabled })] : undefined,
+  }), [timeDecimals, annotations, isEnabled]);
 
   return (
     <MetricChartCard
       id="excursion-chart"
       title="Excursion"
-      expandAriaLabel="Excursion chart detail view"
-      expandHoverClassName="hover:text-emerald-600 hover:bg-emerald-50"
-      onExpand={onExpand}
       valueId="current-excursion-value"
       valueLabel={currentExc !== null ? toMm(currentExc).toFixed(MM_DECIMALS) : null}
       valueUnit="mm"
@@ -89,6 +102,7 @@ export default function ExcursionChart({ store, isActive, streaming = false, aud
       options={options}
       source={source}
       onRender={onRender}
+      draw={draw}
     />
   );
 }

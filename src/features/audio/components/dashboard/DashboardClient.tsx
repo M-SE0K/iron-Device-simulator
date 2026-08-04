@@ -1,19 +1,29 @@
 "use client";
 
 import { useState, useCallback, useRef, useEffect, useMemo } from "react";
-import { Menu, PanelLeftClose, PanelLeftOpen } from "lucide-react";
+import { Activity, Menu, PanelLeftClose, PanelLeftOpen, ShieldAlert, Thermometer } from "lucide-react";
 import Sidebar from "@/shared/components/Sidebar";
 import SelectedFilePanel from "@/features/audio/components/dashboard/SelectedFilePanel";
 import DuplexFilePlayer from "@/features/audio/components/player/DuplexFilePlayer";
 import type { CaptureStreamListener, WaveformPlayerHandle } from "@/features/audio/components/player/capture/types";
-import TemperatureChart from "@/features/audio/components/chart/TemperatureChart";
-import ExcursionChart from "@/features/audio/components/chart/ExcursionChart";
-import ChartDetailOverlay, { type DetailMetric } from "@/features/audio/components/chart/ChartDetailOverlay";
-import { ProtectedComparePanel } from "@/features/audio/components/channel/ProtectedComparePanel";
+import type { DrawerEntry } from "@/features/audio/components/channel/ChannelSelectDrawer";
+import { useChannelWaveStreams } from "@/features/audio/components/channel/useChannelWaveStreams";
 import WorkspaceDrawer from "@/features/audio/components/workspace/WorkspaceDrawer";
 import RecordsDrawer from "@/features/audio/components/workspace/RecordsDrawer";
 import CalibrationDrawer from "@/features/audio/components/calibration/CalibrationDrawer";
+import DashboardViewGrid from "@/features/audio/components/dashboard/DashboardViewGrid";
+import ViewDrawer from "@/features/audio/components/dashboard/ViewDrawer";
+import {
+  useDashboardView,
+  parseViewChannelId,
+  viewChannelId,
+  VIEW_EXCURSION,
+  VIEW_PROTECTED,
+  VIEW_TEMPERATURE,
+} from "@/features/audio/components/dashboard/hooks/useDashboardView";
 import { AppStatus, AnalysisFrame, InputParameterValues } from "@/features/audio/types";
+import { channelLabel, channelColor } from "@/features/audio/lib/render/channel-meta";
+import { AnnotationStore } from "@/features/audio/lib/render/annotation-store";
 import { useCalibration } from "../calibration/CalibrationContext";
 import { useWorkspace } from "../workspace/WorkspaceContext";
 import { clearFrameCache } from "@/features/audio/lib/cache/frame";
@@ -78,8 +88,6 @@ export default function DashboardPage({ useQueue }: DashboardPageProps) {
     thresholdsRef.current = tempThresholds;
   }, [tempThresholds]);
 
-  const [detailChart, setDetailChart] = useState<DetailMetric | null>(null);
-
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const closeMobileNav = useCallback(() => setMobileNavOpen(false), []);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
@@ -108,6 +116,63 @@ export default function DashboardPage({ useQueue }: DashboardPageProps) {
   const outputQueueRef       = useRef<QueuedFrame[]>([]);
   const prevTempRef          = useRef<number | null>(null);
   const thresholdsRef        = useRef<TempThresholds>({ warn: DEFAULT_TEMP_WARN, danger: DEFAULT_TEMP_DANGER });
+
+  // ── View 탭(대시보드 표시 차트 구성) ────────────────────────────────────────────────
+  const { selected: viewSelected, toggle: toggleViewItem } = useDashboardView();
+  const viewDrawerOpen = activeDrawer === "view";
+  const wantedChannels = useMemo(
+    () => Array.from(viewSelected)
+      .map(parseViewChannelId)
+      .filter((ch): ch is number => ch !== null)
+      .sort((a, b) => a - b),
+    [viewSelected],
+  );
+
+  // 채널 카드가 하나라도 선택돼 있거나 View 드로어가 열려 있는 동안 캡처 청크 스트림을
+  // 구독한다 — 재생 중 채널을 새로 체크해도 세션 시작부터 지금까지가 즉시 백필된다.
+  const { header: channelHeader, getStore: getWaveStore } = useChannelWaveStreams({
+    wantedChannels,
+    listen: viewDrawerOpen || wantedChannels.length > 0,
+    probe: viewDrawerOpen,
+    getChannelsSnapshot,
+    subscribeChannelStream,
+  });
+
+  // View 드로어 항목 — 캡처 이력이 없으면 Calibration의 Capture Channels 설정값으로 채널
+  // 목록을 미리 보여준다("세션 시작 전 custom"). 세션이 시작되면 실제 헤더의 채널 수가 우선.
+  const knownChannelCount = useMemo(() => {
+    if (channelHeader) return channelHeader.channels;
+    const configured = Number(calibration.channels);
+    return Number.isFinite(configured) && configured > 0 ? configured : 0;
+  }, [channelHeader, calibration.channels]);
+
+  const viewEntries = useMemo<DrawerEntry[]>(() => {
+    const metricEntries: DrawerEntry[] = [
+      { id: VIEW_PROTECTED,   section: "metric", name: "Protection Algorithm", role: "Before/After", color: "#F59E0B", icon: ShieldAlert },
+      { id: VIEW_EXCURSION,   section: "metric", name: "Excursion",            role: "Displacement", color: "#10B981", icon: Activity },
+      { id: VIEW_TEMPERATURE, section: "metric", name: "Temperature",          role: "Voice Coil",   color: "#0B4171", icon: Thermometer },
+    ];
+    const channelEntries: DrawerEntry[] = Array.from({ length: knownChannelCount }, (_, ch) => {
+      const { name, role } = channelLabel(ch, { voltage: "V (Voltage)", current: "I (Current)", extended: "Extended" });
+      return { id: viewChannelId(ch), section: "channel", name, role, color: channelColor(ch) };
+    });
+    return [...metricEntries, ...channelEntries];
+  }, [knownChannelCount]);
+
+  // 점 잇기 주석 스토어 — 차트/채널 카드 id별로 하나씩, 세션이 갈리면(새 재생/리셋) 데이터가
+  // 바뀌므로 전부 비운다. 카드가 잠시 체크 해제됐다 돌아와도 같은 세션 안에서는 선이 유지된다.
+  const annotationStoresRef = useRef<Map<string, AnnotationStore>>(new Map());
+  const getAnnotationStore = useCallback((id: string): AnnotationStore => {
+    let store = annotationStoresRef.current.get(id);
+    if (!store) {
+      store = new AnnotationStore();
+      annotationStoresRef.current.set(id, store);
+    }
+    return store;
+  }, []);
+  const clearAnnotations = useCallback(() => {
+    annotationStoresRef.current.forEach((store) => store.clear());
+  }, []);
 
   useEffect(() => { audioDurationRef.current    = audioDuration;   }, [audioDuration]);
 
@@ -141,9 +206,10 @@ export default function DashboardPage({ useQueue }: DashboardPageProps) {
     setAudioDuration(null);
     chartStore.reset();
     clearHasFrames();
+    clearAnnotations();
     allFramesRef.current = [];
     setRealtimeStatus("idle");
-  }, [chartStore, clearHasFrames]);
+  }, [chartStore, clearHasFrames, clearAnnotations]);
 
   const handleFileSelected = useCallback((file: File) => {
     setAudioFile(file);
@@ -170,10 +236,11 @@ export default function DashboardPage({ useQueue }: DashboardPageProps) {
   const handleStreamStart = useCallback(() => {
     chartStore.reset();
     clearHasFrames();
+    clearAnnotations(); // 새 세션 = 새 데이터 — 이전 세션 위에 그린 선은 의미를 잃는다
     allFramesRef.current   = [];
     outputQueueRef.current = [];
     prevTempRef.current    = null;
-  }, [chartStore, clearHasFrames]);
+  }, [chartStore, clearHasFrames, clearAnnotations]);
 
   const isPlaying = realtimeStatus === "playing";
 
@@ -283,7 +350,9 @@ export default function DashboardPage({ useQueue }: DashboardPageProps) {
         </div>
 
         <main id="dashboard-main" className="flex-1 min-h-0 overflow-y-auto p-3 lg:p-7 pb-28 lg:pb-32">
-          <div id="dashboard-content" className="lg:h-full w-full flex flex-col gap-4">
+          {/* h-full이 아니라 min-h-full — 행이 2개를 넘으면(채널 카드 추가 등) 뷰포트보다
+              길어져야 하고, 그때는 main의 overflow-y-auto가 스크롤을 맡는다. */}
+          <div id="dashboard-content" className="lg:min-h-full w-full flex flex-col gap-4">
             <div className="flex items-center gap-4 flex-wrap">
               <button
                 type="button"
@@ -306,42 +375,29 @@ export default function DashboardPage({ useQueue }: DashboardPageProps) {
 
             {!audioFile && <SelectedFilePanel />}
 
-            <div id="dashboard-grid" className="flex flex-col gap-4 lg:flex-1 lg:min-h-[528px]">
-              <div id="protected-compare-section" className="h-[280px] shrink-0">
-                <ProtectedComparePanel
-                  subscribeCaptureStream={subscribeChannelStream}
-                  sourceFile={audioFile}
-                  getProtectedBlob={getProtectedBlob}
-                />
-              </div>
-              <div id="charts-section" className="flex flex-col lg:flex-row gap-4 min-h-0 lg:flex-1">
-                <div className="h-[264px] lg:h-auto lg:min-h-0 lg:flex-1">
-                  <ExcursionChart
-                    store={chartStore}
-                    isActive={isActive}
-                    streaming={isPlaying}
-                    audioDuration={audioDuration}
-                    perfTrack
-                    onExpand={() => setDetailChart("excursion")}
-                  />
-                </div>
-                <div className="h-[264px] lg:h-auto lg:min-h-0 lg:flex-1">
-                  <TemperatureChart
-                    store={chartStore}
-                    isActive={isActive}
-                    streaming={isPlaying}
-                    audioDuration={audioDuration}
-                    perfTrack
-                    onExpand={() => setDetailChart("temperature")}
-                    warnThreshold={tempThresholds.warn}
-                    dangerThreshold={tempThresholds.danger}
-                  />
-                </div>
-              </div>
-            </div>
+            <DashboardViewGrid
+              selected={viewSelected}
+              chartStore={chartStore}
+              isActive={isActive}
+              isPlaying={isPlaying}
+              canAnnotateMetric={!isPlaying && hasFrames}
+              audioDuration={audioDuration}
+              tempThresholds={tempThresholds}
+              audioFile={audioFile}
+              subscribeChannelStream={subscribeChannelStream}
+              getProtectedBlob={getProtectedBlob}
+              channelHeader={channelHeader}
+              getWaveStore={getWaveStore}
+              getAnnotationStore={getAnnotationStore}
+            />
           </div>
         </main>
 
+        <ViewDrawer
+          entries={viewEntries}
+          selected={viewSelected}
+          onToggle={toggleViewItem}
+        />
         <WorkspaceDrawer />
         <RecordsDrawer />
         <CalibrationDrawer />
@@ -358,25 +414,6 @@ export default function DashboardPage({ useQueue }: DashboardPageProps) {
           onSave={handleSaveToWorkspace}
           canSave={!!audioFile && hasFrames}
           onReset={handleReset}
-          elevated={detailChart !== null}
-        />
-
-        {/* content-column 안에 둬야(relative 컨테이너) SideDrawer의 layer="content"
-            absolute 포지셔닝이 Workspace/Records/Calibration과 같은 기준으로 맞는다 —
-            예전 전체화면 오버레이 시절엔 fixed라 위치가 상관없었다. */}
-        <ChartDetailOverlay
-          open={detailChart !== null}
-          metric={detailChart}
-          store={chartStore}
-          isActive={isActive}
-          audioDuration={audioDuration}
-          warnThreshold={tempThresholds.warn}
-          dangerThreshold={tempThresholds.danger}
-          getChannelsSnapshot={getChannelsSnapshot}
-          getProtectedBlob={getProtectedBlob}
-          subscribeChannelStream={subscribeChannelStream}
-          sourceFile={audioFile}
-          onClose={() => setDetailChart(null)}
         />
       </div>
     </div>

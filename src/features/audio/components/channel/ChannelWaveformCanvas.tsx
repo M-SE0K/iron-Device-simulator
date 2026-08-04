@@ -8,7 +8,8 @@ import { useEffect, useMemo, useState } from "react";
 import type uPlot from "uplot";
 import UPlotChart, { type UPlotDataSource, type UPlotOptions } from "@/shared/components/UPlotChart";
 import { buildTimeAxis, buildValueAxis, timeDecimalsForInterval } from "@/features/audio/lib/render/uplot-option";
-import { tooltipPlugin, zoomPlugin } from "@/features/audio/lib/render/uplot-plugins";
+import { annotatePlugin, tooltipPlugin, zoomPlugin } from "@/features/audio/lib/render/uplot-plugins";
+import type { AnnotationStore } from "@/features/audio/lib/render/annotation-store";
 import type { ChannelWaveStore } from "@/features/audio/lib/render/wave-store";
 import { ChannelLevelBadge } from "./ChannelRowHeader";
 
@@ -58,10 +59,16 @@ export function ChannelWaveformCanvas({
   color,
   sampleRate,
   store,
+  annotations,
+  isDrawEnabled,
 }: {
   color: string;
   sampleRate: number;
   store: ChannelWaveStore;
+  /** 점 잇기 주석 스토어 — 연필 토글은 부모 카드가 소유하고 여기는 플러그인만 단다. */
+  annotations?: AnnotationStore;
+  /** 그리기 모드 getter — 반드시 안정된 참조여야 한다(옵션 재생성 방지). */
+  isDrawEnabled?: () => boolean;
 }) {
   // Temperature/ExcursionChart와 같은 source 경로 — 스토어가 들고 있는 엔벨로프를 그대로
   // 커밋한다. 확대해도 별도 원본 재조회 없이 zoomPlugin()의 기본 동작(휠/드래그/더블클릭,
@@ -98,8 +105,11 @@ export function ChannelWaveformCanvas({
     plugins: [
       zoomPlugin(),
       tooltipPlugin({ unit: "", decimals: 4, timeDecimals }),
+      ...(annotations && isDrawEnabled
+        ? [annotatePlugin({ store: annotations, isEnabled: isDrawEnabled })]
+        : []),
     ],
-  }), [color, timeDecimals]);
+  }), [color, timeDecimals, annotations, isDrawEnabled]);
 
   return <UPlotChart options={options} source={source} />;
 }

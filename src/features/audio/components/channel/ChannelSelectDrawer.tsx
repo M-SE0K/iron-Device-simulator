@@ -23,6 +23,14 @@ interface Props {
   onToggle: (id: string) => void;
   loading?: boolean;
   error?: string | null;
+  /** 드로어 제목 — 기본은 상세 뷰의 "Display Items". 대시보드 View 탭은 "View"로 오버라이드. */
+  title?: string;
+  /**
+   * SideDrawer 레이어 — 기본은 전체화면 오버레이 위(overlay). 대시보드 View 탭처럼
+   * Workspace/Records와 같은 기준으로 열릴 때는 "content"를 넘긴다.
+   */
+  layer?: "content" | "overlay";
+  safeAreaTop?: boolean;
 }
 
 function EntryRow({
@@ -65,7 +73,18 @@ function EntryRow({
   );
 }
 
-export default function ChannelSelectDrawer({ open, onClose, entries, selected, onToggle, loading, error }: Props) {
+export default function ChannelSelectDrawer({
+  open,
+  onClose,
+  entries,
+  selected,
+  onToggle,
+  loading,
+  error,
+  title = "Display Items",
+  layer = "overlay",
+  safeAreaTop = true,
+}: Props) {
   const metricEntries = entries.filter((e) => e.section === "metric");
   const channelEntries = entries.filter((e) => e.section === "channel");
 
@@ -74,10 +93,10 @@ export default function ChannelSelectDrawer({ open, onClose, entries, selected, 
       open={open}
       onClose={onClose}
       ariaLabel="Select display items"
-      title="Display Items"
+      title={title}
       count={selected.size}
-      layer="overlay"
-      safeAreaTop
+      layer={layer}
+      safeAreaTop={safeAreaTop}
     >
           {metricEntries.length > 0 && (
             <div className="flex flex-col gap-1 mb-3 pb-3 border-b border-iron-100">

@@ -3,15 +3,14 @@
 // Temperature/ExcursionChart가 공유하는 카드 셸 — 헤더(제목/확대 버튼/현재값)와
 // UPlotChart 마운트+empty state만 그린다. 시리즈 스타일·y축 범위·값 색상 판정처럼
 // 메트릭마다 다른 부분은 각 차트 컴포넌트가 options/source/색상을 만들어 그대로 넘긴다.
-import { Maximize2 } from "lucide-react";
+import { Eraser, Pencil } from "lucide-react";
+import { cn } from "@/shared/lib/utils";
 import UPlotChart, { type UPlotDataSource, type UPlotOptions } from "@/shared/components/UPlotChart";
+import type { DrawControl } from "./hooks/useDrawMode";
 
 interface Props {
   id: string;
   title: string;
-  expandAriaLabel: string;
-  expandHoverClassName: string;
-  onExpand?: () => void;
   valueId: string;
   valueLabel: string | null;
   valueUnit: string;
@@ -23,14 +22,13 @@ interface Props {
   options: UPlotOptions;
   source: UPlotDataSource;
   onRender: (ms: number) => void;
+  /** 있으면 헤더에 연필(그리기 모드)·지우개(전체 지우기) 버튼을 노출한다. */
+  draw?: DrawControl;
 }
 
 export default function MetricChartCard({
   id,
   title,
-  expandAriaLabel,
-  expandHoverClassName,
-  onExpand,
   valueId,
   valueLabel,
   valueUnit,
@@ -42,21 +40,39 @@ export default function MetricChartCard({
   options,
   source,
   onRender,
+  draw,
 }: Props) {
   return (
     <div id={id} className="card flex flex-col h-full">
       <div className="card-header">
         <div className="chart-title-group flex items-center gap-2">
           <span className="card-title">{title}</span>
-          {onExpand && (
+          {draw && (
             <button
               type="button"
-              onClick={onExpand}
-              aria-label={expandAriaLabel}
-              title="View details"
-              className={`ml-0.5 p-1 rounded text-iron-300 transition-colors ${expandHoverClassName}`}
+              onClick={draw.onToggle}
+              aria-pressed={draw.active}
+              aria-label={`Connect points on ${title} chart`}
+              title="Connect points (click two points)"
+              className={cn(
+                "p-1 rounded transition-colors",
+                draw.active
+                  ? "text-rose-500 bg-rose-50"
+                  : "text-iron-300 hover:text-rose-500 hover:bg-rose-50",
+              )}
             >
-              <Maximize2 size={13} />
+              <Pencil size={13} />
+            </button>
+          )}
+          {draw?.active && (
+            <button
+              type="button"
+              onClick={draw.onClear}
+              aria-label={`Clear drawn lines on ${title} chart`}
+              title="Clear drawn lines"
+              className="p-1 rounded text-iron-300 hover:text-iron-600 hover:bg-iron-100 transition-colors"
+            >
+              <Eraser size={13} />
             </button>
           )}
         </div>

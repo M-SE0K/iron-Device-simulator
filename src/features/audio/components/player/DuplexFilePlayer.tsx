@@ -21,7 +21,6 @@ interface Props {
   onSave?: () => void;
   canSave?: boolean;
   onReset?: () => void;
-  elevated?: boolean;
 }
 
 const DuplexFilePlayer = forwardRef<WaveformPlayerHandle, Props>(function DuplexFilePlayer({
@@ -35,7 +34,6 @@ const DuplexFilePlayer = forwardRef<WaveformPlayerHandle, Props>(function Duplex
   onSave,
   canSave = false,
   onReset,
-  elevated = false,
 }: Props, ref) {
   const { values: calibration } = useCalibration();
   const { showError } = useErrorPopup();
@@ -208,7 +206,6 @@ const DuplexFilePlayer = forwardRef<WaveformPlayerHandle, Props>(function Duplex
       onSave={onSave}
       canSave={canSave}
       onReset={audioFile ? onReset : undefined}
-      elevated={elevated}
     >
       <div id="duplex-progress" className="flex-1 min-w-0 h-9 flex items-center">
         {audioFile ? (

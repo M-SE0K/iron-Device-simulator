@@ -34,11 +34,11 @@ interface SideDrawerProps {
 
 /**
  * 사이드 슬라이드 드로어 공용 셸 — 백드롭(300ms 페이드) + 좌/우 패널(240ms 슬라이드) + 기본
- * 헤더/본문/푸터. WorkspaceDrawer / RecordsDrawer / CalibrationDrawer / ChannelSelectDrawer /
- * ChartDetailOverlay가 복붙하던 동일 마크업을 통합한다. 기본은 우측(side="right") — 좌측
- * Sidebar 옆에서 여는 ChartDetailOverlay만 side="left"를 쓴다. ESC 닫기는 셸이 강제하지
- * 않는다 — 각 드로어가 스스로 useEscapeKey로 관리한다(오버레이 위 드로어인
- * ChannelSelectDrawer는 부모의 open 상태를 그대로 물려받는다).
+ * 헤더/본문/푸터. WorkspaceDrawer / RecordsDrawer / CalibrationDrawer / ChannelSelectDrawer가
+ * 복붙하던 동일 마크업을 통합한다. 기본은 우측(side="right") — 좌측 Sidebar 옆에서 여는
+ * 드로어는 side="left"를 쓴다. ESC 닫기는 셸이 강제하지 않는다 — 각 드로어가 스스로
+ * useEscapeKey로 관리한다(오버레이 위 드로어인 ChannelSelectDrawer는 부모의 open 상태를
+ * 그대로 물려받는다).
  */
 export default function SideDrawer({
   open,
