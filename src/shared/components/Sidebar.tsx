@@ -1,7 +1,7 @@
 "use client";
 
 import { memo } from "react";
-import { LayoutDashboard, LayoutGrid, FolderOpen, History, SlidersHorizontal } from "lucide-react";
+import { LayoutGrid, FolderOpen, History, SlidersHorizontal } from "lucide-react";
 
 type SidebarDrawerKey = "view" | "workspace" | "records" | "calibration";
 
@@ -15,7 +15,6 @@ const NAV_ITEMS: { key: SidebarDrawerKey; icon: typeof FolderOpen; label: string
 interface SidebarProps {
   activeDrawer: SidebarDrawerKey | null;
   onOpenDrawer: (key: SidebarDrawerKey) => void;
-  onCloseDrawer: () => void;
   mobileOpen?: boolean;
   onMobileClose?: () => void;
   collapsed?: boolean;
@@ -24,7 +23,6 @@ interface SidebarProps {
 function Sidebar({
   activeDrawer,
   onOpenDrawer,
-  onCloseDrawer,
   mobileOpen = false,
   onMobileClose,
   collapsed = false,
@@ -62,19 +60,6 @@ function Sidebar({
           IRON DEVICE
         </span>
       </div>
-
-      {/* 대시보드(드로어 전부 닫기) */}
-      <button
-        type="button"
-        onClick={() => handleNav(onCloseDrawer)}
-        aria-current={activeDrawer === null}
-        className={`flex items-center gap-2.5 px-3.5 py-2.5 rounded-[10px] text-sm transition-colors duration-200 ${
-          activeDrawer === null ? "bg-white/14 text-white font-semibold" : "text-white/65 font-medium hover:bg-white/8 hover:text-white/90"
-        }`}
-      >
-        <LayoutDashboard className="w-4 h-4 shrink-0" />
-        Dashboard
-      </button>
 
       {NAV_ITEMS.map(({ key, icon: Icon, label }) => {
         const isActive = activeDrawer === key;

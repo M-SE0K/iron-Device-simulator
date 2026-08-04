@@ -18,7 +18,21 @@ export const parseViewChannelId = (id: string): number | null => {
   return Number.isInteger(ch) && ch >= 0 ? ch : null;
 };
 
-const DEFAULT_VIEW_SELECTION = [VIEW_PROTECTED, VIEW_EXCURSION, VIEW_TEMPERATURE];
+// ProtectedComparePanel의 4개 시리즈(Input L/R, Protected L/R) — 인덱스(0-3)는 패널 내부의
+// hiddenSeries 순서와 그대로 맞춘다. View 탭에서 이 id들을 개별 토글하면 패널 하위 시리즈
+// on/off로 이어진다(DashboardViewGrid가 selected↔hiddenSeries를 변환).
+export const PROTECTED_INPUT_L = "protected:input-l";
+export const PROTECTED_INPUT_R = "protected:input-r";
+export const PROTECTED_PROTECTED_L = "protected:protected-l";
+export const PROTECTED_PROTECTED_R = "protected:protected-r";
+export const PROTECTED_SERIES_IDS = [
+  PROTECTED_INPUT_L,
+  PROTECTED_INPUT_R,
+  PROTECTED_PROTECTED_L,
+  PROTECTED_PROTECTED_R,
+] as const;
+
+const DEFAULT_VIEW_SELECTION = [VIEW_PROTECTED, VIEW_EXCURSION, VIEW_TEMPERATURE, ...PROTECTED_SERIES_IDS];
 
 const STORAGE_KEY = "iron-device-dashboard-view-v1";
 

@@ -20,7 +20,17 @@ import {
   VIEW_EXCURSION,
   VIEW_PROTECTED,
   VIEW_TEMPERATURE,
+  PROTECTED_INPUT_L,
+  PROTECTED_INPUT_R,
+  PROTECTED_PROTECTED_L,
+  PROTECTED_PROTECTED_R,
 } from "@/features/audio/components/dashboard/hooks/useDashboardView";
+import {
+  COLOR_INPUT_L,
+  COLOR_INPUT_R,
+  COLOR_PROTECTED_L,
+  COLOR_PROTECTED_R,
+} from "@/features/audio/components/channel/ProtectedComparePanel";
 import { AppStatus, AnalysisFrame, InputParameterValues } from "@/features/audio/types";
 import { channelLabel, channelColor } from "@/features/audio/lib/render/channel-meta";
 import { AnnotationStore } from "@/features/audio/lib/render/annotation-store";
@@ -67,7 +77,7 @@ export default function DashboardPage({ useQueue }: DashboardPageProps) {
 
   const { values: calibration } = useCalibration();
   const { saveCurrent, pendingLocalFile, clearPendingLocalFile } = useWorkspace();
-  const { active: activeDrawer, openDrawer, closeDrawer } = useActiveDrawer();
+  const { active: activeDrawer, openDrawer } = useActiveDrawer();
   const inputParams = useMemo<InputParameterValues>(
     () => ({
       ampOutputPower: calibration.ampOutputPower,
@@ -149,6 +159,12 @@ export default function DashboardPage({ useQueue }: DashboardPageProps) {
   const viewEntries = useMemo<DrawerEntry[]>(() => {
     const metricEntries: DrawerEntry[] = [
       { id: VIEW_PROTECTED,   section: "metric", name: "Protection Algorithm", role: "Before/After", color: "#F59E0B", icon: ShieldAlert },
+      // ProtectedComparePanel 내부 범례와 동일한 이름·색으로 — 대시보드 안 패널과 View 탭
+      // 드로어 어디서 토글하든 같은 시리즈를 가리킨다는 걸 바로 알 수 있게 한다.
+      { id: PROTECTED_INPUT_L,      section: "metric", parentId: VIEW_PROTECTED, name: "Input L",     role: "Original",         color: COLOR_INPUT_L },
+      { id: PROTECTED_INPUT_R,      section: "metric", parentId: VIEW_PROTECTED, name: "Input R",     role: "Original",         color: COLOR_INPUT_R },
+      { id: PROTECTED_PROTECTED_L,  section: "metric", parentId: VIEW_PROTECTED, name: "Protected L", role: "After protection", color: COLOR_PROTECTED_L },
+      { id: PROTECTED_PROTECTED_R,  section: "metric", parentId: VIEW_PROTECTED, name: "Protected R", role: "After protection", color: COLOR_PROTECTED_R },
       { id: VIEW_EXCURSION,   section: "metric", name: "Excursion",            role: "Displacement", color: "#10B981", icon: Activity },
       { id: VIEW_TEMPERATURE, section: "metric", name: "Temperature",          role: "Voice Coil",   color: "#0B4171", icon: Thermometer },
     ];
@@ -327,7 +343,6 @@ export default function DashboardPage({ useQueue }: DashboardPageProps) {
       <Sidebar
         activeDrawer={activeDrawer}
         onOpenDrawer={openDrawer}
-        onCloseDrawer={closeDrawer}
         mobileOpen={mobileNavOpen}
         onMobileClose={closeMobileNav}
         collapsed={sidebarCollapsed}

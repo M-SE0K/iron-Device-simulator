@@ -20,6 +20,7 @@ import {
   VIEW_PROTECTED,
   VIEW_EXCURSION,
   VIEW_TEMPERATURE,
+  PROTECTED_SERIES_IDS,
   parseViewChannelId,
   viewChannelId,
 } from "./hooks/useDashboardView";
@@ -109,11 +110,16 @@ export default function DashboardViewGrid({
 
   const renderItem = (id: string) => {
     if (id === VIEW_PROTECTED) {
+      // View 탭에서 개별 꺼둔 시리즈(Input/Protected × L/R)를 패널의 hiddenSeries 인덱스로 변환.
+      const hiddenSeries = new Set(
+        PROTECTED_SERIES_IDS.flatMap((subId, i) => (selected.has(subId) ? [] : [i])),
+      );
       return (
         <ProtectedComparePanel
           subscribeCaptureStream={subscribeChannelStream}
           sourceFile={audioFile}
           getProtectedBlob={getProtectedBlob}
+          hiddenSeries={hiddenSeries}
         />
       );
     }
