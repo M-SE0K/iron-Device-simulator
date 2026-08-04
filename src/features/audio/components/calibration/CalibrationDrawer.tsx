@@ -1,10 +1,10 @@
 "use client";
 
-import { memo, useCallback, useEffect } from "react";
+import { memo, useEffect } from "react";
 import { RefreshCw, RotateCcw, X } from "lucide-react";
 import AnimatedSelect from "@/shared/components/ui/AnimatedSelect";
 import DeviceSelectField from "./DeviceSelectField";
-import { useActiveDrawer } from "@/features/audio/components/dashboard/ActiveDrawerContext";
+import { useDrawerState } from "@/features/audio/components/dashboard/ActiveDrawerContext";
 import { CALIBRATION_EMPTY, useCalibration } from "./CalibrationContext";
 import type { CalibrationValues } from "@/features/audio/types";
 import { useNativeAudioDevice } from "./hooks/useNativeAudioDevice";
@@ -88,12 +88,7 @@ interface Props {
 
 function CalibrationDrawer({ projectName, onApply }: Props) {
   const { values, setValues } = useCalibration();
-  const activeDrawer = useActiveDrawer();
-  const open = activeDrawer.active === "calibration";
-  const setOpen = useCallback(
-    (v: boolean) => (v ? activeDrawer.openDrawer("calibration") : activeDrawer.closeDrawer()),
-    [activeDrawer],
-  );
+  const { open, setOpen } = useDrawerState("calibration");
   const { draft, setDraft, set } = useCalibrationDraft(open, values);
 
   const {

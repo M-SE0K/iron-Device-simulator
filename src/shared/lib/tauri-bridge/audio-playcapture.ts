@@ -9,20 +9,18 @@
 // data/mark 레지스트리는 audio-capture.ts와 동일한 이유로 모듈 스코프, audioCapture와는
 // 별개의 ChannelHub 인스턴스를 쓴다(캡처와 재생-캡처는 동시에 안 쓰이지만 브리지 자체는
 // 독립적이어야 계약이 명확하다).
-import { Channel } from "@tauri-apps/api/core";
 import { COMMANDS, ARG_KEYS, HEADERS, EVENTS } from "./contract";
 import { safeInvoke } from "./safe-invoke";
-import { ChannelHub } from "./channel-registry";
 import { syncListen } from "./sync-listen";
+import { createStreamChannelPair } from "./stream-channel-pair";
 import type {
   AudioE2EMark,
   PlayCaptureStartResult,
   PlayCaptureWriteAckResult,
   PlayCaptureWriteHandshakeResult,
-} from "./types";
+} from "@/shared/types/native-bridge";
 
-const dataHub = new ChannelHub<Uint8Array>();
-const markHub = new ChannelHub<AudioE2EMark>();
+const streamChannels = createStreamChannelPair<AudioE2EMark>();
 
 export function createAudioPlayCaptureBridge(): NonNullable<Window["audioPlayCapture"]> {
   return {
@@ -54,14 +52,7 @@ export function createAudioPlayCaptureBridge(): NonNullable<Window["audioPlayCap
       }),
 
     start: async (opts) => {
-      dataHub.reset();
-      markHub.reset();
-
-      const dataChannel = new Channel<ArrayBuffer>();
-      dataChannel.onmessage = (buf) => dataHub.dispatch(new Uint8Array(buf));
-
-      const markChannel = new Channel<AudioE2EMark>();
-      markChannel.onmessage = (mark) => markHub.dispatch(mark);
+      const { dataChannel, markChannel } = streamChannels.createChannels();
 
       // Rust 시그니처: audio_playcapture_start(opts: PlayCaptureStartOptions, data, mark) —
       // 옵션은 opts 객체로 중첩, 채널 파라미터 이름은 data/mark (contract.ts 구조 규칙).
@@ -90,9 +81,9 @@ export function createAudioPlayCaptureBridge(): NonNullable<Window["audioPlayCap
 
     stop: () => safeInvoke<{ success: boolean }>(COMMANDS.audioPlayCaptureStop),
 
-    onData: (callback) => dataHub.subscribe(callback),
+    onData: streamChannels.onData,
     // code 0 = 재생 완료(자기 종료), 그 외 = 비정상 종료. 사용자 stop 시에는 오지 않는다.
     onEnded: (callback) => syncListen<{ code: number | null }>(EVENTS.audioPlayCaptureEnded, callback),
-    onE2EMark: (callback) => markHub.subscribe(callback),
+    onE2EMark: streamChannels.onMark,
   };
 }

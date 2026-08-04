@@ -3,7 +3,7 @@
 import { createContext, useCallback, useContext, useMemo, useState, type ReactNode } from "react";
 import { useWorkspaceItems } from "./hooks/useWorkspaceItems";
 import { useLocalFolderConnection } from "./hooks/useLocalFolderConnection";
-import { useActiveDrawer } from "@/features/audio/components/dashboard/ActiveDrawerContext";
+import { useActiveDrawer, useDrawerState } from "@/features/audio/components/dashboard/ActiveDrawerContext";
 import type { WorkspaceItemMeta, SaveWorkspaceInput } from "@/features/audio/lib/cache/workspace";
 import type { LocalAudioFileEntry } from "@/features/audio/lib/local-folder";
 
@@ -34,11 +34,7 @@ const Ctx = createContext<WorkspaceCtx | null>(null);
 
 export function WorkspaceProvider({ children }: { children: ReactNode }) {
   const activeDrawer = useActiveDrawer();
-  const open = activeDrawer.active === "workspace";
-  const setOpen = useCallback(
-    (v: boolean) => (v ? activeDrawer.openDrawer("workspace") : activeDrawer.closeDrawer()),
-    [activeDrawer],
-  );
+  const { open, setOpen } = useDrawerState("workspace");
 
   const { items, saveCurrent, rename, remove, exportJson, exportCsv, downloadAudio, downloadProtectedAudio } =
     useWorkspaceItems(() => activeDrawer.openDrawer("records"));
@@ -65,7 +61,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       pendingLocalFile, clearPendingLocalFile,
     }),
     [
-      items, open, saveCurrent, rename, remove, exportJson, exportCsv, downloadAudio, downloadProtectedAudio,
+      items, open, setOpen, saveCurrent, rename, remove, exportJson, exportCsv, downloadAudio, downloadProtectedAudio,
       localFolderPath, localFolderFiles, localFolderError, localFolderConnecting,
       connectLocalFolder, disconnectLocalFolder, loadLocalFile,
       activeFileName,

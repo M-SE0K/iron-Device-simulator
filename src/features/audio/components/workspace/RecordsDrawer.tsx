@@ -3,7 +3,7 @@
 import { memo, useEffect, useMemo, useRef, useState } from "react";
 import { ChevronRight, History, Music, Pencil, Trash2 } from "lucide-react";
 import { useWorkspace } from "./WorkspaceContext";
-import { useActiveDrawer } from "@/features/audio/components/dashboard/ActiveDrawerContext";
+import { useDrawerState } from "@/features/audio/components/dashboard/ActiveDrawerContext";
 import { cn, formatTime } from "@/shared/lib/utils";
 import { formatMm } from "@/features/audio/lib/units";
 import type { WorkspaceItemMeta } from "@/features/audio/lib/cache/workspace";
@@ -131,11 +131,8 @@ function RecordRow({ item }: { item: WorkspaceItemMeta }) {
 
 function RecordsDrawer() {
   const { items } = useWorkspace();
-  const { active, openDrawer, closeDrawer } = useActiveDrawer();
+  const { open, setOpen } = useDrawerState("records");
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
-
-  const open = active === "records";
-  const setOpen = (v: boolean) => (v ? openDrawer("records") : closeDrawer());
 
   useEscapeKey(() => setOpen(false), open);
 

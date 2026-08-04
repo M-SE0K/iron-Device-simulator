@@ -1,7 +1,7 @@
 // Tauri shim(src/shared/lib/tauri-bridge)이 제공하며 일반 브라우저에서는 undefined다.
 export {};
 
-interface AudioDeviceActual {
+export interface AudioDeviceActual {
   sampleRate: number | null;
   bufferSize: number | null;
 }
@@ -19,13 +19,13 @@ export interface AudioInputDevice {
   probed?: boolean;
 }
 
-interface AudioDeviceListResult {
+export interface AudioDeviceListResult {
   success: boolean;
   devices?: AudioInputDevice[];
   error?: string;
 }
 
-interface AudioDeviceConfigResult {
+export interface AudioDeviceConfigResult {
   success: boolean;
   device?: string;
   deviceUID?: string;
@@ -34,7 +34,7 @@ interface AudioDeviceConfigResult {
   error?: string;
 }
 
-interface AudioDeviceQueryResult {
+export interface AudioDeviceQueryResult {
   success: boolean;
   device?: string;
   deviceUID?: string;
@@ -48,11 +48,11 @@ interface AudioDeviceQueryResult {
 
 // E2E 지연 실험(N1, src/features/audio/lib/perf-e2e/) 전용 — Tauri Rust core가 stdout 청크마다 별도
 // 채널로 보내는 Date.now() 타임스탬프.
-interface AudioE2EMark {
+export interface AudioE2EMark {
   sentAt: number;
 }
 
-interface AudioCaptureStartResult {
+export interface AudioCaptureStartResult {
   success: boolean;
   device?: string;
   deviceUID?: string;
@@ -80,7 +80,7 @@ interface PlayCaptureStartOpts {
 interface PlayCaptureStartWriteOpts {
   totalBytes: number;
 }
-interface PlayCaptureWriteHandshakeResult {
+export interface PlayCaptureWriteHandshakeResult {
   success: boolean;
   writeId?: string;
   error?: string;
@@ -92,13 +92,13 @@ interface PlayCaptureWriteChunkOpts {
 interface PlayCaptureWriteIdOpts {
   writeId: string;
 }
-interface PlayCaptureWriteAckResult {
+export interface PlayCaptureWriteAckResult {
   success: boolean;
   error?: string;
 }
 
 // play-capture 헤더 = capture 헤더 + 재생 메타 (mode/refLen/playbackChannel)
-interface PlayCaptureStartResult extends AudioCaptureStartResult {
+export interface PlayCaptureStartResult extends AudioCaptureStartResult {
   mode?: "play-capture";
   refLen?: number; // 재생 총 프레임 수 (테일 제외)
   playbackChannel?: number; // ref(L)가 실제로 나간 출력 채널 — start opts의 outputChannel 요청값을 헬퍼가 그대로 echo
@@ -112,14 +112,14 @@ export interface LocalAudioFileEntry {
   mtimeMs: number;
 }
 
-interface LocalFolderSelectResult {
+export interface LocalFolderSelectResult {
   canceled: boolean;
   folderPath?: string;
   files?: LocalAudioFileEntry[];
   error?: string;
 }
 
-interface LocalFolderReadResult {
+export interface LocalFolderReadResult {
   success: boolean;
   data?: Uint8Array;
   mime?: string;

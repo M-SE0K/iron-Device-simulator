@@ -4,14 +4,13 @@
 // (ChannelWaveformCanvas)을 담는다. 파형 데이터는 useChannelWaveStreams가 소유한
 // ChannelWaveStore를 그대로 구독하고, 점 잇기(연필/지우개)는 메트릭 카드와 동일한
 // useDrawMode 패턴을 쓴다.
-import { Eraser, Pencil } from "lucide-react";
-import { cn } from "@/shared/lib/utils";
 import { channelLabel, channelColor } from "@/features/audio/lib/render/channel-meta";
 import type { AnnotationStore } from "@/features/audio/lib/render/annotation-store";
 import type { ChannelWaveStore } from "@/features/audio/lib/render/wave-store";
 import { useDrawMode } from "@/features/audio/components/chart/hooks/useDrawMode";
 import { ChannelStatsBadge, ChannelWaveformCanvas } from "@/features/audio/components/channel/ChannelWaveformCanvas";
 import type { ChannelStreamHeader } from "@/features/audio/components/channel/useChannelWaveStreams";
+import ChartDrawControls from "@/features/audio/components/chart/ChartDrawControls";
 
 interface Props {
   ch: number;
@@ -40,34 +39,7 @@ export default function ChannelChartCard({ ch, header, store, annotations, canAn
           <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: color }} />
           <span className="card-title font-mono">{name}</span>
           <span className="text-[11px] text-iron-400 shrink-0">{role}</span>
-          {draw && (
-            <button
-              type="button"
-              onClick={draw.onToggle}
-              aria-pressed={draw.active}
-              aria-label={`Connect points on ${name} chart`}
-              title="Connect points (click two points)"
-              className={cn(
-                "p-1 rounded transition-colors",
-                draw.active
-                  ? "text-rose-500 bg-rose-50"
-                  : "text-iron-300 hover:text-rose-500 hover:bg-rose-50",
-              )}
-            >
-              <Pencil size={13} />
-            </button>
-          )}
-          {draw?.active && (
-            <button
-              type="button"
-              onClick={draw.onClear}
-              aria-label={`Clear drawn lines on ${name} chart`}
-              title="Clear drawn lines"
-              className="p-1 rounded text-iron-300 hover:text-iron-600 hover:bg-iron-100 transition-colors"
-            >
-              <Eraser size={13} />
-            </button>
-          )}
+          <ChartDrawControls chartLabel={name} draw={draw} />
         </div>
         <ChannelStatsBadge store={store} />
       </div>

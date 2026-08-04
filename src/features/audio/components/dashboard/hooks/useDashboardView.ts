@@ -5,6 +5,7 @@
 // 2행). 선택은 sessionStorage에 남겨 F5 뒤에도 차트 캐시(lib/cache/frame.ts)와 같은
 // 수명으로 배치가 유지되게 한다.
 import { useCallback, useEffect, useRef, useState } from "react";
+import { readSessionJson, writeSessionJson } from "@/features/audio/lib/cache/session-json";
 
 export const VIEW_PROTECTED = "protected";
 export const VIEW_EXCURSION = "excursion";
@@ -28,27 +29,16 @@ export function useDashboardView() {
   const hydratedRef = useRef(false);
 
   useEffect(() => {
-    try {
-      const raw = sessionStorage.getItem(STORAGE_KEY);
-      if (raw) {
-        const ids: unknown = JSON.parse(raw);
-        if (Array.isArray(ids)) {
-          setSelected(new Set(ids.filter((v): v is string => typeof v === "string")));
-        }
-      }
-    } catch {
-      // 캐시 파손은 무시 — 기본값으로 시작한다.
+    const ids = readSessionJson<unknown>(STORAGE_KEY);
+    if (Array.isArray(ids)) {
+      setSelected(new Set(ids.filter((v): v is string => typeof v === "string")));
     }
     hydratedRef.current = true;
   }, []);
 
   useEffect(() => {
     if (!hydratedRef.current) return;
-    try {
-      sessionStorage.setItem(STORAGE_KEY, JSON.stringify(Array.from(selected)));
-    } catch {
-      // 저장 실패(용량 등)는 표시 상태에 영향 없다.
-    }
+    writeSessionJson(STORAGE_KEY, Array.from(selected));
   }, [selected]);
 
   const toggle = useCallback((id: string) => {

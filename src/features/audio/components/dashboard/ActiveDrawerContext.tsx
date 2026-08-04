@@ -31,3 +31,12 @@ export function useActiveDrawer(): ActiveDrawerCtx {
   if (!ctx) throw new Error("useActiveDrawer must be used within ActiveDrawerProvider");
   return ctx;
 }
+
+export function useDrawerState(key: DrawerKey): { open: boolean; setOpen: (open: boolean) => void } {
+  const { active, openDrawer, closeDrawer } = useActiveDrawer();
+  const setOpen = useCallback(
+    (open: boolean) => (open ? openDrawer(key) : closeDrawer()),
+    [key, openDrawer, closeDrawer],
+  );
+  return { open: active === key, setOpen };
+}

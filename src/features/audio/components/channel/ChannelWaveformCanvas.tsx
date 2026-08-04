@@ -4,7 +4,7 @@
 // (메인 차트가 ChartStore를 source로 구독하는 것과 같은 경로 — React 커밋 없이 rAF로 커밋).
 // 줌은 Temperature/ExcursionChart와 동일하게 기본 zoomPlugin()(휠/드래그/더블클릭, 전체범위
 // = 현재 로드된 데이터 extent)만 쓴다 — 확대 시 원본 해상도를 별도로 재조회하지 않는다.
-import { useEffect, useMemo, useState } from "react";
+import { useMemo } from "react";
 import type uPlot from "uplot";
 import UPlotChart, { type UPlotDataSource, type UPlotOptions } from "@/shared/components/UPlotChart";
 import { buildTimeAxis, buildValueAxis, timeDecimalsForInterval } from "@/features/audio/lib/render/uplot-option";
@@ -12,6 +12,7 @@ import { annotatePlugin, tooltipPlugin, zoomPlugin } from "@/features/audio/lib/
 import type { AnnotationStore } from "@/features/audio/lib/render/annotation-store";
 import type { ChannelWaveStore } from "@/features/audio/lib/render/wave-store";
 import { ChannelLevelBadge } from "./ChannelRowHeader";
+import { useThrottledStoreSnapshot } from "@/features/audio/components/chart/hooks/useThrottledStoreSnapshot";
 
 const Y_SCALE_PADDING = 1.1;
 const Y_MIN_SPAN = 0.01;
@@ -28,31 +29,20 @@ function symmetricYRange(peak: number): [number, number] {
  */
 const READOUT_INTERVAL_MS = 100;
 
+const selectWaveSnapshot = (snapshot: ReturnType<ChannelWaveStore["snapshot"]>) => snapshot;
+const isSameWaveSnapshot = (
+  previous: ReturnType<ChannelWaveStore["snapshot"]>,
+  next: ReturnType<ChannelWaveStore["snapshot"]>,
+) => previous === next;
+
 function useWaveReadout(store: ChannelWaveStore) {
-  const [snap, setSnap] = useState(() => store.snapshot());
-
-  useEffect(() => {
-    let timer: number | null = null;
-    let lastVersion = -1;
-
-    const sync = () => {
-      timer = null;
-      const next = store.snapshot();
-      if (next.version === lastVersion) return;
-      lastVersion = next.version;
-      setSnap(next);
-    };
-    const onUpdate = () => { if (timer === null) timer = window.setTimeout(sync, READOUT_INTERVAL_MS); };
-
-    const off = store.subscribe(onUpdate);
-    sync(); // 늦게 마운트된 뷰가 현재 상태를 즉시 반영하도록
-    return () => {
-      off();
-      if (timer !== null) window.clearTimeout(timer);
-    };
-  }, [store]);
-
-  return snap;
+  const [snapshot] = useThrottledStoreSnapshot(
+    store,
+    selectWaveSnapshot,
+    isSameWaveSnapshot,
+    READOUT_INTERVAL_MS,
+  );
+  return snapshot;
 }
 
 export function ChannelWaveformCanvas({

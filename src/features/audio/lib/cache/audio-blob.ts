@@ -1,4 +1,5 @@
 import { hasIndexedDb, openIndexedDb, requestToPromise, runTx } from "./idb";
+import { hasSessionJson, readSessionJson, removeSessionJson, writeSessionJson } from "./session-json";
 
 const DB_NAME     = "irondevice";
 const STORE       = "audio";
@@ -28,7 +29,7 @@ export async function putAudio(file: File): Promise<void> {
     await runTx(db, STORE, "readwrite", (tx) => tx.objectStore(STORE).put(file, KEY));
     db.close();
     const ptr: AudioPointer = { name: file.name, type: file.type, lastModified: file.lastModified };
-    window.sessionStorage.setItem(POINTER_KEY, JSON.stringify(ptr));
+    writeSessionJson(POINTER_KEY, ptr);
   } catch {
   }
 }
@@ -36,12 +37,14 @@ export async function putAudio(file: File): Promise<void> {
 export async function getCachedAudio(): Promise<File | null> {
   if (!hasIndexedDb()) return null;
   try {
-    const raw = window.sessionStorage.getItem(POINTER_KEY);
-    if (!raw) {
-      await clearAudio();
+    const pointerExists = hasSessionJson(POINTER_KEY);
+    const ptr = readSessionJson<AudioPointer>(POINTER_KEY);
+    if (!ptr) {
+      // 기존 동작 유지: 키가 없을 때만 orphaned IDB 값을 지우고, JSON 파손/접근 실패는
+      // null을 반환하는 데 그친다.
+      if (pointerExists === false) await clearAudio();
       return null;
     }
-    const ptr = JSON.parse(raw) as AudioPointer;
     const db  = await openDb();
     const stored = await requestToPromise<Blob | File | undefined>(
       db.transaction(STORE, "readonly").objectStore(STORE).get(KEY),
@@ -57,7 +60,7 @@ export async function getCachedAudio(): Promise<File | null> {
 export async function clearAudio(): Promise<void> {
   if (!hasIndexedDb()) return;
   try {
-    window.sessionStorage.removeItem(POINTER_KEY);
+    removeSessionJson(POINTER_KEY);
     const db = await openDb();
     await runTx(db, STORE, "readwrite", (tx) => tx.objectStore(STORE).delete(KEY));
     db.close();

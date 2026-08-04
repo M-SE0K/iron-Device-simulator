@@ -6,8 +6,11 @@ import { COMMANDS, ARG_KEYS, EVENTS } from "./contract";
 import { safeInvoke } from "./safe-invoke";
 import { syncListen } from "./sync-listen";
 import { mimeForPath } from "./mime";
-import type { LocalFolderReadResult, LocalFolderSelectResult } from "./types";
-import type { LocalAudioFileEntry } from "@/shared/types/native-bridge";
+import type {
+  LocalAudioFileEntry,
+  LocalFolderReadResult,
+  LocalFolderSelectResult,
+} from "@/shared/types/native-bridge";
 
 export function createLocalFolderBridge(): NonNullable<Window["localFolder"]> {
   return {

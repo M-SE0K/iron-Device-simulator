@@ -6,7 +6,7 @@
 import { memo } from "react";
 import { useEscapeKey } from "@/shared/hooks/useEscapeKey";
 import ChannelSelectDrawer, { type DrawerEntry } from "@/features/audio/components/channel/ChannelSelectDrawer";
-import { useActiveDrawer } from "./ActiveDrawerContext";
+import { useDrawerState } from "./ActiveDrawerContext";
 
 interface Props {
   entries: DrawerEntry[];
@@ -15,15 +15,14 @@ interface Props {
 }
 
 function ViewDrawer({ entries, selected, onToggle }: Props) {
-  const { active, closeDrawer } = useActiveDrawer();
-  const open = active === "view";
+  const { open, setOpen } = useDrawerState("view");
 
-  useEscapeKey(closeDrawer, open);
+  useEscapeKey(() => setOpen(false), open);
 
   return (
     <ChannelSelectDrawer
       open={open}
-      onClose={closeDrawer}
+      onClose={() => setOpen(false)}
       entries={entries}
       selected={selected}
       onToggle={onToggle}
