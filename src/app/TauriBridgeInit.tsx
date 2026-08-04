@@ -7,8 +7,8 @@
 // installTauriBridge() 내부에서 typeof window / '__TAURI_INTERNALS__' 가드를 하므로,
 // Next 정적 export가 이 레이아웃을 서버(Node)에서 렌더링할 때도 안전하다 — 이 컴포넌트는
 // 렌더 시점에 window를 참조하지 않는다(모듈 스코프의 installTauriBridge() 호출만 window를
-// 만진다). layout.tsx에서 {children}보다 먼저 배치해, 모든 브리지 감지 useEffect가
-// hydration 이후에 실행되기 전에 브리지가 이미 준비돼 있도록 한다(계획서 5.7 / 리스크 8).
+// 만진다). layout.tsx의 정적 import로 이 모듈이 RootLayout 렌더 전에 평가되며, 모듈
+// 스코프에서 installTauriBridge()를 동기 호출한다.
 import { installTauriBridge } from "@/shared/lib/tauri-bridge";
 
 installTauriBridge();

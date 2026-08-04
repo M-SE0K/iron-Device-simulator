@@ -3,7 +3,8 @@
 // 시절 electron/preload.js가 contextBridge로 하던 일의 TS 등가물 — 그 파일은 현재 제거됨).
 //
 // 각 기능은 자신이 사용하는 브리지 전역의 존재 여부로 가용성을 판단하고(userAgent 스니핑 없음),
-// 그 검사는 전부 useEffect(hydration 이후)에서 일어난다. 그래서 이 함수가 "React 마운트보다
+// UI 가용성 감지 일부는 hydration 이후 useEffect에서 하고, 실제 캡처·WASM·파일 호출 경로도
+// 호출 시점에 해당 window.* 전역을 확인한다. 그래서 이 함수가 "React 마운트보다
 // 먼저" 실행되기만 하면 되고, src/app/TauriBridgeInit.tsx가 모듈 스코프(컴포넌트 렌더 이전,
 // import 시점)에서 동기 호출한다.
 //

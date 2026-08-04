@@ -5,7 +5,8 @@
 // {success, ...} 형태의 결과를 리턴하는 커맨드에만 쓴다(audioDevice 4종, audioCapture/
 // audioPlayCapture의 start/stop/startWrite/writeChunk/finalizeWrite/cancelWrite/control,
 // localFolder.unwatch). local_folder_select(취소=성공 규약이 달라 별도 처리)와
-// local_folder_read_file(원래도 예외로 reject하는 게 맞는 계약)은 이 래퍼를 쓰지 않는다.
+// local_folder_read_file(raw ArrayBuffer 응답이라 local-folder.ts가 invoke를 직접 호출하고,
+// 실패는 {success:false, error}로 감싼다)은 이 래퍼를 쓰지 않는다.
 import { invoke } from "@tauri-apps/api/core";
 import type { InvokeArgs, InvokeOptions } from "@tauri-apps/api/core";
 

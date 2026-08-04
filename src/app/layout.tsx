@@ -25,8 +25,8 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body>
-        {/* Tauri shim 설치 부트스트랩 — children(및 그 안의 모든 브리지 감지 useEffect)보다
-            먼저 배치해 모듈 평가 시점에 window.audioDevice 등이 이미 채워져 있게 한다. */}
+        {/* Tauri shim 설치 부트스트랩 — 정적 import 시 모듈 스코프에서 installTauriBridge()가
+            실행되며, 이 컴포넌트는 아무것도 렌더링하지 않는다. */}
         <TauriBridgeInit />
         {/* 앱 전역 에러 팝업 — 화면 곳곳의 에러 텍스트를 화면 중앙 모달 하나로 통일 (최상위) */}
         <ErrorPopupProvider>

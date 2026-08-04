@@ -36,8 +36,8 @@ function fullXRange(u: uPlot, getFullXRange?: () => [number, number] | null): [n
  *
  * uPlot 기본 더블클릭 리셋(autoScaleX)은 항상 "현재 로드된 데이터"의 min/max로 돌아간다 —
  * getFullXRange가 없는 차트(스트리밍 메인 차트)는 그게 곧 원하는 전체 범위라 문제없지만,
- * getFullXRange가 있는 차트(예: 최근 30초만 로드된 채널 파형)는 로드된 구간이 아니라
- * "세션 전체"로 돌아가야 한다. uPlot 자체 dblclick 리스너가 먼저 등록되므로(내부 초기화가
+ * getFullXRange가 있는 차트(현재는 보호 감쇠 비교)는 명시된 "세션 전체" 도메인으로
+ * 돌아가야 한다. uPlot 자체 dblclick 리스너가 먼저 등록되므로(내부 초기화가
  * 이 플러그인의 ready 훅보다 먼저 실행됨) 우리 리스너는 항상 그 뒤에 실행된다 — 네이티브
  * 리셋이 먼저 적용된 직후, 같은 동기 틱 안에서 실제 전체 범위로 다시 덮어써 화면 깜빡임 없이
  * 보정한다.

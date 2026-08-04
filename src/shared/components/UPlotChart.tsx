@@ -304,8 +304,8 @@ export default function UPlotChart({ options, data, source, yRange, xRange, onRe
         applyStreamScale(u);
       } else if (xR) {
         // setData(data, true)의 자체 auto-range는 방금 갱신된 데이터 자체의 extent로
-        // 잡히는데(예: 최근 30초만 로드된 라이브 윈도우), xRange가 있는 차트는 로드된
-        // 구간이 아니라 고정 도메인(예: 세션 전체 길이)을 계속 보여줘야 한다.
+        // 잡히는데, xRange가 있는 차트는 데이터 extent와 별개로 명시된 고정 도메인을 계속
+        // 보여줘야 한다.
         u.setScale("x", { min: xR[0], max: xR[1] });
       }
     });

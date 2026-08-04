@@ -17,7 +17,7 @@ export const parseViewChannelId = (id: string): number | null => {
   return Number.isInteger(ch) && ch >= 0 ? ch : null;
 };
 
-export const DEFAULT_VIEW_SELECTION = [VIEW_PROTECTED, VIEW_EXCURSION, VIEW_TEMPERATURE];
+const DEFAULT_VIEW_SELECTION = [VIEW_PROTECTED, VIEW_EXCURSION, VIEW_TEMPERATURE];
 
 const STORAGE_KEY = "iron-device-dashboard-view-v1";
 
