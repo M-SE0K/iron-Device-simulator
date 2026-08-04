@@ -27,8 +27,20 @@ notify = "6"
 notify-debouncer-mini = "0.4"
 # WASM 엔진 암호화 배포(wasm_asset.rs)용 — 순수 Rust(RustCrypto) 크레이트로 골랐다.
 # Windows 타깃을 cargo-xwin으로 크로스 컴파일하므로 OpenSSL 링킹이 필요한 크레이트는 피한다.
+# v2: 복호화 키를 상수로 두지 않고 seed에서 HKDF-SHA256으로 런타임 파생한다(wasm_asset.rs).
 aes-gcm = "0.10"
+hkdf = "0.12"
+sha2 = "0.10"
 
 [[bin]]
 name = "iron-device-audio-simulator"
 path = "src/main.rs"
+
+# 배포 빌드 하드닝: 심볼 스트립으로 리버싱 단서를 제거한다. 특히 aes-gcm/hkdf 등
+# RustCrypto 제네릭 모노모피제이션 심볼이 그대로 남으면 암호 스킴(AES-256-GCM/HKDF)이
+# 추측 없이 노출되므로(이번 실험에서 실제 악용됨) strip으로 지운다. lto+codegen-units=1은
+# 인라이닝을 늘려 복호화 경로를 함수 경계로 깔끔히 특정하기 어렵게 만드는 부수효과도 있다.
+[profile.release]
+strip = "symbols"
+lto = "fat"
+codegen-units = 1

@@ -119,6 +119,23 @@ else
 fi
 
 # ---------------------------------------------------------------------------
+# (선택) wasm-tools — WASM 하드닝 빌드(FF_PROT_HARDEN=1)의 구조 변형(wasm-mutate) 단계에 쓰인다.
+# 없으면 그 단계만 비파괴적으로 건너뛰므로 필수는 아니다. cargo가 있을 때만 설치를 시도하고
+# (컴파일에 수 분 소요), 실패해도 세팅 전체를 중단하지 않는다.
+if command -v wasm-tools >/dev/null 2>&1; then
+  ok "wasm-tools 있음: $(wasm-tools --version)"
+elif command -v cargo >/dev/null 2>&1; then
+  warn "wasm-tools 없음 — WASM 하드닝의 구조 변형(wasm-mutate)에 쓰입니다. cargo로 설치를 시도합니다(수 분 소요)."
+  if cargo install wasm-tools; then
+    ok "$(wasm-tools --version) 설치 완료"
+  else
+    warn "wasm-tools 설치 실패 — 하드닝 빌드는 이 단계를 건너뛰고 진행됩니다(치명적 아님). 나중에 'cargo install wasm-tools'로 재시도하세요."
+  fi
+else
+  warn "wasm-tools 없음(cargo도 없음) — WASM 하드닝의 구조 변형은 건너뜁니다. 필요하면 Rust 설치 후 'cargo install wasm-tools'."
+fi
+
+# ---------------------------------------------------------------------------
 cat <<EOF
 
 ✓ 셋업 완료: $ROOT

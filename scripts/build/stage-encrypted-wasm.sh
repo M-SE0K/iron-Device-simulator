@@ -30,16 +30,18 @@ if [[ ! -f "$WASM_OUT_DIR/ff_prot.wasm" ]]; then
   exit 1
 fi
 
-KEY_FILE="native/wasm-engine/.wasm-key"
-if [[ ! -f "$KEY_FILE" ]]; then
-  echo "→ WASM 암호화 키 최초 생성: $KEY_FILE (머신당 1회, git 제외)"
-  node -e "console.log(require('crypto').randomBytes(32).toString('hex'))" > "$KEY_FILE"
+SEED_FILE="native/wasm-engine/.wasm-seed"
+if [[ ! -f "$SEED_FILE" ]]; then
+  echo "→ WASM 키 seed 최초 생성: $SEED_FILE (머신당 1회, git 제외)"
+  # v2: AES 키가 아니라 seed 재료(SEED_A/SEED_B/SALT)를 저장한다 — 실제 키는
+  # HKDF로 런타임 파생(derive-wasm-key.js). 바이너리에 키 상수를 남기지 않기 위함.
+  node -e "const c=require('crypto');process.stdout.write(JSON.stringify({seedA:c.randomBytes(32).toString('hex'),seedB:c.randomBytes(32).toString('hex'),salt:c.randomBytes(16).toString('hex')}))" > "$SEED_FILE"
 fi
 
-node scripts/build/gen-wasm-key-rs.js "$KEY_FILE" "src-tauri/src/wasm_key.rs"
+node scripts/build/gen-wasm-key-rs.js "$SEED_FILE" "src-tauri/src/wasm_key.rs"
 
 mkdir -p src-tauri/resources
-node scripts/build/encrypt-wasm.js "$WASM_OUT_DIR/ff_prot.wasm" "src-tauri/resources/ff_prot.wasm.enc" "$KEY_FILE"
+node scripts/build/encrypt-wasm.js "$WASM_OUT_DIR/ff_prot.wasm" "src-tauri/resources/ff_prot.wasm.enc" "$SEED_FILE"
 
 OUT_WASM_FILE="out/$WASM_DIR_NAME/ff_prot.wasm"
 if [[ -f "$OUT_WASM_FILE" ]]; then
