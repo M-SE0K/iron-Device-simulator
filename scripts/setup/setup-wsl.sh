@@ -60,6 +60,23 @@ else
 fi
 
 # ---------------------------------------------------------------------------
+log "3-1/5 Java(JRE) 확인 — 배포 하드닝 빌드의 글루 JS 압축(--closure 1)에 필요"
+# build:desktop / build:tauri* 는 FF_PROT_HARDEN=1 로 emcc 를 돌리는데(난독화 체인),
+# 그 안의 --closure 1(Closure Compiler)은 Java 런타임을 필요로 한다(native/wasm-engine/build-wasm.sh
+# 참고). Docker(emscripten/emsdk) 폴백으로 빌드하면 이미지에 Java 가 들어 있어 무관하지만,
+# 로컬 emcc 로 하드닝 빌드를 하면 Java 가 없을 때 이 단계에서 실패한다.
+if command -v java >/dev/null 2>&1; then
+  ok "$(java -version 2>&1 | head -1)"
+elif command -v apt-get >/dev/null 2>&1; then
+  warn "Java 가 없어 apt(default-jre)로 설치합니다 (sudo 필요)."
+  sudo apt-get install -y default-jre
+  ok "$(java -version 2>&1 | head -1)"
+else
+  warn "Java 가 없고 apt-get 도 없습니다 — 배포 하드닝 빌드(build:desktop/build:tauri*)의 --closure 1 단계에 필요합니다."
+  echo "      배포판 패키지 매니저로 JRE(예: OpenJDK)를 설치하거나, Docker 로 빌드하면(emscripten/emsdk 이미지에 Java 포함) 우회됩니다."
+fi
+
+# ---------------------------------------------------------------------------
 log "3/5 Emscripten (emcc) 확인 — WASM 엔진 빌드에 필요"
 if command -v emcc >/dev/null 2>&1; then
   ok "$(emcc --version | head -1)"

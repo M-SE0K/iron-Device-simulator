@@ -7,27 +7,31 @@ import { cn } from "@/shared/lib/utils";
 import { INT16_SCALE, CHANNELS } from "@/features/audio/lib/engine/core";
 import SegmentedControl from "@/shared/components/ui/SegmentedControl";
 import { buildTimeAxis, buildValueAxis, timeDecimalsForInterval } from "@/features/audio/lib/render/uplot-option";
-import { tooltipPlugin, zoomPlugin } from "@/features/audio/lib/render/uplot-plugins";
-import { BucketEnvelope, envelopesToAligned } from "@/features/audio/lib/render/envelope";
+import { staticSeriesLayerPlugin, tooltipPlugin, zoomPlugin } from "@/features/audio/lib/render/uplot-plugins";
+import {
+  BucketEnvelope,
+  buildBucketXs,
+  emptyEnvelopeColumn,
+  fillEnvelopeColumn,
+  type EnvelopeColumn,
+} from "@/features/audio/lib/render/envelope";
 import { peekWavHeader, decodeWavRange } from "@/features/audio/lib/codec/wav-incremental";
 import type { CaptureStreamEvent, CaptureStreamListener } from "@/features/audio/components/player/capture/types";
 import { useErrorPopup } from "@/shared/components/error-popup/ErrorPopupContext";
+import { frameScheduler } from "@/shared/lib/frame-scheduler";
 
 const BUCKETS = 1000;
-const FLUSH_INTERVAL_MS = 50;
 const Y_SCALE_PADDING = 1.1;
+
+let panelTaskSeq = 0;
 const Y_MIN_SPAN = 0.05;
 
 type ChannelMode = "L" | "R" | "Both";
 
-// 채널 정체성은 색상(hue)으로, Input/Protected 구분은 스타일(옅은 점선 vs 굵은 실선)로 —
-// 예전엔 Input L/R이 둘 다 무채색(회색 계열)이라 서로 거의 구분이 안 됐다. 지금은 L=파랑,
-// R=주황 계열을 Input까지 일관되게 써서, Both 모드에서도 어느 라인이 어느 채널인지 색만
-// 보고 바로 알 수 있게 한다.
-export const COLOR_INPUT_L     = "#93c5fd"; // blue-300 (옅음 — 원본 참고선)
-export const COLOR_PROTECTED_L = "#2563eb"; // blue-600 (진함 — 보호 감쇠 후 신호)
-export const COLOR_INPUT_R     = "#fcd34d"; // amber-300 (옅음 — 원본 참고선)
-export const COLOR_PROTECTED_R = "#d97706"; // amber-600 (진함 — 보호 감쇠 후 신호)
+export const COLOR_INPUT_L     = "#93c5fd";
+export const COLOR_PROTECTED_L = "#2563eb";
+export const COLOR_INPUT_R     = "#fcd34d";
+export const COLOR_PROTECTED_R = "#d97706";
 
 function ProtectedComparePanelImpl({
   subscribeCaptureStream,
@@ -58,9 +62,30 @@ function ProtectedComparePanelImpl({
   const sampleRateRef   = useRef(0);
   const [version, setVersion] = useState(0);
 
-  const rafRef       = useRef<number | null>(null);
-  const dirtyRef     = useRef(false);
-  const lastFlushRef = useRef(0);
+  const colsRef = useRef<{
+    owner: object;
+    xs: Float64Array;
+    inputL: EnvelopeColumn;
+    inputR: EnvelopeColumn;
+    protL: [EnvelopeColumn, EnvelopeColumn];
+    protR: [EnvelopeColumn, EnvelopeColumn];
+    slot: 0 | 1;
+    slotVersion: number;
+  } | null>(null);
+
+  const dirtyRef = useRef(false);
+  const panelTaskIdRef = useRef<string | null>(null);
+  if (panelTaskIdRef.current === null) panelTaskIdRef.current = `protected-compare#${++panelTaskSeq}`;
+
+  useEffect(() => frameScheduler.register({
+    id: panelTaskIdRef.current!,
+    phase: "draw",
+    isDirty: () => dirtyRef.current,
+    run: () => {
+      dirtyRef.current = false;
+      setVersion((v) => v + 1);
+    },
+  }), []);
 
   const durationRef = useRef(0);
   useEffect(() => { durationRef.current = original?.durationSec ?? 0; }, [original]);
@@ -126,35 +151,17 @@ function ProtectedComparePanelImpl({
   useEffect(() => {
     protectedEnvRefs.current[0].clear();
     protectedEnvRefs.current[1].clear();
+    colsRef.current = null;
     readyRef.current = false;
     pendingProtectedRef.current = [];
     backfillTokenRef.current += 1;
     setVersion((v) => v + 1);
   }, [sourceFile]);
 
-  const flush = useCallback(() => {
-    rafRef.current = null;
-    if (!dirtyRef.current) return;
-
-    const now = performance.now();
-    if (now - lastFlushRef.current < FLUSH_INTERVAL_MS) {
-      rafRef.current = requestAnimationFrame(flush);
-      return;
-    }
-    lastFlushRef.current = now;
-    dirtyRef.current = false;
-    setVersion((v) => v + 1);
-  }, []);
-
   const applyProtectedEvent = useCallback((ev: ProtectedEvent, durationSec: number) => {
     sampleRateRef.current = ev.sampleRate;
     const [envL, envR] = protectedEnvRefs.current;
     const samplesPerFrame = ev.processed.length / CHANNELS;
-    // ⚠️ 이벤트가 실어 보내는 frameIndex를 기준점으로 쓴다 — 이 값은 "재생 시작으로부터 몇 번째
-    // 프레임인가"이다(엔진이 워밍업 동안 분석하지 못한 프레임도 번호는 소비하므로 재생 위치와
-    // 1:1). 예전엔 이 필드를 무시하고 자체 누산기로 0부터 쌓았는데, 그러면 엔진 준비가 늦어진
-    // 만큼 측정 파형이 통째로 왼쪽(원본보다 앞)으로 밀려 그려졌다. 절대 위치를 쓰면 중간에
-    // 프레임이 유실돼도 그 뒤가 따라 밀리지 않는다는 이점도 있다.
     const base = ev.frameIndex * samplesPerFrame;
     const perBucketSec = durationSec / BUCKETS;
 
@@ -167,12 +174,8 @@ function ProtectedComparePanelImpl({
     }
 
     dirtyRef.current = true;
-    if (rafRef.current === null) rafRef.current = requestAnimationFrame(flush);
-  }, [flush]);
+  }, []);
 
-  // 원본 디코드가 끝나면(= x축 durationSec 확보) 지금까지 캡처된 보호 감쇠 PCM을 한 번
-  // 백필한다. 백필이 끝나기 전에 들어온 라이브 프레임은 pendingProtectedRef에 쌓아뒀다가
-  // 이어서 적용한다.
   useEffect(() => {
     if (!original) return;
     const token = ++backfillTokenRef.current;
@@ -225,41 +228,61 @@ function ProtectedComparePanelImpl({
       if (ev.type === "reset") {
         protectedEnvRefs.current[0].clear();
         protectedEnvRefs.current[1].clear();
+        colsRef.current = null;
         pendingProtectedRef.current = [];
-        backfillTokenRef.current += 1; // 진행 중이던 백필 결과를 무효화 — 새 세션은 0부터 라이브로만 채운다
+        backfillTokenRef.current += 1;
         readyRef.current = true;
         setVersion((v) => v + 1);
         return;
       }
       if (ev.type !== "protected") return;
 
-      if (!readyRef.current) { pendingProtectedRef.current.push(ev); return; }
+      if (!readyRef.current) {
+        pendingProtectedRef.current.push(ev);
+        return;
+      }
 
       const durationSec = durationRef.current;
       if (durationSec <= 0) return;
       applyProtectedEvent(ev, durationSec);
     });
 
-    return () => {
-      off();
-      if (rafRef.current !== null) cancelAnimationFrame(rafRef.current);
-      rafRef.current = null;
-    };
+    return off;
   }, [subscribeCaptureStream, applyProtectedEvent]);
 
   const showL = channelMode !== "R";
   const showR = channelMode !== "L";
 
-  // 4개 시리즈가 같은 버킷 격자(2점/버킷)를 공유하므로 x축 하나의 aligned 데이터로 만든다.
-  // protected 엔벨로프는 ref 내용만 바뀌므로 version(플러시 틱)으로 재계산을 트리거한다.
   const chartData = useMemo(() => {
     if (!original) return null;
-    void version;
+
+    let cols = colsRef.current;
+    if (!cols || cols.owner !== original) {
+      cols = {
+        owner: original,
+        xs: buildBucketXs(BUCKETS, original.durationSec),
+        inputL: fillEnvelopeColumn(original.envL),
+        inputR: fillEnvelopeColumn(original.envR),
+        protL: [emptyEnvelopeColumn(BUCKETS), emptyEnvelopeColumn(BUCKETS)],
+        protR: [emptyEnvelopeColumn(BUCKETS), emptyEnvelopeColumn(BUCKETS)],
+        slot: 0,
+        slotVersion: version,
+      };
+      colsRef.current = cols;
+    } else if (cols.slotVersion !== version) {
+      cols.slot = cols.slot === 0 ? 1 : 0;
+      cols.slotVersion = version;
+    }
+
+    const slot = cols.slot;
     const [protectedEnvL, protectedEnvR] = protectedEnvRefs.current;
-    return envelopesToAligned(
-      [original.envL, original.envR, protectedEnvL, protectedEnvR],
-      original.durationSec,
-    ) as unknown as uPlot.AlignedData;
+    return [
+      cols.xs,
+      cols.inputL,
+      cols.inputR,
+      fillEnvelopeColumn(protectedEnvL, cols.protL[slot]),
+      fillEnvelopeColumn(protectedEnvR, cols.protR[slot]),
+    ] as unknown as uPlot.AlignedData;
   }, [original, version]);
 
   const yRange = useMemo<[number, number] | null>(() => {
@@ -271,14 +294,13 @@ function ProtectedComparePanelImpl({
     return [-peak, peak];
   }, [original, showL, showR]);
 
-  // Input(원본 참고선)은 옅은 색 + 점선으로 먼저 그리고, Protected(보호 감쇠 후 신호)는
-  // 진한 색 + 굵은 실선으로 나중에(= 위에) 그린다 — Both 모드에서 반대 채널의 Input 라인이
-  // Protected 라인을 가리는 일이 없게 시리즈 순서로 z를 고정한다.
   const options = useMemo<UPlotOptions | null>(() => {
     if (!original) return null;
     const timeDecimals = timeDecimalsForInterval(original.durationSec / BUCKETS);
     const inputSeries = (label: string, color: string): uPlot.Series => ({
-      label, stroke: `${color}D9`, width: 1, dash: [4, 4], spanGaps: true, points: { size: 4, fill: color },
+      label, stroke: `${color}D9`, width: 1, spanGaps: true,
+      paths: () => null,
+      points: { show: false },
     });
     const protectedSeries = (label: string, color: string): uPlot.Series => ({
       label, stroke: color, width: 1.8, spanGaps: true, points: { size: 4, fill: color },
@@ -298,8 +320,7 @@ function ProtectedComparePanelImpl({
         buildValueAxis({ size: 56, formatter: (v: number) => v.toFixed(2) }),
       ],
       plugins: [
-        // 이 옵션은 original이 바뀔 때만 재생성되므로(=차트 재마운트) durationSec을 그대로
-        // 클로저에 담아도 안전하다 — ChannelWaveformCanvas처럼 매 청크 갱신되는 값이 아니다.
+        staticSeriesLayerPlugin([1, 2]),
         zoomPlugin({ getFullXRange: () => [0, original.durationSec] }),
         tooltipPlugin({ unit: "", decimals: 3, timeDecimals: 3 }),
       ],

@@ -117,6 +117,26 @@ elif ! command -v wasm-tools >/dev/null 2>&1; then
 EOF
 fi
 
+# ── 6.5. (필요) Java — 배포 하드닝 빌드의 글루 JS 압축(--closure 1)에 필요 ────────
+# build:desktop / build:tauri* 는 FF_PROT_HARDEN=1 로 emcc 를 돌리는데(난독화 체인),
+# 그 안의 --closure 1(Closure Compiler)은 Java 런타임을 필요로 한다(build-wasm.sh 참고).
+# Docker(emscripten/emsdk) 폴백으로 빌드하면 이미지 안에 Java 가 들어 있어 무관하지만,
+# **로컬 emcc** 로 하드닝 빌드를 하면 Java 가 없을 때 이 단계에서 실패한다. 지금 도는
+# 단독 wasm:build 는 하드닝이 꺼져 있어 당장은 필요 없으므로, "로컬 emcc 는 있는데
+# (=Docker 폴백이 아님) Java 가 없는" 조합일 때만 미리 안내한다.
+if command -v emcc >/dev/null 2>&1 && ! command -v java >/dev/null 2>&1; then
+  cat <<'EOF'
+
+ℹ (필요) Java 가 없습니다 — 배포 하드닝 빌드(build:desktop / build:tauri*)가 로컬 emcc 로
+  글루 JS 를 압축하는 --closure 1 단계에서 Java 런타임을 필요로 합니다(지금 도는 단독
+  wasm:build 는 하드닝이 꺼져 있어 영향 없음). 준비 방법:
+    - macOS:      brew install openjdk   (설치 후 안내되는 PATH/symlink 지시 따르기)
+    - Debian/WSL: sudo apt install default-jre
+  또는 Java 를 설치하는 대신 Docker 로 빌드하면 emscripten/emsdk 이미지에 Java 가
+  포함돼 있어 별도 설치가 필요 없습니다.
+EOF
+fi
+
 # ── 7. 마무리 ───────────────────────────────────────────────────────────────
 if [ "$HAS_ENGINE_SRC" -ne 0 ]; then
   echo
