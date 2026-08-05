@@ -44,14 +44,18 @@ npm install
 
 ## 빠른 시작
 
-클론 직후 원커맨드(환경 확인 → `npm install` → WASM 빌드 → dev 서버)
-이후 로컬 서버를 종료해주세요. ```Ctrl + c```
+클론 직후 원커맨드(환경 확인 → `npm install` → WASM 빌드 → dev 서버 기동 확인)
 
 ```bash
 npm run bootstrap
+npm run build:tauri:{mac, windows}
 ```
 
+dev 서버는 **실제 HTTP 응답까지 확인한 뒤 자동으로 종료**되므로 `Ctrl + C`를 누를 필요가 없습니다. 서버를 띄우지 않고 준비만 하려면 `BOOTSTRAP_NO_DEV=1`, 느린 머신에서 기동 대기를 늘리려면 `BOOTSTRAP_DEV_TIMEOUT=180`을 앞에 붙이세요.
+
 알고리즘 소스가 아직 없어도 이 스크립트는 실패하지 않습니다 — `npm install`까지만 마치고 엔진 빌드를 건너뛴 뒤, 무엇을 어디에 넣어야 하는지 안내하고 종료합니다.
+
+마지막에는 Rust 툴체인·WebKitGTK(Linux)·Xcode CLT(macOS)·Java·ASIO SDK 등 **데스크톱 패키징에 결국 필요해지는 전제조건을 점검해, 실제로 빠진 것만** 설치 명령과 함께 모아서 보여줍니다.
 
 > ⚠️ `npm run dev`로 뜨는 브라우저 탭은 **UI 확인 전용**입니다. 장치 제어·하드웨어 캡처·파일 재생은 Tauri 네이티브 브리지(`window.audioDevice` 등)를 통해서만 동작하므로, 실제 동작 확인은 `npm run tauri:preview` 또는 패키징된 앱에서 해야 합니다.
 
@@ -78,6 +82,8 @@ rustup target add x86_64-pc-windows-msvc
 cargo install cargo-xwin
 sudo apt install nsis clang lld llvm    # makensis + cargo-xwin이 필요로 하는 링커/코드젠 도구
 ```
+
+위 항목은 대부분 직접 준비할 필요가 없습니다 — `build-tauri.sh`가 **패키징을 시작하기 전에** 툴체인을 먼저 점검하고, sudo가 필요 없는 rustup/cargo 계열(기본 툴체인 `rustup install stable`, Windows 타깃 추가, `cargo install cargo-xwin`)은 자동으로 설치합니다. 정적 빌드와 ASIO 헬퍼 컴파일에 몇 분을 쓴 뒤 마지막 단계에서 툴체인 부재로 실패하던 문제를 없애기 위한 것입니다. 자동 설치를 원하지 않으면 `TAURI_NO_AUTO_INSTALL=1`을 지정하세요 — 그러면 필요한 명령만 안내하고 즉시 중단합니다. sudo가 필요한 apt 패키지(`clang lld llvm`, `nsis`)는 자동 설치하지 않고 경고만 남긴 뒤 진행합니다.
 
 첫 크로스 빌드는 MS CRT/SDK를 `~/.cache`에 내려받습니다(네트워크 필요, 수 분 소요) — 이후 빌드는 캐시를 재사용합니다.
 
@@ -123,6 +129,9 @@ npm run build:tauri:mac -- --devtools
 | `FF_PROT_HARDEN` | `1`이면 WASM 난독화·하드닝 파이프라인을 켭니다(위 "엔진 보호" 참고). |
 | `SKIP_WIN_HELPER_BUILD` | `1`이면 Windows ASIO 헬퍼 재컴파일을 건너뛰고 커밋된 `.exe`를 씁니다. |
 | `ASIOSDK_DIR` | ASIO SDK 위치를 기본 경로 대신 직접 지정합니다. |
+| `TAURI_NO_AUTO_INSTALL` | `1`이면 Windows 크로스 빌드의 툴체인 자동 설치를 끄고, 필요한 명령만 안내한 뒤 중단합니다. |
+| `BOOTSTRAP_NO_DEV` | `1`이면 `npm run bootstrap`이 dev 서버 기동 확인을 건너뜁니다. |
+| `BOOTSTRAP_DEV_TIMEOUT` | `npm run bootstrap`의 dev 서버 기동 대기 시간(초, 기본 `90`). |
 
 ## 개발 명령어
 

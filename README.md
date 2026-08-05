@@ -44,14 +44,18 @@ npm install
 
 ## Quick Start
 
-One command right after cloning (checks the environment → `npm install` → WASM build → dev server).
-Afterwards, stop the local server with `Ctrl + C`.
+One command right after cloning (checks the environment → `npm install` → WASM build → dev server startup check).
 
 ```bash
 npm run bootstrap
+npm run build:tauri:{mac, windows}
 ```
 
+The dev server is **shut down automatically once an actual HTTP response is confirmed**, so there is no need to press `Ctrl + C`. To prepare everything without starting the server, prefix `BOOTSTRAP_NO_DEV=1`; on a slow machine, raise the startup wait with `BOOTSTRAP_DEV_TIMEOUT=180`.
+
 The script does not fail if the algorithm sources are not in place yet — it finishes `npm install`, skips the engine build, then tells you what to put where and exits.
+
+At the end it checks the prerequisites you will eventually need for desktop packaging — Rust toolchain, WebKitGTK (Linux), Xcode CLT (macOS), Java, ASIO SDK — and lists **only the ones actually missing**, each with its install command.
 
 > ⚠️ The browser tab opened by `npm run dev` is **for UI inspection only**. Device control, hardware capture, and file playback work only through the Tauri native bridges (`window.audioDevice` and friends), so verify actual behavior with `npm run tauri:preview` or a packaged app.
 
@@ -78,6 +82,8 @@ rustup target add x86_64-pc-windows-msvc
 cargo install cargo-xwin
 sudo apt install nsis clang lld llvm    # makensis + the linker/codegen tools cargo-xwin needs
 ```
+
+You mostly do not have to prepare these by hand — `build-tauri.sh` checks the toolchain **before packaging starts** and installs the sudo-free rustup/cargo pieces automatically (default toolchain via `rustup install stable`, the Windows target, `cargo install cargo-xwin`). This exists to stop the build from spending minutes on the static bundle and the ASIO helper only to die at the final step over a missing toolchain. Set `TAURI_NO_AUTO_INSTALL=1` to opt out — it then prints the exact commands and stops. The apt packages that need sudo (`clang lld llvm`, `nsis`) are never installed automatically; they only produce a warning and the build continues.
 
 The first cross-build downloads the MS CRT/SDK into `~/.cache` (network required, a few minutes) — subsequent builds reuse the cache.
 
@@ -124,6 +130,9 @@ Some variables are used at build time only.
 | `FF_PROT_HARDEN` | `1` enables the WASM obfuscation/hardening pipeline (see "Engine Protection" above). |
 | `SKIP_WIN_HELPER_BUILD` | `1` skips recompiling the Windows ASIO helper and uses the committed `.exe`. |
 | `ASIOSDK_DIR` | Point at the ASIO SDK directly instead of the default path. |
+| `TAURI_NO_AUTO_INSTALL` | `1` disables automatic toolchain installation for the Windows cross build; it prints the required commands and stops instead. |
+| `BOOTSTRAP_NO_DEV` | `1` makes `npm run bootstrap` skip the dev-server startup check. |
+| `BOOTSTRAP_DEV_TIMEOUT` | Seconds `npm run bootstrap` waits for the dev server to come up (default `90`). |
 
 ## Dev Commands
 
