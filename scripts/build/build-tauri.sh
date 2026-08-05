@@ -47,6 +47,98 @@ case "$HOST_UNAME" in
   *) HOST_OS=unknown ;;
 esac
 
+# ── Windows 크로스(cargo-xwin) 툴체인 preflight ──────────────────────────────
+# 이 점검은 **패키징이 시작되기 전에** 돌아야 한다. 예전에는 cargo-xwin 유무를 맨 마지막
+# `npx tauri build` 직전에야 확인해서, 정적 빌드(next build)와 ASIO 헬퍼 크로스 컴파일을
+# 다 마친 뒤 "✗ cargo-xwin 을 찾을 수 없습니다" 한 줄로 죽었다 — 몇 분을 버리고, 게다가
+# 툴체인을 하나 고쳐 다시 돌리면 그다음 것이 없어서 또 죽는 일이 반복됐다.
+# 그래서 (1) 옵션 파싱 직후로 앞당기고, (2) 필요한 것을 한 번에 전부 점검하며,
+# (3) sudo 가 필요 없는 rustup/cargo 계열은 자동 설치까지 한다.
+#
+#   TAURI_NO_AUTO_INSTALL=1  자동 설치를 끄고 필요한 명령만 안내한 뒤 중단한다.
+preflight_windows_cross() {
+  local auto_install=true
+  [[ "${TAURI_NO_AUTO_INSTALL:-}" == "1" ]] && auto_install=false
+
+  # cargo/rustup 은 보통 ~/.cargo/bin 에 설치되는데, 비로그인 셸(CI 등)에서는 PATH 에
+  # 잡히지 않는 경우가 있어 먼저 보강한다.
+  if [[ -d "$HOME/.cargo/bin" ]]; then
+    case ":$PATH:" in
+      *":$HOME/.cargo/bin:"*) ;;
+      *) export PATH="$HOME/.cargo/bin:$PATH" ;;
+    esac
+  fi
+
+  echo "▶ Windows 크로스 툴체인 점검 중..."
+
+  # ① rustup — Windows 타깃 추가(rustup target add)에 필요하므로 대체재가 없다.
+  if ! command -v rustup >/dev/null 2>&1; then
+    echo "✗ rustup 이 없습니다 — cargo-xwin 크로스 빌드는 x86_64-pc-windows-msvc 타깃을" >&2
+    echo "  rustup 으로 추가해야 해서 rustup 설치가 필수입니다:" >&2
+    echo "      curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh" >&2
+    exit 1
+  fi
+
+  # ② 기본 툴체인 — rustup 만 깔고 `rustup install stable` 을 한 적이 없으면 cargo 가
+  #    PATH 에 보여도 실행 시 "no default toolchain" 으로 죽는다(실제로 겪은 케이스).
+  if ! rustup show active-toolchain >/dev/null 2>&1; then
+    if $auto_install; then
+      echo "  · 기본 Rust 툴체인이 없습니다 → rustup install stable (수 분 소요)"
+      rustup install stable
+      rustup default stable
+    else
+      echo "✗ 기본 Rust 툴체인이 설치되어 있지 않습니다:" >&2
+      echo "      rustup install stable && rustup default stable" >&2
+      exit 1
+    fi
+  fi
+
+  # ③ Windows MSVC 타깃
+  if ! rustup target list --installed 2>/dev/null | grep -qx "x86_64-pc-windows-msvc"; then
+    if $auto_install; then
+      echo "  · x86_64-pc-windows-msvc 타깃 추가 중..."
+      rustup target add x86_64-pc-windows-msvc
+    else
+      echo "✗ Windows 타깃이 없습니다:  rustup target add x86_64-pc-windows-msvc" >&2
+      exit 1
+    fi
+  fi
+
+  # ④ cargo-xwin — `npx tauri build --runner cargo-xwin` 이 직접 실행하는 러너.
+  if ! command -v cargo-xwin >/dev/null 2>&1; then
+    if $auto_install; then
+      echo "  · cargo-xwin 이 없습니다 → cargo install cargo-xwin (컴파일에 수 분 소요)"
+      cargo install cargo-xwin
+      if ! command -v cargo-xwin >/dev/null 2>&1; then
+        echo "✗ cargo-xwin 설치는 끝났지만 PATH 에서 찾지 못했습니다 — ~/.cargo/bin 이 PATH 에" >&2
+        echo "  있는지 확인하세요:  export PATH=\"\$HOME/.cargo/bin:\$PATH\"" >&2
+        exit 1
+      fi
+    else
+      echo "✗ cargo-xwin 을 찾을 수 없습니다:  cargo install cargo-xwin  (README 참고)" >&2
+      exit 1
+    fi
+  fi
+
+  # ⑤ apt 계열(sudo 필요) — 자동 설치하지 않는다. 다만 없다고 무조건 빌드를 막지도 않는다:
+  #    clang/lld 는 배포판·설치 방식에 따라 다른 이름/경로로 존재할 수 있고, NSIS 는 Tauri CLI
+  #    가 자체 캐시로 내려받는 경우가 있어 오탐으로 빌드를 막는 쪽이 더 나쁘다. 경고만 남긴다.
+  local apt_missing=()
+  { command -v clang >/dev/null 2>&1 && command -v lld >/dev/null 2>&1; } \
+    || apt_missing+=("clang lld llvm   # cargo-xwin 의 clang-cl/lld-link 링크 경로")
+  command -v makensis >/dev/null 2>&1 \
+    || apt_missing+=("nsis            # NSIS 인스톨러 번들 (Tauri CLI 가 자체 캐시로 받는 경우도 있음)")
+  if [ ${#apt_missing[@]} -gt 0 ]; then
+    echo "  ⚠ 아래 패키지가 확인되지 않았습니다 — 링크/번들 단계에서 실패하면 먼저 설치해보세요:" >&2
+    local p
+    for p in "${apt_missing[@]}"; do
+      echo "      sudo apt install $p" >&2
+    done
+  fi
+
+  echo "✓ Windows 크로스 툴체인 준비 완료 (rustup · x86_64-pc-windows-msvc · cargo-xwin)"
+}
+
 # ── --devtools (측정 전용 빌드) ──────────────────────────────────────────────
 # 기본 배포 빌드에는 DevTools(WebView 인스펙터)가 아예 컴파일되지 않는다(src-tauri/Cargo.toml의
 # [features] devtools, src-tauri/src/main.rs의 configure_devtools_access 참고). 패키징된 앱에서
@@ -90,6 +182,8 @@ case "${1:-}" in
         WINDOWS_CROSS=true
         echo "▶ WSL/Linux 호스트에서 --windows-only 감지 → cargo-xwin 크로스 경로로 전환합니다 (실험적)." >&2
         echo "  실제 배포 전에는 실기 Windows에서 한 번 더 검증하는 것을 권장합니다." >&2
+        # 정적 빌드·헬퍼 컴파일에 몇 분을 쓰기 전에 크로스 툴체인부터 확인/보강한다.
+        preflight_windows_cross
         ;;
       *)
         echo "✗ --windows-only 는 Windows 호스트 또는 WSL/Linux(cargo-xwin 크로스, 실험적)에서만 가능합니다." >&2
@@ -294,14 +388,11 @@ if [[ "$WINDOWS_ONLY" == "true" ]]; then
   rm -rf dist-tauri/windows/* 2>/dev/null || true
   if [[ "$WINDOWS_CROSS" == "true" ]]; then
     # cargo-xwin 크로스 경로 (실험적 — 위 헤더 주석 참고).
-    # cargo-xwin은 보통 `cargo install cargo-xwin`으로 ~/.cargo/bin에 설치되는데, 비로그인
-    # 셸(CI 등)에서는 PATH에 안 잡혀 있을 수 있어 여기서 한 번 더 보강한다.
+    # 툴체인(rustup 기본 툴체인 · x86_64-pc-windows-msvc 타깃 · cargo-xwin) 확인과 자동 설치는
+    # 스크립트 앞부분의 preflight_windows_cross()가 --windows-only 를 파싱한 직후에 이미 끝냈다.
+    # 여기서는 PATH 보강만 한 번 더 해둔다(preflight 이후 서브셸/환경이 바뀌는 경우 대비).
     if ! command -v cargo-xwin >/dev/null 2>&1; then
       export PATH="$HOME/.cargo/bin:$PATH"
-    fi
-    if ! command -v cargo-xwin >/dev/null 2>&1; then
-      echo "✗ cargo-xwin 을 찾을 수 없습니다. 'cargo install cargo-xwin' 로 설치하세요 (README 참고)." >&2
-      exit 1
     fi
     # 실측 확인(2026-07, 이 리포에서 직접 검증 — 위 헤더 주석 참고): --target을 주면 CLI가
     # 호스트 OS가 아니라 --target 기준으로 tauri.windows.conf.json(externalBin 포함)을

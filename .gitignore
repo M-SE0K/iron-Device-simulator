@@ -11,6 +11,11 @@ node_modules/
 # Production build
 /build
 
+# Electron 패키징 산출물 (scripts/build/build-electron.sh 로 재생성)
+/dist-electron/
+# Electron 메인 프로세스 웹팩 번들 (npm run build:electron:main 으로 재생성)
+/electron-dist/
+
 # Tauri 빌드 산출물 (src-tauri 본 구현 단계에서 채워짐)
 /src-tauri/target/
 /src-tauri/binaries/
@@ -62,6 +67,10 @@ next-env.d.ts
 
 # Vercel
 .vercel
+
+# 배포 전 클론 무결성 검증(docker/verify)의 작업 산출물 — 스냅샷 tar + 결과 로그.
+# 검증 스크립트 자체는 커밋 대상이다.
+/docker/verify/.build/
 
 # Measurement
 measurements/
