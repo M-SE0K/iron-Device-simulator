@@ -36,6 +36,8 @@
     "build:tauri:windows": "./scripts/build/build-tauri.sh --windows-only",
     "build:tauri:linux": "./scripts/build/build-tauri.sh --linux-only",
     "tauri:preview": "[ -d out ] || { echo 'out/ 이 없습니다 — 먼저 npm run build:desktop 을 실행하세요.' >&2; exit 1; } && npx tauri dev",
+    "verify:docker": "bash docker/verify/run.sh",
+    "verify:docker:full": "bash docker/verify/run.sh --full",
     "e2e:measure": "./scripts/실험용/measure-e2e-latency.sh",
     "e2e:summarize": "node scripts/실험용/summarize-e2e-latency.js",
     "loopback:measure": "node scripts/실험용/measure-loopback-offline.js"
