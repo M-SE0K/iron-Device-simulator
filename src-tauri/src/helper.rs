@@ -1,14 +1,7 @@
-//! helper.rs — 과거 Electron IPC 모듈(`electron/ipc/audio-device.js`, 현재는 제거됨)에서
-//! 1:1 포팅.
-//!
-//! Electron 채널 → Tauri 커맨드 매핑:
-//!   `audio-device:list`       → `audio_device_list`
-//!   `audio-device:get-config` → `audio_device_get_config`
-//!   `audio-device:set-config` → `audio_device_set_config`
-//!   `audio-device:query`      → `audio_device_query`
+//! helper.rs — 네이티브 오디오 헬퍼 바이너리 실행/경로 해석 공용 로직.
 //!
 //! audio_capture.rs/audio_playcapture.rs도 여기 helper_path()/SUPPORTED/with_device를
-//! 재사용한다 — 같은 헬퍼 바이너리와 지원 플랫폼 판정을 공유해야 하기 때문이다(원본 JS와 동일).
+//! 재사용한다 — 같은 헬퍼 바이너리와 지원 플랫폼 판정을 공유해야 하기 때문이다.
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -59,7 +52,7 @@ fn helper_source_dir() -> &'static str {
     }
 }
 
-/// 헬퍼 바이너리 경로 해석 — 과거 Electron의 `app.isPackaged` 분기를 대체하는 Tauri 쪽 판정.
+/// 헬퍼 바이너리 경로 해석 — 패키징 여부에 따른 분기.
 /// 1) 실행파일 옆의 `audio-device-helper(.exe)` — `bundle.externalBin` 사이드카는
 ///    빌드 스크립트가 타깃 트리플 접미사를 제거한 이름으로 이 위치에 복사해둔다.
 /// 2) 없으면 개발 폴백: `<repo>/native/{macos|windows}/audio-device-helper/dist/…`.

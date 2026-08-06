@@ -1,4 +1,4 @@
-// main.rs — Tauri 앱 합성 루트 (과거 Electron의 `electron/main.js`가 하던 역할, 현재는 제거됨).
+// main.rs — Tauri 앱 합성 루트.
 //
 // out/(scripts/build/build-static-local.sh 공용 코어 산출물)을 내장 asset 프로토콜
 // (`frontendDist: "../out"`)로 그대로 띄운다. 오디오 장치/캡처/로컬 폴더 커맨드는 각
@@ -145,8 +145,8 @@ fn main() {
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
         .run(|app_handle, event| {
-            // 앱 종료 시(과거 Electron의 window-all-closed/before-quit 대응) 상주 헬퍼 자식
-            // 프로세스와 폴더 감시자를 정리한다. 단일 창 앱이라 창 닫힘=앱 종료로 단순화(Tauri 기본 동작
+            // 앱 종료 시 상주 헬퍼 자식 프로세스와 폴더 감시자를 정리한다.
+            // 단일 창 앱이라 창 닫힘=앱 종료로 단순화(Tauri 기본 동작
             // 그대로 — macOS activate 재생성 로직은 두지 않는다. 계획서 5.6 "단순화 채택" 참고).
             if let RunEvent::ExitRequested { .. } | RunEvent::Exit = event {
                 cleanup(app_handle);

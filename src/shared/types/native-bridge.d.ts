@@ -46,12 +46,6 @@ export interface AudioDeviceQueryResult {
   error?: string;
 }
 
-// E2E 지연 실험(N1, src/features/audio/lib/perf-e2e/) 전용 — Tauri Rust core가 stdout 청크마다 별도
-// 채널로 보내는 Date.now() 타임스탬프.
-export interface AudioE2EMark {
-  sentAt: number;
-}
-
 export interface AudioCaptureStartResult {
   success: boolean;
   device?: string;
@@ -72,7 +66,6 @@ interface PlayCaptureStartOpts {
   refChannels?: 1 | 2; // ref 파일의 채널 수 — 2면 인터리브 스테레오([L0,R0,L1,R1,...] Float32). 생략 시 1(모노).
   outputChannel?: number; // ref(L)를 내보낼 출력 채널 인덱스 — 생략/0이면 ch0(기본). 장치 outputChannels 범위 밖이면 헬퍼가 에러.
   outputChannelR?: number; // ref(R)를 내보낼 출력 채널 — refChannels 2와 함께 씀. 범위 밖/outputChannel과 중복이면 헬퍼가 에러 없이 모노로 폴백.
-  e2e?: boolean; // true면 stdout 청크마다 onE2EMark로 타임스탬프도 보낸다 — E2E 지연 실험(N1) 전용
 }
 
 // 청크 핸드셰이크 — 재생할 파일 PCM을 한 번의 구조화 복제로 넘기지 않고 작은 조각으로
@@ -141,12 +134,10 @@ declare global {
         bufferSize: number;
         channels?: number;
         deviceUID?: string; // 생략 시 OS 기본 입력 장치
-        e2e?: boolean; // true면 stdout 청크마다 onE2EMark로 타임스탬프도 보낸다 — E2E 지연 실험(N1) 전용
       }) => Promise<AudioCaptureStartResult>;
       stop: () => Promise<{ success: boolean }>;
       onData: (callback: (chunk: Uint8Array) => void) => () => void;
       onEnded: (callback: (info: { code: number | null }) => void) => () => void;
-      onE2EMark: (callback: (info: AudioE2EMark) => void) => () => void;
     };
     audioPlayCapture?: {
       // 재생할 파일 PCM 청크 핸드셰이크 — startWrite → writeChunk(반복) → finalizeWrite 순으로
@@ -166,7 +157,6 @@ declare global {
       onData: (callback: (chunk: Uint8Array) => void) => () => void;
       // code 0 = 재생 완료(자기 종료), 그 외 = 비정상 종료. 사용자 stop 시에는 오지 않는다.
       onEnded: (callback: (info: { code: number | null }) => void) => () => void;
-      onE2EMark: (callback: (info: AudioE2EMark) => void) => () => void;
     };
     localFolder?: {
       select: () => Promise<LocalFolderSelectResult>;

@@ -22,7 +22,7 @@
 
 ## 4. 의존성 및 흐름
 
-- **가져오는 것**: `calibration/CalibrationContext`, `shared/components/error-popup`, `lib/engine/{core, protocol/local-socket, protocol/socket-types, protocol/analysis, utils}`, `lib/codec/{playback-decode, wav-encoder}`, `lib/perf/capture-telemetry`, `lib/perf-e2e/collector`, `shared/lib/ipc-error`.
+- **가져오는 것**: `calibration/CalibrationContext`, `shared/components/error-popup`, `lib/engine/{core, protocol/local-socket, protocol/socket-types, protocol/analysis, utils}`, `lib/codec/{playback-decode, wav-encoder}`, `shared/lib/ipc-error`.
 - **Tauri 네이티브 브리지**: `window.audioCapture`/`window.audioPlayCapture`(`shared/lib/tauri-bridge`가 채움)를 직접 호출합니다.
 - **소비하는 도메인**: `dashboard/`가 `DuplexFilePlayer`를 마운트하고 `onFrameReceived`/`onStreamStart`/`onSave`/`onReset` 등 콜백을 주입합니다. `channel/`(`ChartDetailOverlay`, `ProtectedComparePanel`)과 `workspace/`(저장 시 `getRecordedBlob`)는 `WaveformPlayerHandle`로 캡처 스트림·스냅샷·녹음 Blob을 가져갑니다.
 

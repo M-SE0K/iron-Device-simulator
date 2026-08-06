@@ -11,11 +11,6 @@ node_modules/
 # Production build
 /build
 
-# Electron 패키징 산출물 (scripts/build/build-electron.sh 로 재생성)
-/dist-electron/
-# Electron 메인 프로세스 웹팩 번들 (npm run build:electron:main 으로 재생성)
-/electron-dist/
-
 # Tauri 빌드 산출물 (src-tauri 본 구현 단계에서 채워짐)
 /src-tauri/target/
 /src-tauri/binaries/
@@ -33,8 +28,6 @@ node_modules/
 
 # WASM 빌드 산출물 — npm run wasm:build 로 재생성 (public/의 소스 파일(mic-processor.js)은 커밋 대상)
 /public/wasm/
-/public/wasm-debug/
-/public/wasm-dummy/
 
 # 로컬 전용 소스 — 원격 레포에는 올리지 않음 (각자 로컬에서만 보관/빌드)
 /resources/

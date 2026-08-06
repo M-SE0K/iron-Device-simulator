@@ -18,12 +18,8 @@
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 
-WASM_MODE="${WASM_MODE:-normal}"
-case "$WASM_MODE" in
-  debug) WASM_OUT_DIR="public/wasm-debug"; WASM_DIR_NAME="wasm-debug" ;;
-  dummy) WASM_OUT_DIR="public/wasm-dummy"; WASM_DIR_NAME="wasm-dummy" ;;
-  *)     WASM_OUT_DIR="public/wasm";       WASM_DIR_NAME="wasm" ;;
-esac
+WASM_OUT_DIR="public/wasm"
+WASM_DIR_NAME="wasm"
 
 if [[ ! -f "$WASM_OUT_DIR/ff_prot.wasm" ]]; then
   echo "✗ $WASM_OUT_DIR/ff_prot.wasm 이 없습니다 — 먼저 build-static-local.sh(또는 wasm-preview.sh)를 실행하세요." >&2

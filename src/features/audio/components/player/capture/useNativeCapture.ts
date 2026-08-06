@@ -2,8 +2,6 @@
 
 import { useCallback, type MutableRefObject } from "react";
 import type { AppStatus } from "@/features/audio/types";
-import { e2e } from "@/features/audio/lib/perf-e2e/collector";
-import { createCaptureTelemetry } from "@/features/audio/lib/perf/capture-telemetry";
 import type { SocketLike } from "@/features/audio/lib/engine/protocol/socket-types";
 import { clampCaptureChannels, CHANNELS } from "@/features/audio/lib/engine/core";
 import { encodeToInt16 } from "@/features/audio/lib/engine/utils";
@@ -115,15 +113,11 @@ export function useNativeCapture(deps: NativeCaptureDeps) {
     const { playback } = params;
 
     const captureChannels = clampCaptureChannels(params.channels);
-    const e2eActive = e2e.isEnabled();
     const baseOpts = {
       sampleRate: params.sampleRate,
       bufferSize: params.bufferSize,
       channels:   captureChannels,
       deviceUID:  params.captureDeviceUID?.trim() || undefined,
-      // 켜져 있으면 Tauri Rust core가 stdout 청크마다 별도 채널로 Date.now() 타임스탬프를 추가로
-      // 보낸다 — N1(네이티브 IPC 릴레이 지연) 측정용. 꺼져 있으면(기본) 추가 IPC 없음.
-      e2e: e2eActive,
     };
 
     let res;
@@ -180,23 +174,15 @@ export function useNativeCapture(deps: NativeCaptureDeps) {
     recordingActiveRef.current = true;
     emitStreamEvent({ type: "reset", channels: actualChannels, sampleRate: actualRate });
 
-    const telemetry = createCaptureTelemetry<Int16Array>({
-      mode: "native", sampleRate: actualRate, samplesPerCh: wireSamplesPerCh,
-      channels: actualChannels, deviceName: res.device || null,
-      onEncodedFrame: (frame) => {
-        const audioBuf = buildAudioBufFrame(playback?.pcm ?? null, emittedFrames++, wireSamplesPerCh);
-        ws.send(concatFrames(audioBuf, frame));
-        ++frameCountRef.current;
-      },
-    });
-
     let emittedFrames = 0;
     const reframe = createNativeFrameReframer(
       actualChannels,
       wireSamplesPerCh,
       (frame) => {
         if (!analysisActiveRef.current) return;
-        telemetry.markEncodedFrame(frame);
+        const audioBuf = buildAudioBufFrame(playback?.pcm ?? null, emittedFrames++, wireSamplesPerCh);
+        ws.send(concatFrames(audioBuf, frame));
+        ++frameCountRef.current;
       },
       (rawFrame) => {
         if (!recordingActiveRef.current) return;
@@ -217,18 +203,8 @@ export function useNativeCapture(deps: NativeCaptureDeps) {
       // 실제 재생 위치도 버린 만큼 어긋나 있었다.
       // 분석 프레임을 실제로 보낼지 말지는 reframer의 analysisActiveRef 게이트가 계속 맡는다.
       if (ws.readyState === WebSocket.CLOSED) return;
-      telemetry.markChunkArrival();
-      telemetry.measureEncoding(() => reframe(chunk));
+      reframe(chunk);
     });
-    // N1(네이티브 IPC 릴레이) — 데스크톱 셸 백엔드(Tauri Rust core)가 stdout 청크를 전달한 시각(Date.now(), baseOpts.e2e로
-    // 요청했을 때만 옴)과 이 렌더러 콜백이 실행된 시각의 차이. 프로세스 경계라 performance.now()는
-    // 서로 다른 기준시각(process 시작 시각)을 쓰므로 비교 불가 — 반드시 Date.now()(벽시계)로 잰다.
-    const offMark = e2eActive && bridge.onE2EMark
-      ? bridge.onE2EMark((info) => {
-          if (!isActiveRef.current) return;
-          e2e.sample("N1", Date.now() - info.sentAt);
-        })
-      : undefined;
     const offEnded = bridge.onEnded((info) => {
       if (!isActiveRef.current) return;
       if (playback && info.code === 0) {
@@ -245,7 +221,7 @@ export function useNativeCapture(deps: NativeCaptureDeps) {
       cleanup();
       onStatusChange("error");
     });
-    nativeOffsRef.current = offMark ? [offData, offEnded, offMark] : [offData, offEnded];
+    nativeOffsRef.current = [offData, offEnded];
   }, [
     nativeOffsRef, nativeActiveRef, playCaptureActiveRef, rawCaptureRef, recordingActiveRef, analysisActiveRef,
     isActiveRef, frameCountRef,

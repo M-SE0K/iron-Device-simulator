@@ -70,15 +70,3 @@ export async function downloadBlob(blob: Blob, filename: string): Promise<void> 
   // revoke를 동기로 하면 일부 브라우저에서 다운로드가 취소된다 — 다음 tick으로 미룬다.
   setTimeout(() => URL.revokeObjectURL(url), 0);
 }
-
-export function downloadJsonArtifact(
-  data: unknown,
-  filenamePrefix: string,
-  meta: { mode: string; startedAt: string },
-  filename?: string,
-): void {
-  if (typeof document === "undefined") return;
-  const stamp = meta.startedAt.replace(/[:.]/g, "-");
-  const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
-  downloadBlob(blob, filename ?? `${filenamePrefix}_${meta.mode}_${stamp}.json`);
-}

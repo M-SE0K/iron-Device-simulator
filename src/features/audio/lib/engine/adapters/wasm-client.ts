@@ -93,10 +93,7 @@ class ClientWasmMemoryLayout implements MemoryLayout {
 type FfProtInstance = any;
 type FfProtFactory = (moduleArg?: Record<string, unknown>) => Promise<FfProtInstance>;
 
-// 기본은 클린 WASM(public/wasm/, 프로덕션·측정 공용). 실험(debug) 빌드(npm run wasm:build:debug →
-// public/wasm-debug/, V/I 값 printf 덤프 포함)를 쓰려면 빌드/dev 서버 기동 시
-// NEXT_PUBLIC_WASM_DIR=/wasm-debug 를 설정한다 — scripts/build/build-static-local.sh의
-// WASM_MODE=debug 가 이 값을 자동으로 맞춰준다.
+// WASM 산출물 경로. 기본은 public/wasm/ — 정적 export가 그대로 out/wasm/으로 복사한다.
 const WASM_DIR = process.env.NEXT_PUBLIC_WASM_DIR || "/wasm";
 
 let factoryPromise: Promise<FfProtFactory> | null = null;

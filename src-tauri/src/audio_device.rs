@@ -1,11 +1,5 @@
-//! audio_device.rs — 과거 Electron IPC 모듈(`electron/ipc/audio-device.js`, 현재는 제거됨)의
-//! ipcMain.handle 4종을 1:1 포팅.
-//!
-//! Electron 채널 → Tauri 커맨드 매핑:
-//!   `audio-device:list`       → `audio_device_list`
-//!   `audio-device:get-config` → `audio_device_get_config`
-//!   `audio-device:set-config` → `audio_device_set_config`
-//!   `audio-device:query`      → `audio_device_query`
+//! audio_device.rs — 오디오 장치 목록 조회/설정 커맨드 4종: `audio_device_list`,
+//! `audio_device_get_config`, `audio_device_set_config`, `audio_device_query`.
 //!
 //! 인자/반환 모두 `serde_json::Value` 패스스루 — 헬퍼 CLI 계약이 진짜 소스이므로 여기서
 //! 별도 타입을 만들지 않는다. (참고: get/setConfig는 렌더러에서 현재 미사용(죽은 표면)이지만

@@ -60,5 +60,5 @@ export type WsServerMessage =
   // 재생은 그동안에도 흘러가므로 이 값 × samplesPerCh / sampleRate 초만큼이 "측정 결과가
   // 비어 있는 앞구간"이다 — 플랫폼별 워밍업 비용을 재는 계측치.
   | { type: "ready"; warmupDroppedFrames?: number }
-  | { type: "frame"; frameIndex: number; time: number; temperature: number; excursion: number; processingMs: number; engineExecMs?: number }
+  | { type: "frame"; frameIndex: number; time: number; temperature: number; excursion: number; processingMs: number }
   | { type: "error"; message: string };

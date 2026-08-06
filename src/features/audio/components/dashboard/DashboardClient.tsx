@@ -41,7 +41,6 @@ import { formatTime, splitFileName } from "@/shared/lib/utils";
 import { putAudio, clearAudio } from "@/features/audio/lib/cache/audio-blob";
 import { coalesceFrames } from "@/features/audio/lib/render/coalesce";
 import { ChartStore } from "@/features/audio/lib/render/chart-store";
-import { e2e } from "@/features/audio/lib/perf-e2e/collector";
 import { detectEvents, DEFAULT_TEMP_WARN, DEFAULT_TEMP_DANGER, type TempThresholds } from "@/features/audio/lib/render/detect-events";
 import type { QueuedFrame } from "@/features/audio/lib/render/types";
 import { useFrameCachePersistence } from "@/features/audio/components/dashboard/hooks/useFrameCachePersistence";
@@ -263,9 +262,8 @@ export default function DashboardPage({ useQueue }: DashboardPageProps) {
   const handleFrameReceived = useCallback((frame: AnalysisFrame) => {
     allFramesRef.current.push(frame);
     if (useQueue) {
-      outputQueueRef.current.push({ frame, recvAt: performance.now() });
+      outputQueueRef.current.push({ frame });
     } else {
-      e2e.markCommit();
       chartStore.push(frame);
       chartStore.flush();
       markHasFrames();
@@ -285,15 +283,8 @@ export default function DashboardPage({ useQueue }: DashboardPageProps) {
 
       if (bucket.length === 0) return;
 
-      if (e2e.isActive()) {
-        const now = performance.now();
-        for (const q of bucket) e2e.sample("N9", now - q.recvAt);
-      }
-
-      const { eventFrames, renderFrame } = e2e.time("N10", () => ({
-        eventFrames: detectEvents(bucket, prevTempRef.current, thresholdsRef.current),
-        renderFrame: coalesceFrames(bucket),
-      }));
+      const eventFrames = detectEvents(bucket, prevTempRef.current, thresholdsRef.current);
+      const renderFrame = coalesceFrames(bucket);
       const latest = bucket[bucket.length - 1];
 
       prevTempRef.current = latest.frame.temperature;
@@ -306,7 +297,6 @@ export default function DashboardPage({ useQueue }: DashboardPageProps) {
       }
       renderFrames.push(renderFrame);
 
-      e2e.markCommit();
       for (const f of renderFrames) chartStore.push(f);
       chartStore.flush();
       markHasFrames();

@@ -27,7 +27,7 @@
    ```
    `emcc`가 없어도 **Docker만 있으면 된다** — `build-wasm.sh`가 emscripten/emsdk 이미지로 자동 폴백한다. → http://localhost:3000 에서 마이크/파일 입력으로 바로 확인.
 4. **지켜야 할 버퍼 규약** (아래 "함수 시그니처" 절의 상세 참고) — `buf`는 **planar** int16 PCM(In/Out, 감쇠 결과를 in-place로 되씀), `samples_per_ch`는 세션마다 바뀌는 런타임 값(기본 480), `sample_rate_hz` 인자는 **없음**, 출력 단위는 `spk_temp` °C / `spk_exc` µm(int32).
-5. **값 확인** — `npm run wasm:build:debug`(`FF_PROT_DEBUG_VI=1`)로 빌드하면 프레임마다 V/I 입력이 콘솔에 덤프된다(대량 출력 — 지연 측정과 병행 금지). 순수 C 수준 검증은 `selftest.c`를 본인 구현에 맞게 고쳐 `make selftest`(Linux x86-64)로 돌릴 수 있다.
+5. **값 확인** — 순수 C 수준 검증은 `selftest.c`를 본인 구현에 맞게 고쳐 `make selftest`(Linux x86-64)로 돌릴 수 있다.
 
 ## 함수 시그니처 (adapters/wasm-client.ts 와 1:1)
 

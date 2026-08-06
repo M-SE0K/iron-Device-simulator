@@ -1,18 +1,9 @@
-//! audio_playcapture.rs — 과거 Electron IPC 모듈(`electron/ipc/audio-playcapture.js`, 현재는
-//! 제거됨)에서 1:1 포팅
-//! (파일 재생 + V/I 캡처, 상주 play-capture 헬퍼).
-//!
-//! Electron 채널 → Tauri 커맨드/이벤트 매핑:
-//!   `audio-playcapture:start-write`    → `audio_playcapture_start_write`
-//!   `audio-playcapture:write-chunk`    → `audio_playcapture_write_chunk` (raw invoke body + `x-write-id` 헤더)
-//!   `audio-playcapture:finalize-write` → `audio_playcapture_finalize_write`
-//!   `audio-playcapture:cancel-write`   → `audio_playcapture_cancel_write`
-//!   `audio-playcapture:start`          → `audio_playcapture_start` (data: Channel, e2e: mark Channel)
-//!   `audio-playcapture:control`        → `audio_playcapture_control`
-//!   `audio-playcapture:stop`           → `audio_playcapture_stop`
-//!   `audio-playcapture:data`           → `data` 파라미터로 넘긴 Channel (Raw PCM 청크)
-//!   `audio-playcapture:ended`          → `app.emit("audio-playcapture:ended", { code })`
-//!   `audio-playcapture:e2e-mark`       → `mark` 파라미터로 넘긴 Channel (E2E 실험 전용)
+//! audio_playcapture.rs — 파일 재생 + V/I 캡처(상주 play-capture 헬퍼) 커맨드/이벤트:
+//! `audio_playcapture_start_write`, `audio_playcapture_write_chunk`(raw invoke body +
+//! `x-write-id` 헤더), `audio_playcapture_finalize_write`, `audio_playcapture_cancel_write`,
+//! `audio_playcapture_start`(data: Channel — Raw PCM 청크),
+//! `audio_playcapture_control`, `audio_playcapture_stop`,
+//! `app.emit("audio-playcapture:ended", { code })`.
 //!
 //! ref 전달은 청크 핸드셰이크(start-write/write-chunk/finalize-write)다 — 파일 전체를 한 번의
 //! IPC로 넘기면(수 분 파일 기준 수십 MB) 순간적으로 렌더러/IPC가 멎는다. 렌더러가 PCM을 작은
@@ -192,13 +183,8 @@ pub struct PlayCaptureStartOptions {
     /// R 출력 채널 — 범위 밖/L과 중복이면 헬퍼가 에러 없이 모노로 폴백한다.
     #[serde(default)]
     output_channel_r: Option<u32>,
-    #[serde(default)]
-    e2e: bool,
 }
 
-// 참고: `Channel`은 `Deserialize`가 없어 `Option<Channel<_>>`을 커맨드 인자로 못 쓴다
-// (audio_capture.rs 상단 주석 참고 — `cargo check`로 실측). `mark`는 항상 필수 인자로 받고
-// 실제 전송 여부만 `opts.e2e`로 가른다.
 // audio_capture_start와 같은 이유로 `async fn` + `Result` — 재생 버튼의 가장 큰 프리즈가
 // 여기였다. `run_streaming_helper`가 헬퍼의 첫 줄 JSON을 기다리는 동안(프로세스 생성 → ASIO
 // 드라이버 로드 → ASIOInit → 버퍼 생성) sync 커맨드는 UI 스레드를 통째로 잡고 있었다.
@@ -208,7 +194,6 @@ pub async fn audio_playcapture_start(
     state: State<'_, PlayCaptureState>,
     opts: PlayCaptureStartOptions,
     data: Channel<InvokeResponseBody>,
-    mark: Channel<InvokeResponseBody>,
 ) -> Result<Value, String> {
     if !is_supported_platform() {
         return Ok(serde_json::json!({ "success": false, "error": "unsupported-platform" }));
@@ -251,9 +236,6 @@ pub async fn audio_playcapture_start(
     }
     let args = with_device(base_args, opts.device_uid.as_deref());
 
-    // E2E 지연 실험(N1) 전용 — 렌더러가 명시적으로 요청(e2e=true)했을 때만 mark 채널을 쓴다.
-    let mark_channel = if opts.e2e { Some(mark) } else { None };
-
     // 재생 완료(code 0) 포함 모든 종료 경로(정상 종료·에러·조기 kill)에서 ref 임시 파일을
     // 정리한다 — 원본의 onChildError/onChildExit 콜백을 합친 것과 동등(Rust에서는 spawn 실패
     // 아니면 exit뿐이라 콜백 하나로 충분).
@@ -269,7 +251,6 @@ pub async fn audio_playcapture_start(
         args,
         data,
         "audio-playcapture:ended".to_string(),
-        mark_channel,
         Some(cleanup),
     ))
 }

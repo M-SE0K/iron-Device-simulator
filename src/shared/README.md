@@ -21,7 +21,7 @@
 | `hooks/{useCtrlBToggle.ts, useEscapeKey.ts, useOverlayTransition.ts}` | 키보드 단축키(Ctrl/Cmd+B, Escape)와 오버레이 진입/이탈 전환 공용 훅 |
 | `lib/i18n/{locale.ts, LocaleProvider.tsx, messages/{en.ts, ko.ts}}` | 표시 언어 컨텍스트와 메시지 카탈로그 |
 | `lib/ipc-error.ts` | 네이티브 IPC/헬퍼의 짧은 에러 코드를 사용자용 문장으로 변환 |
-| `lib/utils.ts` | `cn`/`formatTime`/`round3`/`formatFileSize`/`splitFileName`/`sanitizeFileName`/`splitPath`/`downloadBlob`/`downloadJsonArtifact` |
+| `lib/utils.ts` | `cn`/`formatTime`/`round3`/`formatFileSize`/`splitFileName`/`sanitizeFileName`/`splitPath`/`downloadBlob` |
 | `lib/yield-to-main.ts` | 메인 스레드를 짧게 양보하는 `yieldToMain()` |
 | `types/native-bridge.d.ts` | `window.audioDevice`/`audioCapture`/`audioPlayCapture`/`localFolder`/`wasmAsset` 타입 계약(Tauri shim이 채움) |
 
@@ -41,7 +41,7 @@ app/layout.tsx → ErrorPopupProvider + LocaleProvider 마운트
 
 ## 5. 주요 인터페이스 / 진입점
 
-- **`cn(...inputs)`** / **`formatTime(seconds)`** / **`round3(v)`** / **`formatFileSize(bytes)`** / **`splitFileName(name)`** / **`sanitizeFileName(name)`** / **`splitPath(path)`** / **`downloadBlob(blob, filename)`** / **`downloadJsonArtifact(data, prefix, meta, filename?)`** — `lib/utils.ts`의 범용 유틸.
+- **`cn(...inputs)`** / **`formatTime(seconds)`** / **`round3(v)`** / **`formatFileSize(bytes)`** / **`splitFileName(name)`** / **`sanitizeFileName(name)`** / **`splitPath(path)`** / **`downloadBlob(blob, filename)`** — `lib/utils.ts`의 범용 유틸.
 - **`humanizeIpcError(raw, fallback): string`** — 알려진 IPC 에러 코드·fs errno·이미 사람이 쓴 문장을 구분해 사용자용 메시지로 바꿉니다.
 - **`yieldToMain(): Promise<void>`** — `scheduler.yield()`가 있으면 그걸, 없으면 `MessageChannel`로 매크로태스크 양보.
 - **`useErrorPopup(): { showError, showSuccess }`** — `ErrorPopupProvider` 트리 안에서만 호출 가능.

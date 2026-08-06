@@ -41,8 +41,6 @@ interface Props {
   yRange?: [number, number];
   /** x축 전체(줌 아웃) 범위 — 생략하면 데이터 extent. (예: 채널 뷰의 [0, 전체 길이]) */
   xRange?: [number, number];
-  /** 데이터 커밋(동기 캔버스 드로우) 소요 시간 보고 — perf 하네스 N12 측정용. */
-  onRender?: (ms: number) => void;
   /**
    * 사용자 줌 조작(드래그/휠/더블클릭)으로 x 스케일이 바뀔 때만 호출된다 — 스트리밍
    * setData가 일으키는 내부 auto-rescale은 제외.
@@ -112,7 +110,7 @@ function isZoomedFollow(u: uPlot, anchorT: number, anchorWall: number): boolean 
   return Math.abs(min - 0) > tol || Math.abs(max - expectedMax) > tol;
 }
 
-export default function UPlotChart({ options, data, source, yRange, xRange, onRender, onUserZoom, seriesShow, streamFollow, className }: Props) {
+export default function UPlotChart({ options, data, source, yRange, xRange, onUserZoom, seriesShow, streamFollow, className }: Props) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const chartRef = useRef<uPlot | null>(null);
   const zoomedRef = useRef(false);
@@ -122,7 +120,6 @@ export default function UPlotChart({ options, data, source, yRange, xRange, onRe
   const dataRef = useRef<uPlot.AlignedData | null>(data ?? null);
   const yRangeRef = useRef<[number, number] | null>(yRange ?? null);
   const xRangeRef = useRef<[number, number] | null>(xRange ?? null);
-  const onRenderRef = useRef(onRender);
   const onUserZoomRef = useRef(onUserZoom);
   const sourceReadRef = useRef(source?.read);
   // 인스턴스에 이미 반영된 데이터 — 재생성 직후 data effect가 같은 데이터를 중복 커밋하지 않게 한다.
@@ -134,7 +131,6 @@ export default function UPlotChart({ options, data, source, yRange, xRange, onRe
   // 커밋 사이에 범위가 null로 되돌아가 y축이 데이터 extent로 튄다.
   if (!source) yRangeRef.current = yRange ?? null;
   xRangeRef.current = xRange ?? null;
-  onRenderRef.current = onRender;
   onUserZoomRef.current = onUserZoom;
   const seriesShowRef = useRef(seriesShow);
   seriesShowRef.current = seriesShow;
@@ -231,7 +227,6 @@ export default function UPlotChart({ options, data, source, yRange, xRange, onRe
     if (seed?.yRange) yRangeRef.current = seed.yRange;
     const initialData = seed?.data ?? dataRef.current ?? emptyData(options);
 
-    const t0 = performance.now();
     internalCommitRef.current = true;
     const u = new uPlot(merged, initialData, el);
     chartRef.current = u;
@@ -244,7 +239,6 @@ export default function UPlotChart({ options, data, source, yRange, xRange, onRe
     applySeriesShow(u);
     sizeToContainer(u, el);
     internalCommitRef.current = false;
-    onRenderRef.current?.(performance.now() - t0);
 
     const ro = new ResizeObserver(() => {
       const chart = chartRef.current;
@@ -310,7 +304,6 @@ export default function UPlotChart({ options, data, source, yRange, xRange, onRe
       }
     });
     internalCommitRef.current = false;
-    onRenderRef.current?.(performance.now() - t0);
   };
 
   // passive effect가 아니라 layout effect여야 React 커밋과 같은 프레임(브라우저 paint 전)에 반영된다.

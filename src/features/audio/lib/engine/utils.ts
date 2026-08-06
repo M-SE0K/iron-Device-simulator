@@ -70,9 +70,7 @@ export function createAnalysisFrame(
 
   try {
     layout.writePlanar(bufPtr, planar);
-    const tExec0 = performance.now();
     layout.execAnalysis(bufPtr, tempPtr, excPtr, params.ambientTemp, sensing);
-    const execMs = performance.now() - tExec0;
     const [temperature, excursion] = layout.readResults(tempPtr, excPtr);
 
     const processedPcm = opts.includeProcessedPcm
@@ -83,7 +81,6 @@ export function createAnalysisFrame(
       temperature,
       excursion,
       processingMs: round3(performance.now() - t0),
-      execMs: round3(execMs),
       ...(processedPcm && { processedPcm }),
     };
   } finally {

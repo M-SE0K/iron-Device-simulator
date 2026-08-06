@@ -42,7 +42,6 @@ export function createFrameMessage(
     temperature: frame.temperature,
     excursion: frame.excursion,
     processingMs: frame.processingMs,
-    ...(frame.execMs !== undefined && { engineExecMs: frame.execMs }),
   };
 }
 

@@ -11,17 +11,8 @@
 # 리터럴로 임시 치환했다가 끝나면 원복한다.
 # MOBILE_BUILD=1 (next.config.ts → output:"export") 로 next build → out/
 #
-# WASM_MODE=debug 면 ff_prot.c의 FF_PROT_DEBUG_VI 실험(debug) 빌드(V/I 값 printf 덤프 포함)를
-# public/wasm-debug/ 에 만들고 NEXT_PUBLIC_WASM_DIR로 그쪽을 가리키게 한다 — 클린 빌드
-# (public/wasm/, 기본값이자 프로덕션·측정 공용)와는 물리적으로 분리된 산출물이라 서로 덮어쓰지
-# 않는다. 측정(E2E 지연) 시에는 항상 기본값(WASM_MODE 미설정)을 쓰고 실행 시 ?e2e=1 로 켠다.
-# WASM_MODE=dummy 면 FF_PROT_DUMMY_ATTENUATION 빌드(pass B 감쇠가 절대 개입하지 않음 — buf가
-# 패스스루)를 public/wasm-dummy/ 에 만든다. "Protection Algorithm" 패널의 Protected 트레이스가
-# Input과 완전히 겹치는지 확인하거나, 감쇠가 전혀 없을 때의 temp/exc 추정치를 보고 싶을 때 쓴다.
-#
-# SKIP_WASM_BUILD=1 이면 emcc 컴파일 자체를 건너뛰고, 해당 WASM_MODE 디렉터리(기본 public/wasm/,
-# debug면 public/wasm-debug/, dummy면 public/wasm-dummy/)에 이미 놓아둔 ff_prot.{js,wasm}를
-# 그대로 쓴다 — 리포의 .c 소스가 아니라 직접 빌드/수정한 커스텀 WASM 산출물을 패키징에 쓸 때
+# SKIP_WASM_BUILD=1 이면 emcc 컴파일 자체를 건너뛰고, public/wasm/ 에 이미 놓아둔
+# ff_prot.{js,wasm}를 그대로 쓴다 — 리포의 .c 소스가 아니라 직접 빌드/수정한 커스텀 WASM 산출물을 패키징에 쓸 때
 # (예: custom/ 드롭인 대신 이미 컴파일된 바이너리를 갖고 있는 경우) 미리 그 파일들을 대상
 # 디렉터리에 복사해두고 이 플래그로 실행한다. build-tauri.sh의 SKIP_WIN_HELPER_BUILD와
 # 같은 패턴.
@@ -35,19 +26,10 @@ trap 'mv "$PAGE.bak" "$PAGE"' EXIT
 sed -i.tmp 's/^export const dynamic = .*/export const dynamic = "force-static";/' "$PAGE"
 rm -f "$PAGE.tmp"
 
-WASM_MODE="${WASM_MODE:-normal}"
-case "$WASM_MODE" in
-  debug) WASM_OUT_DIR="public/wasm-debug"; WASM_BUILD_CMD="wasm:build:debug" ;;
-  dummy) WASM_OUT_DIR="public/wasm-dummy"; WASM_BUILD_CMD="wasm:build:dummy" ;;
-  *)     WASM_OUT_DIR="public/wasm";       WASM_BUILD_CMD="wasm:build" ;;
-esac
+WASM_OUT_DIR="public/wasm"
 
-# 소스 난독화/빌드 하드닝(FF_PROT_HARDEN, native/wasm-engine/build-wasm.sh)은 실제 배포용인
-# normal 모드에서만 기본 ON — debug/dummy는 값 확인용 진단 빌드라 하드닝이 오히려 방해된다
-# (사용자가 명시적으로 FF_PROT_HARDEN=1을 지정하면 debug/dummy에도 그대로 적용됨).
-if [[ "$WASM_MODE" == "normal" ]]; then
-  export FF_PROT_HARDEN="${FF_PROT_HARDEN:-1}"
-fi
+# 소스 난독화/빌드 하드닝(FF_PROT_HARDEN, native/wasm-engine/build-wasm.sh)은 기본 ON.
+export FF_PROT_HARDEN="${FF_PROT_HARDEN:-1}"
 
 if [[ "${SKIP_WASM_BUILD:-}" == "1" ]]; then
   echo "▶ WASM 컴파일 건너뜀 (SKIP_WASM_BUILD=1) — $WASM_OUT_DIR/의 기존 ff_prot.{js,wasm}를 그대로 씁니다"
@@ -56,12 +38,12 @@ if [[ "${SKIP_WASM_BUILD:-}" == "1" ]]; then
     exit 1
   fi
 else
-  echo "▶ 브라우저 타깃 WASM 빌드... ($WASM_MODE, $WASM_OUT_DIR/)"
-  npm run "$WASM_BUILD_CMD"
+  echo "▶ 브라우저 타깃 WASM 빌드... ($WASM_OUT_DIR/)"
+  npm run wasm:build
 fi
 export NEXT_PUBLIC_WASM_DIR="/${WASM_OUT_DIR#public/}"
 
 echo "▶ Next.js 정적 export 빌드 (out/)..."
 MOBILE_BUILD=1 npx next build
 
-echo "✓ 정적 번들 완료: out/ (브라우저 WASM 엔진, WASM_MODE=$WASM_MODE)"
+echo "✓ 정적 번들 완료: out/ (브라우저 WASM 엔진)"

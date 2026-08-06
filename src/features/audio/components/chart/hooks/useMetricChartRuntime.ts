@@ -1,6 +1,4 @@
 import { useCallback, useEffect, useRef } from "react";
-import { perf } from "@/features/audio/lib/perf/collector";
-import { e2e } from "@/features/audio/lib/perf-e2e/collector";
 import { timeDecimalsForInterval } from "@/features/audio/lib/render/uplot-option";
 import type { ChartMetric, ChartStore } from "@/features/audio/lib/render/chart-store";
 import { useThrottledStoreSnapshot } from "./useThrottledStoreSnapshot";
@@ -19,7 +17,6 @@ interface MetricChartRuntimeOptions {
   store: ChartStore;
   isActive: boolean;
   audioDuration?: number | null;
-  perfTrack: boolean;
 }
 
 interface Readout {
@@ -39,7 +36,6 @@ export function useMetricChartRuntime({
   store,
   isActive,
   audioDuration,
-  perfTrack,
 }: MetricChartRuntimeOptions) {
   const isActiveRef = useRef(isActive);
   isActiveRef.current = isActive;
@@ -60,19 +56,6 @@ export function useMetricChartRuntime({
     READOUT_INTERVAL_MS,
   );
 
-  // uPlot은 setData 안에서 동기적으로 캔버스를 다시 그린다 — UPlotChart가 그 구간을
-  // 직접 측정해 ms로 보고하므로 그대로 기록한다. 상세 뷰의 두 번째 인스턴스는 같은
-  // 커밋을 중복 계측하지 않도록 perfTrack이 꺼진 채로 마운트된다.
-  const onRender = useCallback((ms: number) => {
-    if (!perfTrack) return;
-    // 이 콜백은 setData 직후 동기적으로 불린다 — 스토어 flush에서 화면 반영까지가 N11,
-    // 캔버스 드로우 자체가 N12다. (읽기값 리렌더는 100ms로 throttle돼 있어 그쪽에서
-    // 재면 throttle 지연이 그대로 섞인다.)
-    e2e.sampleSinceCommit("N11", metric);
-    perf.recordRender(metric, ms);
-    e2e.sample("N12", ms, metric);
-  }, [metric, perfTrack]);
-
   // 정지되면 현재값 표시는 다음 스토어 갱신을 기다리지 않고 즉시 비운다.
   useEffect(() => {
     if (isActive) return;
@@ -84,7 +67,6 @@ export function useMetricChartRuntime({
   return {
     current: readout.current,
     timeDecimals: readout.timeDecimals,
-    onRender,
     showChart: audioDuration != null || readout.hasPoints,
   };
 }

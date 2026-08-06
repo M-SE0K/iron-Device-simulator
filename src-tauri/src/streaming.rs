@@ -1,5 +1,3 @@
-//! streaming.rs — 과거 Electron IPC 모듈(`electron/ipc/run-streaming-helper.js`, 현재는 제거됨)
-//! 에서 1:1 포팅 (공용 상주 헬퍼 러너).
 //!
 //! audio_capture.rs/audio_playcapture.rs가 이 모듈의 `StreamController`/`run_streaming_helper`를
 //! 공유 재사용한다 — 두 헬퍼(capture/play-capture) 모두 "첫 줄 JSON 헤더 → 이후 raw PCM 청크"
@@ -20,7 +18,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
 use std::thread;
-use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant};
 
 use serde_json::Value;
 use tauri::ipc::{Channel, InvokeResponseBody};
@@ -153,26 +151,6 @@ fn reap_after_eof(controller: &StreamController, my_generation: u64) -> Option<i
     }
 }
 
-fn now_millis() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_millis() as u64)
-        .unwrap_or(0)
-}
-
-fn send_data_and_mark(
-    data_channel: &Channel<InvokeResponseBody>,
-    mark_channel: Option<&Channel<InvokeResponseBody>>,
-    bytes: Vec<u8>,
-) {
-    let _ = data_channel.send(InvokeResponseBody::Raw(bytes));
-    if let Some(mark) = mark_channel {
-        // E2E 지연 실험(N1) 전용 — 실제 데이터와 별개로 전송 시각만 담은 가벼운 메시지.
-        let payload = serde_json::json!({ "sentAt": now_millis() }).to_string();
-        let _ = mark.send(InvokeResponseBody::Json(payload));
-    }
-}
-
 /// `run-streaming-helper.js`의 `runStreamingHelper` 포팅.
 ///
 /// 반환값은 헬퍼의 첫 줄 JSON 헤더(성공 시) 또는 헤더가 끝내 오지 않고 프로세스가 죽었을 때의
@@ -186,7 +164,6 @@ pub fn run_streaming_helper(
     args: Vec<String>,
     data_channel: Channel<InvokeResponseBody>,
     ended_event: String,
-    mark_channel: Option<Channel<InvokeResponseBody>>,
     on_exit_cleanup: Option<Box<dyn FnOnce() + Send + 'static>>,
 ) -> Value {
     let mut command = crate::helper::helper_command(&helper_path);
@@ -228,7 +205,6 @@ pub fn run_streaming_helper(
             stdout,
             data_channel,
             ended_event,
-            mark_channel,
             on_exit_cleanup,
             settle_tx,
         );
@@ -247,7 +223,6 @@ fn reader_loop(
     mut stdout: impl Read,
     data_channel: Channel<InvokeResponseBody>,
     ended_event: String,
-    mark_channel: Option<Channel<InvokeResponseBody>>,
     on_exit_cleanup: Option<Box<dyn FnOnce() + Send + 'static>>,
     settle_tx: mpsc::Sender<Value>,
 ) {
@@ -264,7 +239,7 @@ fn reader_loop(
         };
 
         if header_done {
-            send_data_and_mark(&data_channel, mark_channel.as_ref(), buf[..n].to_vec());
+            let _ = data_channel.send(InvokeResponseBody::Raw(buf[..n].to_vec()));
             continue;
         }
 
@@ -290,7 +265,7 @@ fn reader_loop(
             // (원본 run-streaming-helper.js:56-:61과 동일 동작).
             let rest = header_buf[nl + 1..].to_vec();
             if !rest.is_empty() {
-                send_data_and_mark(&data_channel, mark_channel.as_ref(), rest);
+                let _ = data_channel.send(InvokeResponseBody::Raw(rest));
             }
         }
 

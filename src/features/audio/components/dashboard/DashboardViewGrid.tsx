@@ -130,7 +130,6 @@ export default function DashboardViewGrid({
           isActive={isActive}
           streaming={isPlaying}
           audioDuration={audioDuration}
-          perfTrack
           annotations={getAnnotationStore(id)}
           canAnnotate={canAnnotateMetric}
         />
@@ -143,7 +142,6 @@ export default function DashboardViewGrid({
           isActive={isActive}
           streaming={isPlaying}
           audioDuration={audioDuration}
-          perfTrack
           warnThreshold={tempThresholds.warn}
           dangerThreshold={tempThresholds.danger}
           annotations={getAnnotationStore(id)}

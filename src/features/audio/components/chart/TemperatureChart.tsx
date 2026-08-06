@@ -18,7 +18,6 @@ interface Props {
   /** 재생 중일 때만 true — x축을 시계에 맞춰 균일하게 스크롤(60 Hz 버벅임 방지)하는 데 쓴다. */
   streaming?: boolean;
   audioDuration?: number | null;
-  perfTrack?: boolean;
   warnThreshold?: number;
   dangerThreshold?: number;
   /** 점 잇기 주석 스토어 — 넘기면 정지 상태(canAnnotate)에서 헤더 연필 토글이 나타난다. */
@@ -34,7 +33,6 @@ export default function TemperatureChart({
   isActive,
   streaming = false,
   audioDuration,
-  perfTrack = false,
   warnThreshold = DEFAULT_TEMP_WARN,
   dangerThreshold = DEFAULT_TEMP_DANGER,
   annotations,
@@ -44,14 +42,12 @@ export default function TemperatureChart({
   const {
     current: currentTemp,
     timeDecimals,
-    onRender,
     showChart,
   } = useMetricChartRuntime({
     metric: "temperature",
     store,
     isActive,
     audioDuration,
-    perfTrack,
   });
 
   const tempColor =
@@ -100,7 +96,6 @@ export default function TemperatureChart({
       streaming={streaming}
       options={options}
       source={source}
-      onRender={onRender}
       draw={draw}
     />
   );

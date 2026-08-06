@@ -20,7 +20,7 @@
 
 ## 4. 의존성 및 흐름
 
-- **가져오는 것**: `shared/components/Sidebar`, `player/`의 `DuplexFilePlayer`+타입, `chart/`의 `TemperatureChart`/`ExcursionChart`/`ChartDetailOverlay`, `channel/`의 `ProtectedComparePanel`, `workspace/`의 `WorkspaceDrawer`/`RecordsDrawer`/`WorkspaceContext`, `calibration/`의 `CalibrationDrawer`/`CalibrationContext`, `features/audio/types`, `lib/cache/{frame,audio-blob}`, `lib/render/{coalesce,chart-store,detect-events,types}`, `lib/perf-e2e/collector`, `shared/hooks/useCtrlBToggle`.
+- **가져오는 것**: `shared/components/Sidebar`, `player/`의 `DuplexFilePlayer`+타입, `chart/`의 `TemperatureChart`/`ExcursionChart`/`ChartDetailOverlay`, `channel/`의 `ProtectedComparePanel`, `workspace/`의 `WorkspaceDrawer`/`RecordsDrawer`/`WorkspaceContext`, `calibration/`의 `CalibrationDrawer`/`CalibrationContext`, `features/audio/types`, `lib/cache/{frame,audio-blob}`, `lib/render/{coalesce,chart-store,detect-events,types}`, `shared/hooks/useCtrlBToggle`.
 - `ActiveDrawerProvider`는 `src/app/layout.tsx`에 마운트됩니다 — `app/` 도메인과의 유일한 접점입니다.
 - **외부에 노출하는 것**: `DashboardPage({ useQueue })` 하나뿐이며 `app/page.tsx`가 그대로 렌더합니다.
 

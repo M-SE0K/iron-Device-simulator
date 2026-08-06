@@ -12,11 +12,6 @@
 # 종속되지 않는다 — 산출물(public/wasm/ff_prot.{js,wasm})은 웹 전용 빌드(build:desktop)에도
 # 그대로 쓰인다.
 #
-# 실험(debug) 빌드 — ff_prot.c의 FF_PROT_DEBUG_VI 가드 블록(V/I 값 printf 덤프)을 켠다.
-# 이 덤프는 프레임마다 대량 console 출력을 일으켜 N1(네이티브 IPC 릴레이) 등 E2E 지연
-# 측정을 오염시키므로, 클린 빌드(public/wasm/, 기본)와 물리적으로 분리된 출력 경로에 둔다:
-#   npm run wasm:build:debug   # FF_PROT_DEBUG_VI=1 WASM_OUT_DIR=../../public/wasm-debug
-#
 # 알고리즘 개발 중 빠른 반복(하드닝 없이): 이 스크립트는 FF_PROT_HARDEN을 직접 켜지
 # 않는다 — build-static-local.sh(전체 앱 빌드 경로)만 명시적으로 켠다. 그래서
 # `npm run wasm:build`를 단독으로 실행하면 기본적으로 하드닝/난독화 없이 빠르게

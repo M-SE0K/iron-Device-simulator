@@ -102,7 +102,7 @@ distribution. First launch requires one step:
 
 Distribution builds have **no developer tools compiled in at all.** The `devtools` cargo feature is off by default, so the WebView inspector itself is excluded (`isInspectable`/`AreDevToolsEnabled` forced to false), remote debugging arguments (`--remote-debugging*`) and the related environment variables are blocked/stripped at launch, and the shortcuts (F12, Cmd+Opt+I, Ctrl+Shift+I/J/C, Ctrl+U) and the context menu are blocked as well. See `docs/devtools-hardening-plan.md` for details.
 
-Work that needs a console — such as performance measurement (`window.__ironPerf`) — requires a separate **measurement-only build** made with `--devtools`. Do not use it for distribution.
+Work that needs a console requires a separate **measurement-only build** made with `--devtools`. Do not use it for distribution.
 
 ```bash
 npm run build:tauri:mac -- --devtools
@@ -126,7 +126,6 @@ Some variables are used at build time only.
 
 | Variable | Description |
 |---|---|
-| `WASM_MODE` | Build a `debug` (printf dump of V/I values) or `dummy` (pass B attenuation never engages) WASM — for value verification only; do not use for latency measurement. |
 | `FF_PROT_HARDEN` | `1` enables the WASM obfuscation/hardening pipeline (see "Engine Protection" above). |
 | `SKIP_WIN_HELPER_BUILD` | `1` skips recompiling the Windows ASIO helper and uses the committed `.exe`. |
 | `ASIOSDK_DIR` | Point at the ASIO SDK directly instead of the default path. |

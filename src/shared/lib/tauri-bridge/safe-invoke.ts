@@ -1,6 +1,6 @@
-// safe-invoke.ts — Electron IPC 규약("에러는 예외가 아니라 {success:false, error} 반환값",
-// 계획서 2번)을 Tauri invoke 위에서 재현한다. Rust 커맨드가 Err를 반환하면 Tauri invoke는
-// Promise를 reject하는데, 이 래퍼가 그 reject를 catch해 동일한 반환값 규약으로 바꿔준다.
+// safe-invoke.ts — "에러는 예외가 아니라 {success:false, error} 반환값" 규약(계획서 2번)을
+// Tauri invoke 위에서 재현한다. Rust 커맨드가 Err를 반환하면 Tauri invoke는 Promise를
+// reject하는데, 이 래퍼가 그 reject를 catch해 동일한 반환값 규약으로 바꿔준다.
 //
 // {success, ...} 형태의 결과를 리턴하는 커맨드에만 쓴다(audioDevice 4종, audioCapture/
 // audioPlayCapture의 start/stop/startWrite/writeChunk/finalizeWrite/cancelWrite/control,

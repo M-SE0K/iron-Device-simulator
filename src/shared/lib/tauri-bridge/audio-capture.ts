@@ -1,38 +1,34 @@
-// audio-capture.ts — window.audioCapture 브리지. mic 캡처 스트리밍(과거 Electron IPC 모듈
-// electron/ipc/audio-capture.js, 현재는 제거됨 → Rust audio_capture.rs)을 Tauri Channel로 중계한다.
+// audio-capture.ts — window.audioCapture 브리지. mic 캡처 스트리밍(Rust audio_capture.rs)을
+// Tauri Channel로 중계한다.
 //
-// data/mark 콜백 레지스트리(ChannelHub)는 모듈 스코프에 두어 여러 start/stop 세션에 걸쳐
-// 살아있게 한다 — Electron의 ipcRenderer.on이 헬퍼 재시작과 무관하게 리스너를 유지하던
-// 것과 동일한 의미(계획서 5.7 규칙 6). Channel 인스턴스 자체는 start()마다 새로 만든다.
+// data 콜백 레지스트리(ChannelHub)는 모듈 스코프에 두어 여러 start/stop 세션에 걸쳐
+// 헬퍼 재시작과 무관하게 리스너가 계속 살아있게 한다(계획서 5.7 규칙 6). Channel 인스턴스
+// 자체는 start()마다 새로 만든다.
 import { COMMANDS, ARG_KEYS, EVENTS } from "./contract";
 import { safeInvoke } from "./safe-invoke";
 import { syncListen } from "./sync-listen";
 import { createStreamChannelPair } from "./stream-channel-pair";
-import type { AudioCaptureStartResult, AudioE2EMark } from "@/shared/types/native-bridge";
+import type { AudioCaptureStartResult } from "@/shared/types/native-bridge";
 
-const streamChannels = createStreamChannelPair<AudioE2EMark>();
+const streamChannels = createStreamChannelPair();
 
 export function createAudioCaptureBridge(): NonNullable<Window["audioCapture"]> {
   return {
     start: async (opts) => {
       // Rust InvokeResponseBody::Raw로 보낸 바이너리는 ArrayBuffer로 도착한다(계획서 5.0
       // 스파이크로 검증됨) — Uint8Array로 감싸 onData 계약(Uint8Array 인자)을 만족시킨다.
-      // e2e:false여도 항상 만들어 함께 넘긴다 — Rust가 e2e일 때만 실제로 메시지를 보낸다
-      // (계획서 5.7 규칙 7 / contract.ts ARG_KEYS 주석 참조).
-      const { dataChannel, markChannel } = streamChannels.createChannels();
+      const { dataChannel } = streamChannels.createChannels();
 
-      // Rust 시그니처: audio_capture_start(opts: CaptureStartOptions, data, mark) —
-      // 옵션은 opts 객체로 중첩, 채널 파라미터 이름은 data/mark (contract.ts 구조 규칙).
+      // Rust 시그니처: audio_capture_start(opts: CaptureStartOptions, data) —
+      // 옵션은 opts 객체로 중첩, 채널 파라미터 이름은 data (contract.ts 구조 규칙).
       return safeInvoke<AudioCaptureStartResult>(COMMANDS.audioCaptureStart, {
         [ARG_KEYS.opts]: {
           [ARG_KEYS.sampleRate]: opts.sampleRate,
           [ARG_KEYS.bufferSize]: opts.bufferSize,
           [ARG_KEYS.channels]: opts.channels,
           [ARG_KEYS.deviceUID]: opts.deviceUID,
-          [ARG_KEYS.e2e]: opts.e2e ?? false,
         },
         [ARG_KEYS.data]: dataChannel,
-        [ARG_KEYS.mark]: markChannel,
       });
     },
 
@@ -40,7 +36,5 @@ export function createAudioCaptureBridge(): NonNullable<Window["audioCapture"]> 
 
     onData: streamChannels.onData,
     onEnded: (callback) => syncListen<{ code: number | null }>(EVENTS.audioCaptureEnded, callback),
-    // start({ e2e: true })일 때만 실제로 값이 온다 — E2E 지연 실험(N1) 전용.
-    onE2EMark: streamChannels.onMark,
   };
 }

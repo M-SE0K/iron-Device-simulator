@@ -101,7 +101,7 @@ macOS 빌드는 Apple Silicon이 브라우저에서 받은 앱을 “손상됨�
 
 배포 빌드에는 **개발자 도구가 아예 컴파일되지 않습니다.** `devtools` cargo 피처가 기본 off라 WebView 인스펙터 자체가 빠지고(`isInspectable`/`AreDevToolsEnabled` 강제 false), 원격 디버깅 인자(`--remote-debugging*`)나 관련 환경 변수는 실행 시점에 차단·제거되며, 단축키(F12·Cmd+Opt+I·Ctrl+Shift+I/J/C·Ctrl+U)와 컨텍스트 메뉴도 막힙니다. 자세한 내용은 `docs/devtools-hardening-plan.md`를 보세요.
 
-성능 계측(`window.__ironPerf`)처럼 콘솔이 필요한 작업은 `--devtools`를 붙여 **측정 전용 빌드**를 따로 만들어야 합니다. 배포용으로는 쓰지 마세요.
+콘솔이 필요한 작업은 `--devtools`를 붙여 **측정 전용 빌드**를 따로 만들어야 합니다. 배포용으로는 쓰지 마세요.
 
 ```bash
 npm run build:tauri:mac -- --devtools
@@ -125,7 +125,6 @@ npm run build:tauri:mac -- --devtools
 
 | 변수 | 설명 |
 |---|---|
-| `WASM_MODE` | `debug`(V/I 값 printf 덤프) 또는 `dummy`(pass B 감쇠 미개입) WASM으로 빌드 — 값 검증 전용, 지연 측정에는 쓰지 마세요. |
 | `FF_PROT_HARDEN` | `1`이면 WASM 난독화·하드닝 파이프라인을 켭니다(위 "엔진 보호" 참고). |
 | `SKIP_WIN_HELPER_BUILD` | `1`이면 Windows ASIO 헬퍼 재컴파일을 건너뛰고 커밋된 `.exe`를 씁니다. |
 | `ASIOSDK_DIR` | ASIO SDK 위치를 기본 경로 대신 직접 지정합니다. |
