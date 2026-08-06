@@ -34,6 +34,7 @@ use tauri::{AppHandle, Manager};
 use crate::wasm_key::{WASM_SALT, WASM_SEED_A, WASM_SEED_B};
 
 const ENCRYPTED_RESOURCE_NAME: &str = "ff_prot.wasm.enc";
+const PLAIN_RESOURCE_NAME: &str = "ff_prot.wasm";
 const NONCE_LEN: usize = 12;
 
 // derive-wasm-key.js 와 문자열 단위로 동일해야 한다 — 하나라도 다르면 복호 실패.
@@ -57,6 +58,18 @@ fn derive_key() -> [u8; 32] {
 
 #[tauri::command]
 pub async fn wasm_asset_load(app: AppHandle) -> Result<Response, String> {
+    // --dev 빌드(scripts/build/stage-dev-wasm.sh)는 암호화 없이 평문 리소스를 번들에
+    // 넣는다. 배포 빌드는 이 리소스를 아예 만들지 않으므로 여기서 평문을 먼저 찾고, 없으면
+    // 기존 암호화 경로로 넘어간다 — 두 빌드 변형이 같은 바이너리/커맨드를 공유한다.
+    if let Ok(plain_path) = app
+        .path()
+        .resolve(PLAIN_RESOURCE_NAME, BaseDirectory::Resource)
+    {
+        if let Ok(plain) = std::fs::read(&plain_path) {
+            return Ok(Response::new(plain));
+        }
+    }
+
     let resource_path = app
         .path()
         .resolve(ENCRYPTED_RESOURCE_NAME, BaseDirectory::Resource)
