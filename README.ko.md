@@ -48,7 +48,7 @@ npm install
 
 ```bash
 npm run bootstrap
-npm run build:tauri:{mac, windows}
+npm run build:tauri -- --mac      # 또는 --windows / --linux
 ```
 
 dev 서버는 **실제 HTTP 응답까지 확인한 뒤 자동으로 종료**되므로 `Ctrl + C`를 누를 필요가 없습니다. 서버를 띄우지 않고 준비만 하려면 `BOOTSTRAP_NO_DEV=1`, 느린 머신에서 기동 대기를 늘리려면 `BOOTSTRAP_DEV_TIMEOUT=180`을 앞에 붙이세요.
@@ -64,18 +64,18 @@ dev 서버는 **실제 HTTP 응답까지 확인한 뒤 자동으로 종료**되�
 정적 코어(`out/`, 브라우저 WASM 엔진)와 네이티브 오디오 헬퍼(`native/`)를 Tauri v2 번들러로 감싸 `scripts/build/build-tauri.sh`가 `dist-tauri/{mac,windows,linux}/` 아래에 산출물을 생성합니다.
 
 ```bash
-npm run build:tauri             # 옵션 없이 실행하면 현재 호스트 OS 타깃만 빌드(아래 제약 참고)
-npm run build:tauri:mac         # mac 전용 (macOS에서 실행해야 함)
-npm run build:tauri:windows     # windows 전용 (Windows 또는 WSL/Linux 크로스)
-npm run build:tauri:linux       # linux 전용 (Linux에서 실행해야 함, 네이티브 헬퍼 없음)
-npm run tauri:preview           # npx tauri dev — 현재 out/ 기준 실행, 패키징 없음
+npm run build:tauri               # 옵션 없이 실행하면 현재 호스트 OS 타깃만 빌드(아래 제약 참고)
+npm run build:tauri -- --mac      # mac 전용 (macOS에서 실행해야 함)
+npm run build:tauri -- --windows  # windows 전용 (Windows 또는 WSL/Linux 크로스)
+npm run build:tauri -- --linux    # linux 전용 (Linux에서 실행해야 함, 네이티브 헬퍼 없음)
+npm run tauri:preview             # npx tauri dev — 현재 out/ 기준 실행, 패키징 없음
 ```
 
 **추가 사전 요구사항**: Rust 툴체인(`cargo`, [rustup.rs](https://rustup.rs)) 및 Linux/WSL에서는 `libwebkit2gtk-4.1-dev pkg-config libssl-dev librsvg2-dev libxdo-dev libayatana-appindicator3-dev`. `npm run bootstrap` / `scripts/setup/setup-*.sh`가 이를 확인해 없으면 안내만 합니다(비차단).
 
-**중요한 제약 — 호스트 OS = 타깃 OS (실험적 예외 하나 있음)**: tauri는 호스트 OS와 타깃 OS가 같아야 합니다(mac 산출물은 macOS에서, Linux 산출물은 Linux에서). 그래서 `build:tauri`는 옵션 없이 실행해도 현재 머신의 타깃 하나만 자동으로 빌드하고, `build:tauri:mac`/`build:tauri:linux`를 맞지 않는 호스트에서 실행하면 조용히 아무것도 안 하는 대신 명확한 에러로 안내합니다.
+**중요한 제약 — 호스트 OS = 타깃 OS (실험적 예외 하나 있음)**: tauri는 호스트 OS와 타깃 OS가 같아야 합니다(mac 산출물은 macOS에서, Linux 산출물은 Linux에서). 그래서 `build:tauri`는 옵션 없이 실행해도 현재 머신의 타깃 하나만 자동으로 빌드하고, `--mac`/`--linux`를 맞지 않는 호스트에서 실행하면 조용히 아무것도 안 하는 대신 명확한 에러로 안내합니다.
 
-`build:tauri:windows`만은 예외입니다: 네이티브 Windows 호스트에서는 그대로 빌드되지만, **WSL/Linux에서 실행해도 동작합니다** — Tauri의 [실험적(experimental) 크로스 컴파일 경로](https://v2.tauri.app/distribute/windows-installer/)(`cargo-xwin` + NSIS)를 통해서입니다. `scripts/build/build-tauri.sh`가 Linux 호스트를 자동 감지해 별도 플래그 없이 이 경로로 전환합니다. Windows 머신 없이도 반복 작업을 할 수 있게 해주는 편의 기능이며, 상류(Tauri)에서 실험적이라고 명시한 경로이므로 **실기 Windows 빌드를 여전히 정본/폴백 경로로 취급**하고 배포 전에는 실기 Windows에서 설치/실행을 다시 검증해야 합니다. 크로스 경로의 추가 사전 요구사항(위 Rust 툴체인에 더해):
+`--windows`만은 예외입니다: 네이티브 Windows 호스트에서는 그대로 빌드되지만, **WSL/Linux에서 실행해도 동작합니다** — Tauri의 [실험적(experimental) 크로스 컴파일 경로](https://v2.tauri.app/distribute/windows-installer/)(`cargo-xwin` + NSIS)를 통해서입니다. `scripts/build/build-tauri.sh`가 Linux 호스트를 자동 감지해 별도 플래그 없이 이 경로로 전환합니다. Windows 머신 없이도 반복 작업을 할 수 있게 해주는 편의 기능이며, 상류(Tauri)에서 실험적이라고 명시한 경로이므로 **실기 Windows 빌드를 여전히 정본/폴백 경로로 취급**하고 배포 전에는 실기 Windows에서 설치/실행을 다시 검증해야 합니다. 크로스 경로의 추가 사전 요구사항(위 Rust 툴체인에 더해):
 
 ```bash
 rustup target add x86_64-pc-windows-msvc
@@ -104,15 +104,15 @@ macOS 빌드는 Apple Silicon이 브라우저에서 받은 앱을 “손상됨�
 콘솔이 필요한 작업은 `--devtools`를 붙여 **측정 전용 빌드**를 따로 만들어야 합니다. 배포용으로는 쓰지 마세요.
 
 ```bash
-npm run build:tauri:mac -- --devtools
+npm run build:tauri -- --mac --devtools
 ```
 
 ### 엔진 보호 (난독화 · 암호화 배포)
 
 정품 알고리즘을 넣은 뒤에는, 패키지 안에 평문 `.wasm`이 남아 파일 탐색기로 바로 꺼내지는 상황을 막는 경로가 준비돼 있습니다. 서버가 없어 복호화 재료가 결국 앱 바이너리에 들어가야 하므로, 이건 암호학적 기밀성이 아니라 **리버싱 비용을 올리는 방어층**입니다.
 
-- **빌드 하드닝·난독화** — `FF_PROT_HARDEN=1 npm run wasm:build`로 빌드하면 Emscripten 하드닝 플래그(`-flto -g0 --closure 1`) → `wasm-opt` 스트립 → `wasm-mutate` 구조 변형 → 상수 XOR 난독화 → 글루 JS 난독화가 순서대로 적용됩니다. 구조 변형 단계만 `cargo install wasm-tools`가 필요하고, 없으면 비파괴적으로 건너뜁니다. 조정 노브는 `native/wasm-engine/custom/README.md` 참고.
-- **암호화 배포** — 패키징 시 `scripts/build/stage-encrypted-wasm.sh`가 `.wasm`을 AES-256-GCM으로 암호화해 `src-tauri/resources/ff_prot.wasm.enc`로 동봉하고, `out/`의 평문 사본은 지웁니다. 복호화 키는 바이너리에 상수로 박히지 않고 seed 재료(`.wasm-seed`, 머신당 1회 생성·git 제외)에서 **HKDF-SHA256으로 런타임 파생**되며, GCM AAD로 배포 문맥에 묶여 있습니다. 전체 흐름은 `docs/wasm-encryption.md`에 정리돼 있습니다.
+- **빌드 하드닝·난독화** — `FF_PROT_HARDEN=1 npm run build:wasm`로 빌드하면 Emscripten 하드닝 플래그(`-flto -g0 --closure 1`) → `wasm-opt` 스트립 → `wasm-mutate` 구조 변형 → 상수 XOR 난독화 → 글루 JS 난독화가 순서대로 적용됩니다. 구조 변형 단계만 `cargo install wasm-tools`가 필요하고, 없으면 비파괴적으로 건너뜁니다. 조정 노브는 `native/wasm-engine/custom/README.md` 참고.
+- **암호화 배포** — 패키징 시 `scripts/build/wasm-encryption/stage-encrypted-wasm.sh`가 `.wasm`을 AES-256-GCM으로 암호화해 `src-tauri/resources/ff_prot.wasm.enc`로 동봉하고, `out/`의 평문 사본은 지웁니다. 복호화 키는 바이너리에 상수로 박히지 않고 seed 재료(`.wasm-seed`, 머신당 1회 생성·git 제외)에서 **HKDF-SHA256으로 런타임 파생**되며, GCM AAD로 배포 문맥에 묶여 있습니다. 전체 흐름은 `docs/wasm-encryption.md`에 정리돼 있습니다.
 
 ## 환경 변수
 
@@ -137,11 +137,10 @@ npm run build:tauri:mac -- --devtools
 웹에서의 동작은 배제하고 작성된 명령어로, Tauri 개발 명령어이니 참고 부탁드립니다.
 
 ```bash
-npm run wasm:build          # native/wasm-engine의 C 소스를 브라우저 타깃 WASM으로 컴파일
+npm run build:wasm          # native/wasm-engine의 C 소스를 브라우저 타깃 WASM으로 컴파일
                             #   (emcc가 없으면 Docker 이미지로 자동 폴백)
-npm run wasm:preview        # 알고리즘만 변경됐을 때 WASM만 다시 빌드하고 Tauri 미리보기를 재실행
 npm run build:desktop       # 정적 빌드 → out/ (위 빌드 항목 참고)
-npm run build:tauri         # {:mac, :windows, :linux} 정적 빌드 + Tauri 패키징 → out/ + dist-tauri/
+npm run build:tauri         # 정적 빌드 + Tauri 패키징 → out/ + dist-tauri/ (-- --mac/--windows/--linux 추가 가능)
 npm run tauri:preview       # npx tauri dev — 현재 out/ 기준 실행, 패키징 없음.
 ```
 

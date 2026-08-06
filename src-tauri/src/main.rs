@@ -1,6 +1,6 @@
 // main.rs — Tauri 앱 합성 루트.
 //
-// out/(scripts/build/build-static-local.sh 공용 코어 산출물)을 내장 asset 프로토콜
+// out/(scripts/build/build-desktop.sh 공용 코어 산출물)을 내장 asset 프로토콜
 // (`frontendDist: "../out"`)로 그대로 띄운다. 오디오 장치/캡처/로컬 폴더 커맨드는 각
 // 모듈(audio_device/audio_capture/audio_playcapture/local_folder)에 있고, 이 파일은
 // 플러그인·상태 등록, 앱 라이프사이클(종료 시 자식 프로세스 정리), 그리고 배포 빌드의
@@ -15,7 +15,7 @@ mod helper;
 mod local_folder;
 mod streaming;
 mod wasm_asset;
-// wasm_key.rs는 scripts/build/stage-encrypted-wasm.sh 가 빌드 시점에 생성하는 산출물이다
+// wasm_key.rs는 scripts/build/wasm-encryption/stage-encrypted-wasm.sh 가 빌드 시점에 생성하는 산출물이다
 // (git 제외) — 없으면 이 mod 선언에서 cargo build가 실패한다(externalBin 오디오 헬퍼 바이너리를
 // build-tauri.sh가 미리 배치해야 하는 것과 같은 패턴). wasm_asset.rs가 WASM_KEY를 참조한다.
 mod wasm_key;

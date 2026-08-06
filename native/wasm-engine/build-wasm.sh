@@ -13,8 +13,8 @@
 # 그대로 쓰인다.
 #
 # 알고리즘 개발 중 빠른 반복(하드닝 없이): 이 스크립트는 FF_PROT_HARDEN을 직접 켜지
-# 않는다 — build-static-local.sh(전체 앱 빌드 경로)만 명시적으로 켠다. 그래서
-# `npm run wasm:build`를 단독으로 실행하면 기본적으로 하드닝/난독화 없이 빠르게
+# 않는다 — build-desktop.sh(전체 앱 빌드 경로)만 명시적으로 켠다. 그래서
+# `npm run build:wasm`를 단독으로 실행하면 기본적으로 하드닝/난독화 없이 빠르게
 # 컴파일된다. 그렇게 나온 public/wasm/ff_prot.wasm을 원하는 위치(예: --dev로 패키징한
 # Windows 산출물의 .exe 옆 ff_prot.wasm)에 직접 덮어쓰면 된다.
 set -euo pipefail
@@ -106,8 +106,8 @@ fi
 echo "→ 컴파일 대상: ${SRCS[*]}"
 
 # ── 하드닝(FF_PROT_HARDEN=1) — 방법 2(빌드 플래그) ────────────────────────────────
-# 배포용 빌드(scripts/build/build-static-local.sh)는 기본으로 이 플래그를 켠다.
-# npm run wasm:build 단독 실행(custom/*.c 반복 수정 중)은 기본 꺼짐 — 디버깅 편의 유지.
+# 배포용 빌드(scripts/build/build-desktop.sh)는 기본으로 이 플래그를 켠다.
+# npm run build:wasm 단독 실행(custom/*.c 반복 수정 중)은 기본 꺼짐 — 디버깅 편의 유지.
 #
 # ※ 방법 1(C 소스 레벨 난독화, 옛 obfuscate-source.sh/Tigress)은 폐기했다 — Tigress는
 #   상용 라이선스 협의가 필요하고, PATH에 없으면 어차피 no-op이라 실효도 낮았다. 그 역할은

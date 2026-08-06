@@ -14,7 +14,7 @@ custom/
   my_filter.h
 
 # 리포 루트에서:
-npm run bootstrap    # 또는 npm run wasm:build && npm run dev
+npm run bootstrap    # 또는 npm run build:wasm && npm run dev
 ```
 
 ## 지켜야 할 계약 (`../ff_prot.h`)
@@ -58,7 +58,7 @@ int ff_prot_stop_exec(void) { return my_algo_teardown(); }
 ## 정품 알고리즘 도착 시 난독화 켜기
 
 이 폴더에 정품 vendor 알고리즘을 드롭인하는 순간부터는 지킬 가치가 있는 소스가 된다.
-`FF_PROT_HARDEN=1 ./build-wasm.sh`(또는 `FF_PROT_HARDEN=1 npm run wasm:build`)로 빌드하면
+`FF_PROT_HARDEN=1 ./build-wasm.sh`(또는 `FF_PROT_HARDEN=1 npm run build:wasm`)로 빌드하면
 `../build-wasm.sh`가 자동으로 다음을 적용한다:
 
 1. Emscripten 하드닝 플래그(`-flto -g0 --closure 1`)
@@ -83,7 +83,7 @@ int ff_prot_stop_exec(void) { return my_algo_teardown(); }
 cargo install wasm-tools
 which wasm-tools   # PATH에 잡히는지 확인
 
-FF_PROT_HARDEN=1 npm run wasm:build
+FF_PROT_HARDEN=1 npm run build:wasm
 ```
 
 조정 노브(전부 선택):

@@ -48,7 +48,7 @@ One command right after cloning (checks the environment → `npm install` → WA
 
 ```bash
 npm run bootstrap
-npm run build:tauri:{mac, windows}
+npm run build:tauri -- --mac      # or --windows / --linux
 ```
 
 The dev server is **shut down automatically once an actual HTTP response is confirmed**, so there is no need to press `Ctrl + C`. To prepare everything without starting the server, prefix `BOOTSTRAP_NO_DEV=1`; on a slow machine, raise the startup wait with `BOOTSTRAP_DEV_TIMEOUT=180`.
@@ -64,18 +64,18 @@ At the end it checks the prerequisites you will eventually need for desktop pack
 `scripts/build/build-tauri.sh` wraps the static core (`out/`, the browser WASM engine) and the native audio helpers (`native/`) with the Tauri v2 bundler, producing artifacts under `dist-tauri/{mac,windows,linux}/`.
 
 ```bash
-npm run build:tauri             # with no flags, builds only the current host OS's target (see constraint below)
-npm run build:tauri:mac         # macOS only (must run on macOS)
-npm run build:tauri:windows     # Windows only (Windows, or cross-built from WSL/Linux)
-npm run build:tauri:linux       # Linux only (must run on Linux; no native helper)
-npm run tauri:preview           # npx tauri dev — runs against the current out/, no packaging
+npm run build:tauri               # with no flags, builds only the current host OS's target (see constraint below)
+npm run build:tauri -- --mac      # macOS only (must run on macOS)
+npm run build:tauri -- --windows  # Windows only (Windows, or cross-built from WSL/Linux)
+npm run build:tauri -- --linux    # Linux only (must run on Linux; no native helper)
+npm run tauri:preview             # npx tauri dev — runs against the current out/, no packaging
 ```
 
 **Extra prerequisites**: the Rust toolchain (`cargo`, [rustup.rs](https://rustup.rs)) and, on Linux/WSL, `libwebkit2gtk-4.1-dev pkg-config libssl-dev librsvg2-dev libxdo-dev libayatana-appindicator3-dev`. `npm run bootstrap` / `scripts/setup/setup-*.sh` check for these and only print a notice if missing (non-blocking).
 
-**Important constraint — host OS = target OS (with one experimental exception)**: Tauri requires the host OS to match the target OS (mac artifacts on macOS, Linux artifacts on Linux). That is why `build:tauri` with no flags builds only the current machine's target, and why `build:tauri:mac`/`build:tauri:linux` on the wrong host exit with a clear error instead of silently doing nothing.
+**Important constraint — host OS = target OS (with one experimental exception)**: Tauri requires the host OS to match the target OS (mac artifacts on macOS, Linux artifacts on Linux). That is why `build:tauri` with no flags builds only the current machine's target, and why `--mac`/`--linux` on the wrong host exit with a clear error instead of silently doing nothing.
 
-`build:tauri:windows` is the one exception: it builds normally on a native Windows host, but **it also works from WSL/Linux** — via Tauri's [experimental cross-compilation path](https://v2.tauri.app/distribute/windows-installer/) (`cargo-xwin` + NSIS). `scripts/build/build-tauri.sh` auto-detects a Linux host and switches to that path with no extra flags. It's a convenience for iterating without a Windows machine on hand; because upstream (Tauri) marks the path as experimental, **treat a real Windows build as the authoritative/fallback path** and re-verify install/run on real Windows before shipping. Extra prerequisites for the cross path (on top of the Rust toolchain above):
+`--windows` is the one exception: it builds normally on a native Windows host, but **it also works from WSL/Linux** — via Tauri's [experimental cross-compilation path](https://v2.tauri.app/distribute/windows-installer/) (`cargo-xwin` + NSIS). `scripts/build/build-tauri.sh` auto-detects a Linux host and switches to that path with no extra flags. It's a convenience for iterating without a Windows machine on hand; because upstream (Tauri) marks the path as experimental, **treat a real Windows build as the authoritative/fallback path** and re-verify install/run on real Windows before shipping. Extra prerequisites for the cross path (on top of the Rust toolchain above):
 
 ```bash
 rustup target add x86_64-pc-windows-msvc
@@ -105,15 +105,15 @@ Distribution builds have **no developer tools compiled in at all.** The `devtool
 Work that needs a console requires a separate **measurement-only build** made with `--devtools`. Do not use it for distribution.
 
 ```bash
-npm run build:tauri:mac -- --devtools
+npm run build:tauri -- --mac --devtools
 ```
 
 ### Engine Protection (Obfuscation · Encrypted Distribution)
 
 Once the production algorithm is in place, there is a path to prevent a plaintext `.wasm` from sitting in the package where a file browser can lift it straight out. Since there is no server, the decryption material ultimately has to ship inside the app binary — so this is not cryptographic confidentiality but **a defense layer that raises the cost of reverse engineering**.
 
-- **Build hardening / obfuscation** — building with `FF_PROT_HARDEN=1 npm run wasm:build` applies, in order: Emscripten hardening flags (`-flto -g0 --closure 1`) → `wasm-opt` strip → `wasm-mutate` structural transformation → constant XOR obfuscation → glue JS obfuscation. Only the structural transformation step requires `cargo install wasm-tools`; without it the step is skipped non-destructively. See `native/wasm-engine/custom/README.md` for the tuning knobs.
-- **Encrypted distribution** — at packaging time, `scripts/build/stage-encrypted-wasm.sh` encrypts the `.wasm` with AES-256-GCM, ships it as `src-tauri/resources/ff_prot.wasm.enc`, and deletes the plaintext copy from `out/`. The decryption key is not baked into the binary as a constant; it is **derived at runtime with HKDF-SHA256** from seed material (`.wasm-seed`, generated once per machine, excluded from git) and bound to the distribution context via the GCM AAD. The full flow is documented in `docs/wasm-encryption.md`.
+- **Build hardening / obfuscation** — building with `FF_PROT_HARDEN=1 npm run build:wasm` applies, in order: Emscripten hardening flags (`-flto -g0 --closure 1`) → `wasm-opt` strip → `wasm-mutate` structural transformation → constant XOR obfuscation → glue JS obfuscation. Only the structural transformation step requires `cargo install wasm-tools`; without it the step is skipped non-destructively. See `native/wasm-engine/custom/README.md` for the tuning knobs.
+- **Encrypted distribution** — at packaging time, `scripts/build/wasm-encryption/stage-encrypted-wasm.sh` encrypts the `.wasm` with AES-256-GCM, ships it as `src-tauri/resources/ff_prot.wasm.enc`, and deletes the plaintext copy from `out/`. The decryption key is not baked into the binary as a constant; it is **derived at runtime with HKDF-SHA256** from seed material (`.wasm-seed`, generated once per machine, excluded from git) and bound to the distribution context via the GCM AAD. The full flow is documented in `docs/wasm-encryption.md`.
 
 ## Environment Variables
 
@@ -138,11 +138,10 @@ Some variables are used at build time only.
 These commands are written excluding web behavior — they're Tauri dev commands, so please use them with that in mind.
 
 ```bash
-npm run wasm:build          # compile the C sources in native/wasm-engine to browser-target WASM
+npm run build:wasm          # compile the C sources in native/wasm-engine to browser-target WASM
                             #   (falls back to a Docker image if emcc is missing)
-npm run wasm:preview        # rebuild only the WASM after an algorithm-only change, then relaunch the Tauri preview
 npm run build:desktop       # static build → out/ (see the build section above)
-npm run build:tauri         # {:mac, :windows, :linux} static build + Tauri packaging → out/ + dist-tauri/
+npm run build:tauri         # static build + Tauri packaging → out/ + dist-tauri/ (add -- --mac/--windows/--linux)
 npm run tauri:preview       # npx tauri dev — runs against the current out/, no packaging.
 ```
 

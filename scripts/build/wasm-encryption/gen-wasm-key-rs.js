@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// gen-wasm-key-rs.js — .wasm-seed(JSON)의 seed 재료를 src-tauri/src/wasm_key.rs 의
+// scripts/build/wasm-encryption/gen-wasm-key-rs.js — .wasm-seed(JSON)의 seed 재료를 src-tauri/src/wasm_key.rs 의
 // 상수 배열 리터럴로 옮겨 적는다. stage-encrypted-wasm.sh 전용.
 //
 //   node gen-wasm-key-rs.js <seedfile> <out-wasm_key.rs>
@@ -20,7 +20,7 @@ if (!seedFilePath || !outPath) {
 const { a, b, salt } = parseSeed(seedFilePath);
 const arr = (buf) => Array.from(buf, (x) => "0x" + x.toString(16).padStart(2, "0")).join(", ");
 
-const rs = `// wasm_key.rs — scripts/build/stage-encrypted-wasm.sh 가 생성하는 빌드 산출물. git 제외
+const rs = `// wasm_key.rs — scripts/build/wasm-encryption/stage-encrypted-wasm.sh 가 생성하는 빌드 산출물. git 제외
 // (.gitignore). native/wasm-engine/.wasm-seed 와 항상 짝을 이뤄야 한다.
 //
 // v2: 여기 있는 건 AES 키가 "아니다". wasm_asset.rs가 root = SEED_A XOR SEED_B →

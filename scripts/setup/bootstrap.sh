@@ -105,11 +105,11 @@ npm install
 
 # ── 5. WASM 엔진 빌드 (native/wasm-engine/custom/*.c → public/wasm/) ────────
 # 하드닝(FF_PROT_HARDEN=1, wasm-opt 스트립 + 상수 XOR 난독화 + 글루 JS 난독화)은 배포
-# 빌드(build:desktop/build:tauri*)에서 자동으로 켜진다. 여기서 도는 단독 wasm:build 는
+# 빌드(build:desktop/build:tauri*)에서 자동으로 켜진다. 여기서 도는 단독 build:wasm 는
 # 기본 꺼짐 — custom/*.c 를 반복 수정하는 동안 디버깅 편의를 유지하기 위해서다.
 if [ "$HAS_ENGINE_SRC" -eq 0 ]; then
-  echo "→ npm run wasm:build"
-  npm run wasm:build
+  echo "→ npm run build:wasm"
+  npm run build:wasm
 else
   cat <<EOF
 
@@ -121,7 +121,7 @@ else
       → 계약: ff_prot_init / ff_prot_set_param / ff_prot_start_exec(9-인자) /
         ff_prot_stop_exec 4개를 export (자세히: $ENGINE_DIR/custom/README.md)
 
-      npm run bootstrap     # 또는 엔진만: npm run wasm:build
+      npm run bootstrap     # 또는 엔진만: npm run build:wasm
 EOF
 fi
 
@@ -137,7 +137,7 @@ fi
 if ! have cargo && ! have rustup; then
   advise "$(cat <<'EOF'
   [Rust] 툴체인이 없습니다 — npm run dev(UI 확인 전용)에는 필요 없지만, 오디오 캡처/재생을
-    테스트하려면 Tauri 데스크톱 셸(build:tauri*, tauri:preview, wasm:preview)이 유일한
+    테스트하려면 Tauri 데스크톱 셸(build:tauri*, tauri:preview)이 유일한
     경로라 결국 필요합니다.
         curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh    # https://rustup.rs
 EOF
@@ -165,17 +165,17 @@ EOF
   fi
 fi
 
-# 6-3. macOS — build:tauri:mac 이 CoreAudio 헬퍼(mac.swift)를 swiftc 로 컴파일한다.
+# 6-3. macOS — build:tauri -- --mac 이 CoreAudio 헬퍼(mac.swift)를 swiftc 로 컴파일한다.
 if [[ "$HOST_OS" == "mac" ]] && ! have swiftc; then
   advise "$(cat <<'EOF'
-  [macOS] Xcode Command Line Tools(swiftc)가 없습니다 — build:tauri:mac 이 CoreAudio 네이티브
+  [macOS] Xcode Command Line Tools(swiftc)가 없습니다 — build:tauri -- --mac 이 CoreAudio 네이티브
     헬퍼(native/macos/audio-device-helper)를 컴파일하지 못해 실패합니다.
         xcode-select --install
 EOF
 )"
 fi
 
-# 6-4. Windows 크로스 패키징(WSL/Linux 호스트에서 build:tauri:windows) 전제조건.
+# 6-4. Windows 크로스 패키징(WSL/Linux 호스트에서 build:tauri -- --windows) 전제조건.
 #      실제 차단·자동 설치는 scripts/build/build-tauri.sh 의 preflight 가 빌드 시작 전에
 #      수행한다 — 여기서는 "미리 알기" 목적의 요약이다.
 if [[ "$HOST_OS" == "linux" ]] && (have rustup || have cargo); then
@@ -191,7 +191,7 @@ if [[ "$HOST_OS" == "linux" ]] && (have rustup || have cargo); then
     || WIN_CROSS_MISSING+=("sudo apt install g++-mingw-w64-x86-64      # ASIO 헬퍼(exe) 컴파일용")
   if [ ${#WIN_CROSS_MISSING[@]} -gt 0 ]; then
     advise "$(printf '%s\n' \
-      "  [Windows 크로스] WSL/Linux 에서 build:tauri:windows 를 돌리려면 아래가 더 필요합니다" \
+      "  [Windows 크로스] WSL/Linux 에서 build:tauri -- --windows 를 돌리려면 아래가 더 필요합니다" \
       "    (실험적 경로 — README 참고. build-tauri.sh 가 빌드 시작 전에 cargo/rustup 계열은" \
       "     자동 설치를 시도하고, apt 계열은 명령을 안내합니다):" \
       "${WIN_CROSS_MISSING[@]/#/        }")"
@@ -217,7 +217,7 @@ if have emcc && ! have java; then
   advise "$(cat <<'EOF'
   [필요] Java 가 없습니다 — 배포 하드닝 빌드(build:desktop / build:tauri*)가 로컬 emcc 로 글루
     JS 를 압축하는 --closure 1 단계에서 Java 런타임을 필요로 합니다(방금 실행한 단독
-    wasm:build 는 하드닝이 꺼져 있어 영향 없음).
+    build:wasm 는 하드닝이 꺼져 있어 영향 없음).
         macOS:      brew install openjdk    (설치 후 안내되는 PATH/symlink 지시 따르기)
         Debian/WSL: sudo apt install default-jre
     Java 대신 Docker 로 빌드하면 emscripten/emsdk 이미지에 포함돼 있어 별도 설치가 필요 없습니다.
@@ -231,11 +231,11 @@ if [[ "$HOST_OS" == "linux" || "$HOST_OS" == "windows" ]]; then
   ASIO_DIR="${ASIOSDK_DIR:-native/windows/audio-device-helper/third_party/ASIOSDK}"
   if [ ! -d "$ASIO_DIR" ]; then
     advise "$(cat <<EOF
-  [Windows 패키징] ASIO SDK 가 없습니다($ASIO_DIR) — build:tauri:windows 가 ASIO 헬퍼
+  [Windows 패키징] ASIO SDK 가 없습니다($ASIO_DIR) — build:tauri -- --windows 가 ASIO 헬퍼
     컴파일 단계에서 실패합니다(낡은 exe 를 조용히 패키징하지 않기 위한 의도적 동작).
     재배포 제약으로 저장소에 포함하지 않습니다 — Teams 에 공유된 SDK 를 위 경로에 두거나
     ASIOSDK_DIR=<경로> 로 지정하세요. 툴체인 없이 커밋된 exe 를 그대로 쓰려면:
-        SKIP_WIN_HELPER_BUILD=1 npm run build:tauri:windows
+        SKIP_WIN_HELPER_BUILD=1 npm run build:tauri -- --windows
 EOF
 )"
   fi
@@ -290,8 +290,7 @@ if [ -n "${BOOTSTRAP_NO_DEV:-}" ]; then
 
   실제 캡처/재생까지 확인하려면 (Tauri 셸이 유일한 경로):
   npm run build:desktop && npm run tauri:preview    # Rust/IPC 변경까지 반영
-  npm run wasm:preview                              # 알고리즘(.c)만 바꿨을 때 빠른 확인
-  npm run build:tauri:mac                           # 패키징 (→ dist-tauri/mac/)
+  npm run build:tauri -- --mac                      # 패키징 (→ dist-tauri/mac/)
 EOF
   exit 0
 fi
@@ -361,6 +360,5 @@ cat <<'EOF'
 
   실제 캡처/재생까지 확인하려면 (Tauri 셸이 유일한 경로):
   npm run build:desktop && npm run tauri:preview    # Rust/IPC 변경까지 반영
-  npm run wasm:preview                              # 알고리즘(.c)만 바꿨을 때 빠른 확인
-  npm run build:tauri:mac                           # 패키징 (→ dist-tauri/mac/)
+  npm run build:tauri -- --mac                      # 패키징 (→ dist-tauri/mac/)
 EOF

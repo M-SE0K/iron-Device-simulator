@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# stage-dev-wasm.sh — build-tauri.sh --dev 전용. 암호화 없이 평문 ff_prot.wasm을
+# scripts/build/wasm-encryption/stage-dev-wasm.sh — build-tauri.sh --dev 전용. 암호화 없이 평문 ff_prot.wasm을
 # 그대로 Tauri 번들 리소스로 옮긴다. 시드/키/AES-GCM(stage-encrypted-wasm.sh)이 전혀
 # 필요 없다 — 알고리즘 담당자가 암호화 파이프라인을 몰라도 되게 하기 위한 전용 경로다.
 #
@@ -17,7 +17,7 @@ cd "$(dirname "$0")/../.."
 WASM_OUT_DIR="public/wasm"
 
 if [[ ! -f "$WASM_OUT_DIR/ff_prot.wasm" ]]; then
-  echo "✗ $WASM_OUT_DIR/ff_prot.wasm 이 없습니다 — 먼저 build-static-local.sh(또는 wasm-preview.sh)를 실행하세요." >&2
+  echo "✗ $WASM_OUT_DIR/ff_prot.wasm 이 없습니다 — 먼저 build-desktop.sh를 실행하세요." >&2
   exit 1
 fi
 

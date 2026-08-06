@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# stage-encrypted-wasm.sh — Tauri 패키징(build-tauri.sh) / 프리뷰(wasm-preview.sh, Tauri
-# 경로) 전용. build-static-local.sh가 만든 평문 ff_prot.wasm을 암호화해 Tauri 번들 리소스로
+# scripts/build/wasm-encryption/stage-encrypted-wasm.sh — Tauri 패키징(build-tauri.sh) 전용.
+# build-desktop.sh가 만든 평문 ff_prot.wasm을 암호화해 Tauri 번들 리소스로
 # 옮기고, out/ 안의 평문 사본은 지운다.
 #
 # Tauri는 frontendDist(out/) 를 통째로 패키지에 넣는다 — JS가 fetch를 안 한다고 평문
@@ -22,7 +22,7 @@ WASM_OUT_DIR="public/wasm"
 WASM_DIR_NAME="wasm"
 
 if [[ ! -f "$WASM_OUT_DIR/ff_prot.wasm" ]]; then
-  echo "✗ $WASM_OUT_DIR/ff_prot.wasm 이 없습니다 — 먼저 build-static-local.sh(또는 wasm-preview.sh)를 실행하세요." >&2
+  echo "✗ $WASM_OUT_DIR/ff_prot.wasm 이 없습니다 — 먼저 build-desktop.sh를 실행하세요." >&2
   exit 1
 fi
 
@@ -34,10 +34,10 @@ if [[ ! -f "$SEED_FILE" ]]; then
   node -e "const c=require('crypto');process.stdout.write(JSON.stringify({seedA:c.randomBytes(32).toString('hex'),seedB:c.randomBytes(32).toString('hex'),salt:c.randomBytes(16).toString('hex')}))" > "$SEED_FILE"
 fi
 
-node scripts/build/gen-wasm-key-rs.js "$SEED_FILE" "src-tauri/src/wasm_key.rs"
+node scripts/build/wasm-encryption/gen-wasm-key-rs.js "$SEED_FILE" "src-tauri/src/wasm_key.rs"
 
 mkdir -p src-tauri/resources
-node scripts/build/encrypt-wasm.js "$WASM_OUT_DIR/ff_prot.wasm" "src-tauri/resources/ff_prot.wasm.enc" "$SEED_FILE"
+node scripts/build/wasm-encryption/encrypt-wasm.js "$WASM_OUT_DIR/ff_prot.wasm" "src-tauri/resources/ff_prot.wasm.enc" "$SEED_FILE"
 
 OUT_WASM_FILE="out/$WASM_DIR_NAME/ff_prot.wasm"
 if [[ -f "$OUT_WASM_FILE" ]]; then

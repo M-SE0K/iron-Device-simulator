@@ -157,7 +157,7 @@ export async function openClientWasmSession(
   const factory = await loadFactory();
 
   // WASM 알고리즘 암호화 배포(방법 5): Tauri 런타임에서는 평문 .wasm이 out/에 없다
-  // (scripts/build/stage-encrypted-wasm.sh가 패키징 전에 지운다) — 호출자(메인 스레드의
+  // (scripts/build/wasm-encryption/stage-encrypted-wasm.sh가 패키징 전에 지운다) — 호출자(메인 스레드의
   // LocalWasmSocket/WorkerAnalysisSocket)가 window.wasmAsset.loadEngineBinary()로 미리 복호화한
   // bytes를 여기 wasmBinary로 넘겨주면 그걸로 직접 인스턴스화해 글루의 자체 fetch를 우회한다.
   // 이 함수는 메인 스레드뿐 아니라 Web Worker(dsp-worker.ts) 안에서도 실행되는데, Worker

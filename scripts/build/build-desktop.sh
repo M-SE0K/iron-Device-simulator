@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# build-static-local.sh — 정적 export + 브라우저 WASM 엔진 빌드 (공용 코어)
+# scripts/build/build-desktop.sh — 정적 export + 브라우저 WASM 엔진 빌드 (공용 코어)
 #
 # 정적 번들을 만든다. 분석은 항상 브라우저(WebView) 안의 WASM 엔진이 직접 수행한다
 # (engine/protocol/local-socket.ts). Tauri 패키징(build-tauri.sh)이 첫 단계로 호출하는
@@ -39,7 +39,7 @@ if [[ "${SKIP_WASM_BUILD:-}" == "1" ]]; then
   fi
 else
   echo "▶ 브라우저 타깃 WASM 빌드... ($WASM_OUT_DIR/)"
-  npm run wasm:build
+  npm run build:wasm
 fi
 export NEXT_PUBLIC_WASM_DIR="/${WASM_OUT_DIR#public/}"
 

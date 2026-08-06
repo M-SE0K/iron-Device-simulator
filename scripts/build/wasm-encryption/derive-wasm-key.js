@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// derive-wasm-key.js — WASM 복호화 키 파생 로직의 단일 진실원 (encrypt-wasm.js와
+// scripts/build/wasm-encryption/derive-wasm-key.js — WASM 복호화 키 파생 로직의 단일 진실원 (encrypt-wasm.js와
 // src-tauri/src/wasm_asset.rs가 반드시 동일한 결과를 내야 한다).
 //
 // v2 하드닝: 32바이트 AES 키를 바이너리에 상수로 두지 않는다. 대신

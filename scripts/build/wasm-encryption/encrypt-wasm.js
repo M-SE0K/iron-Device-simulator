@@ -1,6 +1,6 @@
 #!/usr/bin/env node
-// encrypt-wasm.js — WASM 바이너리 하나를 AES-256-GCM으로 암호화한다 (Tauri 패키징 전용,
-// scripts/build/stage-encrypted-wasm.sh 가 호출). Node 내장 crypto만 쓴다(신규 의존성 없음).
+// scripts/build/wasm-encryption/encrypt-wasm.js — WASM 바이너리 하나를 AES-256-GCM으로 암호화한다 (Tauri 패키징 전용,
+// stage-encrypted-wasm.sh 가 호출). Node 내장 crypto만 쓴다(신규 의존성 없음).
 //
 //   node encrypt-wasm.js <in.wasm> <out.enc> <seedfile>
 //

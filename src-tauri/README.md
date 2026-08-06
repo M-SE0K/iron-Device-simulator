@@ -33,7 +33,7 @@
 
 - **가져오는 것**: `tauri`/`tauri-plugin-dialog`(창·다이얼로그·IPC), `serde`/`serde_json`(직렬화), `notify`/`notify-debouncer-mini`(폴더 감시), `aes-gcm`(WASM 복호화, 순수 Rust — Windows를 `cargo-xwin`으로 크로스 컴파일하므로 OpenSSL 링킹이 필요한 크레이트는 배제). 오디오 처리 자체는 하지 않고 `native/{macos,windows}/audio-device-helper` 외부 바이너리를 자식 프로세스로 실행해 위임합니다.
 - **소비하는 쪽**: `src/shared/lib/tauri-bridge/`가 이 도메인의 9개 커맨드를 `invoke()`로 호출합니다. 커맨드 이름·인자 키는 `tauri-bridge/contract.ts`가 단일 소스로 관리하며 이 도메인은 그 계약을 그대로 구현합니다.
-- **패키징 스크립트와의 접점**: `scripts/build/build-tauri.sh`가 `build-static-local.sh`(정적 코어 빌드) → `stage-encrypted-wasm.sh`(WASM 암호화 + `wasm_key.rs` 생성) → 플랫폼별 헬퍼 빌드 → `binaries/`에 사이드카 배치 → `npx tauri build` 순서로 이 도메인을 완성된 앱으로 묶습니다. `tauri build`는 호스트 OS와 같은 타깃만 만들 수 있습니다(Windows만 `cargo-xwin`으로 예외적 크로스 경로 지원). `--target`에 맞는 `tauri.{macos,windows}.conf.json`은 자동으로 병합됩니다.
+- **패키징 스크립트와의 접점**: `scripts/build/build-tauri.sh`가 `build-desktop.sh`(정적 코어 빌드) → `stage-encrypted-wasm.sh`(WASM 암호화 + `wasm_key.rs` 생성) → 플랫폼별 헬퍼 빌드 → `binaries/`에 사이드카 배치 → `npx tauri build` 순서로 이 도메인을 완성된 앱으로 묶습니다. `tauri build`는 호스트 OS와 같은 타깃만 만들 수 있습니다(Windows만 `cargo-xwin`으로 예외적 크로스 경로 지원). `--target`에 맞는 `tauri.{macos,windows}.conf.json`은 자동으로 병합됩니다.
 
 ```
 tauri-bridge(TS, invoke) → src-tauri 커맨드
@@ -45,7 +45,7 @@ tauri-bridge(TS, invoke) → src-tauri 커맨드
   file_export_*        → write_temp(sync, raw body) → save(async, 다이얼로그) → rename/copy
   wasm_asset_load       → resources/ff_prot.wasm.enc 읽기 → wasm_key.rs 키로 복호화 → raw bytes
 
-build-tauri.sh: build-static-local.sh → stage-encrypted-wasm.sh(wasm_key.rs 생성 + wasm.enc 암호화)
+build-tauri.sh: build-desktop.sh → stage-encrypted-wasm.sh(wasm_key.rs 생성 + wasm.enc 암호화)
   → 헬퍼 빌드(mac: build-mac.sh / windows: build-win.sh) → binaries/ 사이드카 배치 → tauri build
 ```
 
