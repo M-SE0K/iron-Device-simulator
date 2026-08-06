@@ -16,6 +16,12 @@
 # 이 덤프는 프레임마다 대량 console 출력을 일으켜 N1(네이티브 IPC 릴레이) 등 E2E 지연
 # 측정을 오염시키므로, 클린 빌드(public/wasm/, 기본)와 물리적으로 분리된 출력 경로에 둔다:
 #   npm run wasm:build:debug   # FF_PROT_DEBUG_VI=1 WASM_OUT_DIR=../../public/wasm-debug
+#
+# 알고리즘 개발 중 빠른 반복(하드닝 없이): 이 스크립트는 FF_PROT_HARDEN을 직접 켜지
+# 않는다 — build-static-local.sh(전체 앱 빌드 경로)만 명시적으로 켠다. 그래서
+# `npm run wasm:build`를 단독으로 실행하면 기본적으로 하드닝/난독화 없이 빠르게
+# 컴파일된다. 그렇게 나온 public/wasm/ff_prot.wasm을 원하는 위치(예: --dev로 패키징한
+# Windows 산출물의 .exe 옆 ff_prot.wasm)에 직접 덮어쓰면 된다.
 set -euo pipefail
 cd "$(dirname "$0")"
 

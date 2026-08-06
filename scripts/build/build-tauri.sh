@@ -15,30 +15,11 @@
 #
 # 그래서 옵션 없이 실행해도 electron-builder처럼 "전부 빌드"가 아니라 **호스트 OS에 맞는
 # 타깃 하나를 자동 선택**해서 빌드한다 — 나머지는 애초에 이 머신에서 만들 수 없다.
-#
-#   --mac-only      macOS 타깃 (Darwin 호스트 필수 — swiftc로 CoreAudio 헬퍼 컴파일).
-#                   npm run build:tauri:mac 이 호출.
-#   --windows-only  Windows 타깃. Windows 호스트에서는 네이티브로 빌드한다. WSL/Linux
-#                   호스트에서는 cargo-xwin + NSIS 크로스 경로로 자동 전환한다(실험적 —
-#                   위 헤더 참고). macOS 호스트에서는 xwin 툴체인이 셋업되어 있지 않아
-#                   지원하지 않고 에러로 안내한다. npm run build:tauri:windows 가 호출.
-#   --linux-only    Linux 타깃 (Linux 호스트 필수). npm run build:tauri:linux 가 호출.
-#
-# tauri.conf.json은 타깃 OS에 맞는 tauri.<macos|windows>.conf.json을 CLI가 자동
-# 병합한다(Tauri v2 Platform-Specific Configuration) — 이 스크립트가 --config를 넘길
-# 필요는 없다. **실측 확인(2026-07)**: `--target x86_64-pc-windows-msvc`로 크로스
-# 빌드할 때도 호스트가 Linux여도 CLI는 --target으로 지정한 타깃 OS 기준으로
-# tauri.windows.conf.json을 정상 병합한다(externalBin 포함) — merge 기준이 "실행 중인
-# OS"가 아니라 "빌드 타깃"이라는 뜻이다. 그래서 --config를 따로 넘길 필요가 없었다.
-# Linux는 병합 파일이 없으므로 externalBin 없는 기본 conf 그대로 빌드된다 = 헬퍼 없음
-# (Linux는 네이티브 오디오 헬퍼 자체가 아직 없다 — unsupported-platform).
+
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 
 # ── 호스트 OS 판별 ───────────────────────────────────────────────────────────
-# Windows 네이티브에서 이 bash 스크립트를 돌리는 경로는 Git Bash/MSYS2를 가정한다
-# (uname이 MINGW64_NT.../MSYS_NT... 형태로 나온다). PowerShell/cmd에서 직접 실행하는
-# 경로는 지원 대상이 아니다(리포의 다른 빌드 스크립트도 전부 bash 전제).
 HOST_UNAME="$(uname)"
 case "$HOST_UNAME" in
   Darwin) HOST_OS=mac ;;
@@ -139,18 +120,21 @@ preflight_windows_cross() {
   echo "✓ Windows 크로스 툴체인 준비 완료 (rustup · x86_64-pc-windows-msvc · cargo-xwin)"
 }
 
-# ── --devtools (측정 전용 빌드) ──────────────────────────────────────────────
-# 기본 배포 빌드에는 DevTools(WebView 인스펙터)가 아예 컴파일되지 않는다(src-tauri/Cargo.toml의
-# [features] devtools, src-tauri/src/main.rs의 configure_devtools_access 참고). 패키징된 앱에서
-# window.__ironPerf(5단계 지연 측정)를 콘솔로 호출해야 할 때만 이 플래그로 되살린다:
-#   npm run build:tauri:mac -- --devtools
-# 위치 무관하게 받도록 먼저 걸러내고, 나머지 인자만 아래 OS 선택 로직에 넘긴다.
+# --dev (알고리즘 개발 전용 빌드) ────────────────────────────────────────────
+#   npm run build:tauri:windows -- --dev
+DEV_WASM=false
+TAURI_CONFIG_ARGS=()
 TAURI_FEATURES=()
 _ARGS=()
 for _arg in "$@"; do
   if [[ "$_arg" == "--devtools" ]]; then
     TAURI_FEATURES=(--features devtools)
     echo "▶ --devtools 지정 → DevTools를 포함한 측정 전용 빌드입니다 (배포용으로 쓰지 마세요)."
+  elif [[ "$_arg" == "--dev" ]]; then
+    DEV_WASM=true
+    TAURI_CONFIG_ARGS=(--config src-tauri/tauri.dev-wasm.conf.json)
+    export FF_PROT_HARDEN=0
+    echo "▶ --dev 지정 → WASM을 암호화·하드닝·난독화 없이 평문 그대로 번들에 넣는 알고리즘 개발 전용 빌드입니다 (배포용으로 쓰지 마세요)."
   else
     _ARGS+=("$_arg")
   fi
@@ -160,7 +144,7 @@ set -- ${_ARGS[@]+"${_ARGS[@]}"}
 MAC_ONLY=false
 WINDOWS_ONLY=false
 LINUX_ONLY=false
-WINDOWS_CROSS=false   # true면 WSL/Linux 호스트 + cargo-xwin 크로스 경로 (아래 --windows-only 참고)
+WINDOWS_CROSS=false
 case "${1:-}" in
   --mac-only)
     MAC_ONLY=true
@@ -176,13 +160,9 @@ case "${1:-}" in
         : # 네이티브 경로 — 기존 그대로 아래에서 npx tauri build 실행
         ;;
       linux)
-        # WSL/Linux 호스트 → cargo-xwin(+ NSIS) 크로스 경로로 전환한다. Tauri 공식 문서가
-        # "experimental"로 명시한 경로다(위 헤더 주석 참고) — 편의 기능이며, 실제 배포
-        # 전에는 실기 Windows에서 한 번 더 최종 검증하는 것을 권장한다.
         WINDOWS_CROSS=true
         echo "▶ WSL/Linux 호스트에서 --windows-only 감지 → cargo-xwin 크로스 경로로 전환합니다 (실험적)." >&2
         echo "  실제 배포 전에는 실기 Windows에서 한 번 더 검증하는 것을 권장합니다." >&2
-        # 정적 빌드·헬퍼 컴파일에 몇 분을 쓰기 전에 크로스 툴체인부터 확인/보강한다.
         preflight_windows_cross
         ;;
       *)
@@ -227,10 +207,16 @@ fi
 
 ./scripts/build/build-static-local.sh
 
-# WASM 알고리즘 암호화 배포(방법 5) — out/의 평문 ff_prot.wasm을 지우고 암호화된 사본을
-# src-tauri/resources/(bundle.resources, tauri.conf.json)로 옮긴다. mac/windows/linux 등
-# 아래 OS별 분기보다 먼저, 한 번만 실행하면 모든 타깃에 적용된다.
-./scripts/build/stage-encrypted-wasm.sh
+# WASM 알고리즘 배포 — mac/windows/linux 등 아래 OS별 분기보다 먼저, 한 번만 실행하면
+# 모든 타깃에 적용된다.
+if [[ "$DEV_WASM" == "true" ]]; then
+  # --dev: 암호화 없이 평문 .wasm을 리소스로 그대로 둔다(알고리즘 개발 전용).
+  ./scripts/build/stage-dev-wasm.sh
+else
+  # 기본(배포) 경로 — out/의 평문 ff_prot.wasm을 지우고 암호화된 사본을
+  # src-tauri/resources/(bundle.resources, tauri.conf.json)로 옮긴다.
+  ./scripts/build/stage-encrypted-wasm.sh
+fi
 
 # ===== 헬퍼 빌드 =====
 
@@ -342,7 +328,7 @@ if [[ "$MAC_ONLY" == "true" ]]; then
   # 싶으면 `rustup target add aarch64-apple-darwin x86_64-apple-darwin` 후 이 스크립트
   # 대신 `npx tauri build --target <triple>`을 타깃별로 직접 두 번 실행하면 된다(추후 과제).
   rm -rf dist-tauri/mac/* 2>/dev/null || true
-  npx tauri build ${TAURI_FEATURES[@]+"${TAURI_FEATURES[@]}"}
+  npx tauri build ${TAURI_FEATURES[@]+"${TAURI_FEATURES[@]}"} ${TAURI_CONFIG_ARGS[@]+"${TAURI_CONFIG_ARGS[@]}"}
 
   # ── 오디오 입력 entitlement 검증 (앱 본체 + 사이드카) ──────────────────────────
   # tauri.macos.conf.json에 signingIdentity가 있으면 Tauri는 hardened runtime
@@ -404,10 +390,10 @@ if [[ "$WINDOWS_ONLY" == "true" ]]; then
     # 이후 실행은 캐시를 재사용해 훨씬 빠르다. lld-link가 PDB 심볼을 못 찾는다는
     # "failed to load reference ...pdb" 경고가 다수 나오는데, 이는 xwin이 전체 디버그
     # 심볼까지는 내려받지 않기 때문이며 빌드 결과물에는 영향 없다(무해).
-    npx tauri build ${TAURI_FEATURES[@]+"${TAURI_FEATURES[@]}"} --runner cargo-xwin --target x86_64-pc-windows-msvc --bundles nsis
+    npx tauri build ${TAURI_FEATURES[@]+"${TAURI_FEATURES[@]}"} ${TAURI_CONFIG_ARGS[@]+"${TAURI_CONFIG_ARGS[@]}"} --runner cargo-xwin --target x86_64-pc-windows-msvc --bundles nsis
     BUNDLE_DIR="src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis"
   else
-    npx tauri build ${TAURI_FEATURES[@]+"${TAURI_FEATURES[@]}"}
+    npx tauri build ${TAURI_FEATURES[@]+"${TAURI_FEATURES[@]}"} ${TAURI_CONFIG_ARGS[@]+"${TAURI_CONFIG_ARGS[@]}"}
     BUNDLE_DIR="src-tauri/target/release/bundle/nsis"
   fi
   find "$BUNDLE_DIR" -maxdepth 1 -type f -name "*.exe" -exec cp {} dist-tauri/windows/ \; 2>/dev/null || true
@@ -429,7 +415,7 @@ rm -rf dist-tauri/linux/* 2>/dev/null || true
 # FUSE로 마운트를 못 한다(Phase 6에서 실측). APPIMAGE_EXTRACT_AND_RUN=1은 그 대신 self-extract
 # 방식으로 돌게 하는 표준 플래그 — FUSE가 있는 환경에서도 무해하다.
 export APPIMAGE_EXTRACT_AND_RUN=1
-npx tauri build ${TAURI_FEATURES[@]+"${TAURI_FEATURES[@]}"}
+npx tauri build ${TAURI_FEATURES[@]+"${TAURI_FEATURES[@]}"} ${TAURI_CONFIG_ARGS[@]+"${TAURI_CONFIG_ARGS[@]}"}
 find src-tauri/target/release/bundle/appimage -maxdepth 1 -type f -name "*.AppImage" -exec cp {} dist-tauri/linux/ \; 2>/dev/null || true
 echo ""
 echo "✓ Tauri 패키징 완료 (linux 전용): dist-tauri/linux/"
