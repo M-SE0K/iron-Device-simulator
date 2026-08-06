@@ -56,6 +56,24 @@ if [[ "${FF_PROT_DUMMY_ATTENUATION:-}" == "1" ]]; then
   EMCC_DEFINES+=("-DFF_PROT_DUMMY_ATTENUATION=1")
   echo "→ 더미 감쇠 빌드: FF_PROT_DUMMY_ATTENUATION=1 (pass B 감쇠 항상 미개입, 출력: $WASM_OUT_DIR)"
 fi
+# 재현 전용(기본 비활성) — "차트는 멈추는데 오디오는 계속 나온다" 증상을 격리 재현하기
+# 위한 훅. 절대 기본 빌드에 섞이지 않는다: 명시적으로 env var를 켜야만 정의된다.
+#   FF_PROT_DEBUG_HANG=1 npm run wasm:build   # ff_prot_start_exec 진입 시 무한 루프 → 절대 반환 안 함
+#   FF_PROT_DEBUG_TRAP=1 npm run wasm:build   # 0-division으로 WASM 트랩(미처리 예외) 강제 발생
+#   FF_PROT_DEBUG_PRINTF=1 npm run wasm:build # printf가 --devtools 콘솔까지 실제로 찍히는지 확인
+# 테스트 후에는 반드시 플래그 없이 npm run wasm:build 를 다시 돌려 public/wasm/를 정상 상태로 되돌릴 것.
+if [[ "${FF_PROT_DEBUG_HANG:-}" == "1" ]]; then
+  EMCC_DEFINES+=("-DFF_PROT_DEBUG_HANG=1")
+  echo "⚠ 재현 전용 빌드: FF_PROT_DEBUG_HANG=1 — 이 wasm은 ff_prot_start_exec를 호출하면 절대 반환하지 않습니다. 배포 금지."
+fi
+if [[ "${FF_PROT_DEBUG_TRAP:-}" == "1" ]]; then
+  EMCC_DEFINES+=("-DFF_PROT_DEBUG_TRAP=1")
+  echo "⚠ 재현 전용 빌드: FF_PROT_DEBUG_TRAP=1 — 이 wasm은 ff_prot_start_exec 호출 시 트랩을 일으킵니다. 배포 금지."
+fi
+if [[ "${FF_PROT_DEBUG_PRINTF:-}" == "1" ]]; then
+  EMCC_DEFINES+=("-DFF_PROT_DEBUG_PRINTF=1")
+  echo "→ 재현 전용 빌드: FF_PROT_DEBUG_PRINTF=1 (printf → devtools 콘솔 출력 확인용, 출력: $WASM_OUT_DIR)"
+fi
 
 # ── 컴파일 대상 소스 결정 ────────────────────────────────────────────────────
 # 우선순위: ① FF_PROT_SRCS 명시 → ② custom/*.c (사용자 드롭인) → ③ 폴더 내 *.c (스텁).
