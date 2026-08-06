@@ -13,6 +13,7 @@
     "lint": "next lint",
     "typecheck": "tsc --noEmit",
     "wasm:build": "cd native/wasm-engine && ./build-wasm.sh",
+    "wasm:build:enc": "npm run wasm:build && ./scripts/build/stage-encrypted-wasm.sh",
     "wasm:build:debug": "cd native/wasm-engine && FF_PROT_DEBUG_VI=1 WASM_OUT_DIR=../../public/wasm-debug ./build-wasm.sh",
     "wasm:build:dummy": "cd native/wasm-engine && FF_PROT_DUMMY_ATTENUATION=1 WASM_OUT_DIR=../../public/wasm-dummy ./build-wasm.sh",
     "build:desktop": "./scripts/build/build-static-local.sh && echo '✓ 데스크톱 독립 웹앱 빌드 완료: out/ (로컬 확인: npx serve out)'",
