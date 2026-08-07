@@ -16,7 +16,8 @@ RtAudio를 쓰지 않고 Steinberg ASIO SDK 2.3을 직접 호출한다.
 | `query` | ✅ |
 | `set` | ⚠️ sampleRate만 실제 적용된다 (아래 참고) |
 | `capture` | ✅ |
-| `play-capture` | ✅ |
+| `play-capture --ref` | ✅ |
+| `play-capture --stream` | ⚠️ 구현 완료, **실기 검증 대기** (아래 참고) |
 
 상주 모드(`capture`/`play-capture`)는 락프리 링버퍼(`ring_buffer.h`)·샘플 포맷 변환
 (`sample_convert.h`)·실시간 스레드 분리가 얽혀 있어 단계를 나눠 구현했다. 실기 검증 완료:
@@ -29,6 +30,11 @@ pause/resume/stop 라인 명령까지 miniDSP ASIO Driver로 확인했다.
 > ⚠️ `bufferSize`는 드라이버 격자로 **스냅된다**(예: 480 요청 → 512). 헤더의 `actual.bufferSize`가
 > 실제 값이고, 렌더러는 이미 그 값을 읽어 쓴다(`useNativeCapture.ts`). macOS가 요청값을 그대로
 > 쓰던 자리라 값이 달라지는 게 정상이다.
+
+> ⚠️ **`--stream`은 아직 MCHStreamer로 돌려보지 않았다.** 호스트 하네스
+> (`tests/host/run-stream-test.sh`)로 프레이밍·프리필 게이트·종료 코드·언더런 보고까지
+> 검증했지만, 그 하네스는 ASIO 콜백을 가짜로 대체한다 — `bufferSwitch`의 실제 출력 경로는
+> 실기에서만 확인된다. 검증 항목은 `docs/protected-playback-plan.md` §9를 볼 것.
 
 ## 빌드
 
@@ -173,6 +179,45 @@ ASIO는 **드라이버를 열어야만** 채널 수와 샘플레이트를 알 �
 macOS는 CoreAudio UID를, Windows는 **드라이버 CLSID**(`"{...}"`)를 `uid`로 쓴다. 이름은
 중복·변경 가능성이 있지만 CLSID는 레지스트리의 진짜 키라 재연결에도 안정적이다.
 
+### 6. `play-capture --stream` — 재생 소스가 파일이 아니라 stdin
+
+macOS와 **계약은 같고 구현만 다르다**. 보호 재생(`docs/protected-playback-plan.md`)에서
+스피커로 나가는 신호는 렌더러가 `ff_prot`을 통과시킨 결과라, 재생을 시작하기 전에 파일로
+가지고 있을 수가 없다 — 재생해야 V/I가 생기고, V/I가 있어야 다음 프레임을 처리한다.
+그래서 `--ref`(파일 선업로드) 대신 stdin으로 계속 받는다.
+
+```
+audio-device-helper play-capture --stream [--device <UID>] [--prefill-ms <n>]
+    [--prefill-timeout-s <n>] [--out-ch <n>] [--out-ch-r <n>]
+    <sampleRate> <bufferSize> [channels=2]
+```
+
+stdin 프레이밍 (macOS와 동일):
+
+```
+"pcm <nBytes>\n" + <nBytes 그대로>   # int16 인터리브 스테레오 LE
+"end\n"                              # 더 보낼 프레임 없음 → 링 소진 + 0.25s 테일 후 exit 0
+"pause\n" / "resume\n" / "stop\n"    # 기존 라인 명령 그대로
+```
+
+헤더도 `--ref`와 갈린다 — 길이를 아직 모르므로 `refLen` 대신 `prefillFrames`가 실린다:
+
+```json
+{"success":true, ..., "mode":"play-capture-stream", "prefillFrames":1920,
+ "playbackChannel":0, "playbackChannelR":1}
+```
+
+ASIO 쪽에서 새로 생기는 것은 **`ASIOStart`를 미룬다**는 점 하나다. 링이 빈 채로 시작하면
+앞머리가 통째로 무음이 되는데 캡처는 그 구간까지 세므로, 렌더러가 재생 위치의 근거로 삼는
+"수신 캡처 프레임 수 = 재생 프레임 수" 등식이 깨진다. 그래서 프리필(기본 40 ms)이 찰 때까지
+기다렸다가 시작하고, `--prefill-timeout-s`(기본 15초) 안에 못 차면 **exit 4**로 끝낸다.
+
+버퍼 격자 스냅은 이 모드에서 추가 고려 사항이 아니다 — 링이 프레임 단위이고 `pcm` 프레이밍이
+임의 바이트 수를 받으므로, 콜백 크기가 480이든 512든 재조립이 필요 없다.
+
+언더런(렌더러가 못 따라와 링이 마름)은 **무음을 내보내되 읽기 위치를 소비하지 않는다** —
+샘플을 버리는 게 아니라 재생을 뒤로 미룬다. 누적량은 종료 시 stderr에 남는다.
+
 ## 파일 구조
 
 ```
@@ -181,9 +226,17 @@ src/
   audio_backend.h   장치 접근 추상 경계
   asio_backend.cpp  ASIO 구현 (DriverSession RAII, 레지스트리 열거, 능력 조회, 상주 스트림)
   json_out.h        의존성 없는 최소 JSON 직렬화기
-  ring_buffer.h     락프리 SPSC 링버퍼 — RT 스레드 → writer 스레드
+  ring_buffer.h     락프리 SPSC 링버퍼 — RT 스레드 → writer 스레드 (캡처 방향)
+  playback_ring.h   락프리 SPSC 재생 링 — stdin 스레드 → RT 스레드 (--stream 전용, 반대 방향)
   sample_convert.h  ASIOSampleType ↔ int16/float 변환 (asio.h 비의존 → WSL/macOS에서 단위 테스트 가능)
-tests/              ring_and_convert_test.cpp — ring_buffer/sample_convert 단위 테스트 (./tests/run-tests.sh)
+tests/
+  run-tests.sh            단위 테스트 — ring_buffer / playback_ring / sample_convert (ASan+UBSan, TSan)
+  ring_and_convert_test.cpp
+  host/                   Windows·SDK·하드웨어 없이 헬퍼를 돌려보는 하네스 (host/README.md)
+    run-stream-test.sh      ★ asio_backend.cpp 타입체크 + --stream 프로토콜 시나리오
+    winshim/ asiostub/      Win32 / ASIO SDK 스텁 (타입체크·실행 전용, 빌드에는 안 들어간다)
+    fake_backend.cpp        ASIO 대신 bufferSwitch를 모사하는 가짜 백엔드
+    stream_test.py          시나리오 정의
 build-win.sh        ★ 정식 빌드 — mingw-w64 크로스 컴파일 (src/ → dist/audio-device-helper.exe)
 msvc/
   CMakeLists.txt    보조 — Windows/MSVC 빌드용
