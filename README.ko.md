@@ -105,6 +105,7 @@ macOS 빌드는 Apple Silicon이 브라우저에서 받은 앱을 “손상됨�
 
 ```bash
 npm run build:tauri -- --mac --devtools
+npm run build:tauri -- --mac --dev --devtools #알고리즘 교체 및 개발자 도구 호출을 원할시
 ```
 
 ### 엔진 보호 (난독화 · 암호화 배포)
