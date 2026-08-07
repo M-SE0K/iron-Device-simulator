@@ -7,7 +7,7 @@ import { cn } from "@/shared/lib/utils";
 import { INT16_SCALE, CHANNELS } from "@/features/audio/lib/engine/core";
 import SegmentedControl from "@/shared/components/ui/SegmentedControl";
 import { buildTimeAxis, buildValueAxis, timeDecimalsForInterval } from "@/features/audio/lib/render/uplot-option";
-import { staticSeriesLayerPlugin, tooltipPlugin, zoomPlugin } from "@/features/audio/lib/render/uplot-plugins";
+import { staticSeriesLayerPlugin, liveEnvelopeOverlayPlugin, tooltipPlugin, zoomPlugin } from "@/features/audio/lib/render/uplot-plugins";
 import {
   BucketEnvelope,
   buildBucketXs,
@@ -15,16 +15,34 @@ import {
   fillEnvelopeColumn,
   type EnvelopeColumn,
 } from "@/features/audio/lib/render/envelope";
+import { ChannelWaveStore } from "@/features/audio/lib/render/wave-store";
 import { peekWavHeader, decodeWavRange } from "@/features/audio/lib/codec/wav-incremental";
 import type { CaptureStreamEvent, CaptureStreamListener } from "@/features/audio/components/player/capture/types";
 import { useErrorPopup } from "@/shared/components/error-popup/ErrorPopupContext";
-import { frameScheduler } from "@/shared/lib/frame-scheduler";
 
-const BUCKETS = 1000;
 const Y_SCALE_PADDING = 1.1;
-
-let panelTaskSeq = 0;
 const Y_MIN_SPAN = 0.05;
+
+/**
+ * Protected 트레이스는 독립된 growing store로 그려진다(live-envelope-overlay.ts) — 초기
+ * 버킷 폭을 1ms로 잡아, 재생 초반부는 실제로 ms 단위 해상도로 확인할 수 있다. 5초 지점부터는
+ * ChannelWaveStore의 압축 로직대로 점점 넓어진다(세션이 길어져도 버킷 개수 상한은 유지).
+ */
+const PROTECTED_INITIAL_BUCKET_SEC = 0.001;
+
+/**
+ * Input(원본 PCM)은 업로드 시점에 전체 길이가 이미 확정돼 있다 — Protected처럼 "얼마나
+ * 길어질지 모르는 스트림"이 아니므로, 라이브용 점진적 압축(ChannelWaveStore) 대신 파일 길이
+ * 하나로 버킷 수를 한 번에 계산해 정적으로 채운다(BucketEnvelope). 목표는 1ms/버킷이고,
+ * 그러면 버킷 수가 너무 커지는 아주 긴 파일에서만 MAX_INPUT_BUCKETS로 상한을 건다.
+ */
+const INPUT_TARGET_BUCKET_SEC = 0.001;
+const MAX_INPUT_BUCKETS = 50000;
+
+function computeInputBuckets(durationSec: number): number {
+  if (!(durationSec > 0)) return 1;
+  return Math.min(MAX_INPUT_BUCKETS, Math.max(1, Math.ceil(durationSec / INPUT_TARGET_BUCKET_SEC)));
+}
 
 type ChannelMode = "L" | "R" | "Both";
 
@@ -58,37 +76,23 @@ function ProtectedComparePanelImpl({
   const [decodeError, setDecodeError] = useState<string | null>(null);
   const [decoding, setDecoding] = useState(false);
 
-  const protectedEnvRefs = useRef<[BucketEnvelope, BucketEnvelope]>([new BucketEnvelope(BUCKETS), new BucketEnvelope(BUCKETS)]);
-  const sampleRateRef   = useRef(0);
-  const [version, setVersion] = useState(0);
+  // Protected(L/R)는 Input과 달리 파일 길이 기준 고정 1000버킷에 묶이지 않는다 — 각자
+  // 독립된 ChannelWaveStore(1ms 초기 버킷, 세션이 길어지면 스스로 압축)로 자란다.
+  const protectedStoresRef = useRef<[ChannelWaveStore, ChannelWaveStore]>([
+    new ChannelWaveStore(PROTECTED_INITIAL_BUCKET_SEC),
+    new ChannelWaveStore(PROTECTED_INITIAL_BUCKET_SEC),
+  ]);
+  const sampleRateRef = useRef(0);
 
+  // Input 컬럼만 담는다 — original이 바뀔 때만(파일 선택 시) 다시 만들어지고, 그 뒤로는
+  // 라이브 프레임이 아무리 와도 재생성되지 않는다(라이브 오버레이는 여기와 무관하게 그려짐).
   const colsRef = useRef<{
     owner: object;
     xs: Float64Array;
     inputL: EnvelopeColumn;
     inputR: EnvelopeColumn;
-    protL: [EnvelopeColumn, EnvelopeColumn];
-    protR: [EnvelopeColumn, EnvelopeColumn];
-    slot: 0 | 1;
-    slotVersion: number;
+    protectedPlaceholder: EnvelopeColumn;
   } | null>(null);
-
-  const dirtyRef = useRef(false);
-  const panelTaskIdRef = useRef<string | null>(null);
-  if (panelTaskIdRef.current === null) panelTaskIdRef.current = `protected-compare#${++panelTaskSeq}`;
-
-  useEffect(() => frameScheduler.register({
-    id: panelTaskIdRef.current!,
-    phase: "draw",
-    isDirty: () => dirtyRef.current,
-    run: () => {
-      dirtyRef.current = false;
-      setVersion((v) => v + 1);
-    },
-  }), []);
-
-  const durationRef = useRef(0);
-  useEffect(() => { durationRef.current = original?.durationSec ?? 0; }, [original]);
 
   // 패널이 세션 도중 마운트됐을 때(상세 뷰에서 뒤늦게 "보호 감쇠" 항목을 선택하는 경우)
   // 백필이 끝나기 전까지 들어오는 라이브 프레임을 잃지 않도록 대기시킨다.
@@ -125,11 +129,12 @@ function ProtectedComparePanelImpl({
         if (cancelled) return;
         const dataL = buf.getChannelData(0);
         const dataR = buf.getChannelData(Math.min(1, buf.numberOfChannels - 1));
-        const envL = new BucketEnvelope(BUCKETS);
-        const envR = new BucketEnvelope(BUCKETS);
+        const buckets = computeInputBuckets(buf.duration);
+        const envL = new BucketEnvelope(buckets);
+        const envR = new BucketEnvelope(buckets);
         const n = dataL.length;
         for (let i = 0; i < n; i++) {
-          const b = Math.min(BUCKETS - 1, Math.floor((i * BUCKETS) / n));
+          const b = Math.min(buckets - 1, Math.floor((i * buckets) / n));
           envL.add(b, dataL[i]);
           envR.add(b, dataR[i]);
         }
@@ -149,31 +154,30 @@ function ProtectedComparePanelImpl({
   }, [sourceFile, showError]);
 
   useEffect(() => {
-    protectedEnvRefs.current[0].clear();
-    protectedEnvRefs.current[1].clear();
+    protectedStoresRef.current[0].reset();
+    protectedStoresRef.current[1].reset();
     colsRef.current = null;
     readyRef.current = false;
     pendingProtectedRef.current = [];
     backfillTokenRef.current += 1;
-    setVersion((v) => v + 1);
   }, [sourceFile]);
 
-  const applyProtectedEvent = useCallback((ev: ProtectedEvent, durationSec: number) => {
+  const applyProtectedEvent = useCallback((ev: ProtectedEvent) => {
     sampleRateRef.current = ev.sampleRate;
-    const [envL, envR] = protectedEnvRefs.current;
+    const [storeL, storeR] = protectedStoresRef.current;
     const samplesPerFrame = ev.processed.length / CHANNELS;
-    const base = ev.frameIndex * samplesPerFrame;
-    const perBucketSec = durationSec / BUCKETS;
+    const startSec = (ev.frameIndex * samplesPerFrame) / ev.sampleRate;
 
-    for (let ch = 0; ch < CHANNELS; ch++) {
-      const env = ch === 0 ? envL : envR;
-      for (let i = ch, s = 0; i < ev.processed.length; i += CHANNELS, s++) {
-        const t = (base + s) / ev.sampleRate;
-        env.add(Math.floor(t / perBucketSec), ev.processed[i] / INT16_SCALE);
-      }
+    const l = new Float32Array(samplesPerFrame);
+    const r = new Float32Array(samplesPerFrame);
+    for (let s = 0; s < samplesPerFrame; s++) {
+      l[s] = ev.processed[s * CHANNELS] / INT16_SCALE;
+      r[s] = ev.processed[s * CHANNELS + 1] / INT16_SCALE;
     }
-
-    dirtyRef.current = true;
+    storeL.addBlock(l, startSec, ev.sampleRate);
+    storeR.addBlock(r, startSec, ev.sampleRate);
+    storeL.flush();
+    storeR.flush();
   }, []);
 
   useEffect(() => {
@@ -193,14 +197,11 @@ function ProtectedComparePanelImpl({
                 decodeWavRange(blob, header, Math.min(1, header.channels - 1), 0, header.durationSec),
               ]);
               if (!cancelled && backfillTokenRef.current === token && dataL.length > 0) {
-                const perBucketSec = original.durationSec / BUCKETS;
-                const [envL, envR] = protectedEnvRefs.current;
-                for (let s = 0; s < dataL.length; s++) {
-                  const t = s / header.sampleRate;
-                  const b = Math.floor(t / perBucketSec);
-                  envL.add(b, dataL[s]);
-                  envR.add(b, dataR[s]);
-                }
+                const [storeL, storeR] = protectedStoresRef.current;
+                storeL.addBlock(dataL, 0, header.sampleRate);
+                storeR.addBlock(dataR, 0, header.sampleRate);
+                storeL.flush();
+                storeR.flush();
               }
             }
           }
@@ -213,11 +214,7 @@ function ProtectedComparePanelImpl({
       readyRef.current = true;
       const queued = pendingProtectedRef.current;
       pendingProtectedRef.current = [];
-      if (queued.length > 0) {
-        for (const ev of queued) applyProtectedEvent(ev, original.durationSec);
-      } else {
-        setVersion((v) => v + 1);
-      }
+      for (const ev of queued) applyProtectedEvent(ev);
     })();
 
     return () => { cancelled = true; };
@@ -226,13 +223,12 @@ function ProtectedComparePanelImpl({
   useEffect(() => {
     const off = subscribeCaptureStream((ev: CaptureStreamEvent) => {
       if (ev.type === "reset") {
-        protectedEnvRefs.current[0].clear();
-        protectedEnvRefs.current[1].clear();
+        protectedStoresRef.current[0].reset();
+        protectedStoresRef.current[1].reset();
         colsRef.current = null;
         pendingProtectedRef.current = [];
         backfillTokenRef.current += 1;
         readyRef.current = true;
-        setVersion((v) => v + 1);
         return;
       }
       if (ev.type !== "protected") return;
@@ -242,9 +238,7 @@ function ProtectedComparePanelImpl({
         return;
       }
 
-      const durationSec = durationRef.current;
-      if (durationSec <= 0) return;
-      applyProtectedEvent(ev, durationSec);
+      applyProtectedEvent(ev);
     });
 
     return off;
@@ -258,32 +252,30 @@ function ProtectedComparePanelImpl({
 
     let cols = colsRef.current;
     if (!cols || cols.owner !== original) {
+      // original.envL/envR는 이미 computeInputBuckets(durationSec) 크기로 만들어져 있다 —
+      // 여기서도 같은 함수로 다시 계산해(순수함수라 같은 durationSec엔 항상 같은 값) xs 길이를 맞춘다.
+      const buckets = computeInputBuckets(original.durationSec);
       cols = {
         owner: original,
-        xs: buildBucketXs(BUCKETS, original.durationSec),
+        xs: buildBucketXs(buckets, original.durationSec),
         inputL: fillEnvelopeColumn(original.envL),
         inputR: fillEnvelopeColumn(original.envR),
-        protL: [emptyEnvelopeColumn(BUCKETS), emptyEnvelopeColumn(BUCKETS)],
-        protR: [emptyEnvelopeColumn(BUCKETS), emptyEnvelopeColumn(BUCKETS)],
-        slot: 0,
-        slotVersion: version,
+        // Protected 컬럼은 실데이터를 담지 않는다 — series의 paths:()=>null과 짝지어
+        // 그리기를 liveEnvelopeOverlayPlugin에 완전히 위임한다(아래 options). uPlot의
+        // AlignedData 계약상 길이만 xs와 맞으면 되므로 재사용 가능한 상수 하나로 충분하다.
+        protectedPlaceholder: emptyEnvelopeColumn(buckets),
       };
       colsRef.current = cols;
-    } else if (cols.slotVersion !== version) {
-      cols.slot = cols.slot === 0 ? 1 : 0;
-      cols.slotVersion = version;
     }
 
-    const slot = cols.slot;
-    const [protectedEnvL, protectedEnvR] = protectedEnvRefs.current;
     return [
       cols.xs,
       cols.inputL,
       cols.inputR,
-      fillEnvelopeColumn(protectedEnvL, cols.protL[slot]),
-      fillEnvelopeColumn(protectedEnvR, cols.protR[slot]),
+      cols.protectedPlaceholder,
+      cols.protectedPlaceholder,
     ] as unknown as uPlot.AlignedData;
-  }, [original, version]);
+  }, [original]);
 
   const yRange = useMemo<[number, number] | null>(() => {
     if (!original) return null;
@@ -296,15 +288,20 @@ function ProtectedComparePanelImpl({
 
   const options = useMemo<UPlotOptions | null>(() => {
     if (!original) return null;
-    const timeDecimals = timeDecimalsForInterval(original.durationSec / BUCKETS);
+    const timeDecimals = timeDecimalsForInterval(original.durationSec / computeInputBuckets(original.durationSec));
     const inputSeries = (label: string, color: string): uPlot.Series => ({
       label, stroke: `${color}D9`, width: 1, spanGaps: true,
       paths: () => null,
       points: { show: false },
     });
+    // Protected도 uPlot의 기본 경로 빌드를 끈다 — 실제 스트로크는 liveEnvelopeOverlayPlugin이
+    // u.series[idx].show/stroke/width만 빌려 캔버스에 직접 그린다(u.data[idx]는 안 읽음).
     const protectedSeries = (label: string, color: string): uPlot.Series => ({
-      label, stroke: color, width: 1.8, spanGaps: true, points: { size: 4, fill: color },
+      label, stroke: color, width: 1.8, spanGaps: true,
+      paths: () => null,
+      points: { show: false },
     });
+    const [storeL, storeR] = protectedStoresRef.current;
     return {
       legend: { show: false },
       cursor: { drag: { x: true, y: false } },
@@ -321,8 +318,18 @@ function ProtectedComparePanelImpl({
       ],
       plugins: [
         staticSeriesLayerPlugin([1, 2]),
+        liveEnvelopeOverlayPlugin([
+          { store: storeL, seriesIdx: 3 },
+          { store: storeR, seriesIdx: 4 },
+        ]),
         zoomPlugin({ getFullXRange: () => [0, original.durationSec] }),
-        tooltipPlugin({ unit: "", decimals: 3, timeDecimals: 3 }),
+        tooltipPlugin({
+          unit: "", decimals: 3, timeDecimals: 3,
+          virtualSeries: [
+            { label: "Protected L", seriesIdx: 3, resolve: (t) => storeL.valueAt(t) },
+            { label: "Protected R", seriesIdx: 4, resolve: (t) => storeR.valueAt(t) },
+          ],
+        }),
       ],
     };
   }, [original]);

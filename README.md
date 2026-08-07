@@ -115,6 +115,27 @@ Once the production algorithm is in place, there is a path to prevent a plaintex
 - **Build hardening / obfuscation** — building with `FF_PROT_HARDEN=1 npm run build:wasm` applies, in order: Emscripten hardening flags (`-flto -g0 --closure 1`) → `wasm-opt` strip → `wasm-mutate` structural transformation → constant XOR obfuscation → glue JS obfuscation. Only the structural transformation step requires `cargo install wasm-tools`; without it the step is skipped non-destructively. See `native/wasm-engine/custom/README.md` for the tuning knobs.
 - **Encrypted distribution** — at packaging time, `scripts/build/wasm-encryption/stage-encrypted-wasm.sh` encrypts the `.wasm` with AES-256-GCM, ships it as `src-tauri/resources/ff_prot.wasm.enc`, and deletes the plaintext copy from `out/`. The decryption key is not baked into the binary as a constant; it is **derived at runtime with HKDF-SHA256** from seed material (`.wasm-seed`, generated once per machine, excluded from git) and bound to the distribution context via the GCM AAD. The full flow is documented in `docs/wasm-encryption.md`.
 
+### Algorithm-Development-Only Build (`--dev`)
+
+Going through the full hardening/obfuscation/encryption pipeline on every iteration while wiring up the production algorithm slows the feedback loop down. Adding `--dev` to `build:tauri` forces `FF_PROT_HARDEN` off and runs `stage-dev-wasm.sh` instead of `stage-encrypted-wasm.sh`, so the plaintext `.wasm` goes straight into the bundle resources with no encryption. **Never use this for distribution.**
+
+```bash
+npm run build:tauri -- --windows --dev
+```
+
+### Pre-Release Verification (Docker)
+
+To catch the "works on my machine, breaks for anyone who just cloned it" class of bug — a build secretly depending on a file `.gitignore` excludes, a missing executable bit, or docs drifting from actual behavior — there is a verification harness that reproduces the whole clone → onboarding → algorithm drop-in build → hardening → static bundle → Tauri packaging flow inside an isolated container. Only **git-tracked files** (via `git archive`) go into the container, so anything that only exists locally can never sneak through.
+
+```bash
+npm run verify:docker                          # default (L0, L2–L6) — 10–25 min
+npm run verify:docker:full                     # everything (L0–L7, including the bare image) — 40–90 min
+npm run verify:docker -- --layers L0,L3        # specific layers only
+npm run verify:docker -- --dirty               # verify the working tree as-is, before committing
+```
+
+See `docker/verify/README.md` for the layer breakdown and what Docker structurally cannot verify (the macOS CoreAudio helper, real audio capture / the V/I sensing loop, etc.).
+
 ## Environment Variables
 
 | Variable | Default | Description |
@@ -138,11 +159,16 @@ Some variables are used at build time only.
 These commands are written excluding web behavior — they're Tauri dev commands, so please use them with that in mind.
 
 ```bash
-npm run build:wasm          # compile the C sources in native/wasm-engine to browser-target WASM
+npm run build:wasm          # compile the C sources in native/wasm-engine to browser-target WASM,
+                            #   then stage the Tauri encrypted WASM resource (default)
                             #   (falls back to a Docker image if emcc is missing)
+npm run build:wasm -- --dev # compile only, skip the encryption staging (plain dev/CI builds)
 npm run build:desktop       # static build → out/ (see the build section above)
-npm run build:tauri         # static build + Tauri packaging → out/ + dist-tauri/ (add -- --mac/--windows/--linux)
+npm run build:tauri         # static build + Tauri packaging → out/ + dist-tauri/
+                            #   (combine with -- --mac/--windows/--linux, --devtools, --dev)
 npm run tauri:preview       # npx tauri dev — runs against the current out/, no packaging.
+npm run verify:docker       # re-verify clone → packaging in Docker (default layers, see "Pre-Release Verification" above)
+npm run verify:docker:full  # the above plus the slower layers
 ```
 
 ## Tech Stack

@@ -16,7 +16,7 @@
 # build:desktop(순수 정적 웹 번들, npx serve out)에는 이 스크립트를 쓰지 않는다 — 브라우저
 # 탭엔 복호화 키를 안전히 둘 방법이 없어 방법 5(암호화)는 Tauri 패키징에만 적용된다.
 set -euo pipefail
-cd "$(dirname "$0")/../.."
+cd "$(dirname "$0")/../../.."
 
 WASM_OUT_DIR="public/wasm"
 WASM_DIR_NAME="wasm"

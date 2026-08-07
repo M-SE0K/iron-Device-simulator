@@ -3,3 +3,4 @@ export * from "./tooltip";
 export * from "./annotate";
 export * from "./thresholds";
 export * from "./static-layer";
+export * from "./live-envelope-overlay";

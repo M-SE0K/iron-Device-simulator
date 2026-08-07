@@ -107,9 +107,11 @@ npm install
 # 하드닝(FF_PROT_HARDEN=1, wasm-opt 스트립 + 상수 XOR 난독화 + 글루 JS 난독화)은 배포
 # 빌드(build:desktop/build:tauri*)에서 자동으로 켜진다. 여기서 도는 단독 build:wasm 는
 # 기본 꺼짐 — custom/*.c 를 반복 수정하는 동안 디버깅 편의를 유지하기 위해서다.
+# --dev: build:wasm 기본값은 암호화 스테이징까지 수행하는데, 여기선 온보딩용 순수 컴파일만
+# 필요하고 Tauri 키 파일(src-tauri/src/wasm_key.rs 등) 생성은 사이드이펙트로 원치 않는다.
 if [ "$HAS_ENGINE_SRC" -eq 0 ]; then
-  echo "→ npm run build:wasm"
-  npm run build:wasm
+  echo "→ npm run build:wasm -- --dev"
+  npm run build:wasm -- --dev
 else
   cat <<EOF
 
@@ -121,7 +123,7 @@ else
       → 계약: ff_prot_init / ff_prot_set_param / ff_prot_start_exec(9-인자) /
         ff_prot_stop_exec 4개를 export (자세히: $ENGINE_DIR/custom/README.md)
 
-      npm run bootstrap     # 또는 엔진만: npm run build:wasm
+      npm run bootstrap     # 또는 엔진만: npm run build:wasm -- --dev
 EOF
 fi
 

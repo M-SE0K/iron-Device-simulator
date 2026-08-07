@@ -12,7 +12,7 @@
 # out/의 평문 사본은 지우지 않는다 — --dev 빌드는 평문이 들어가도 상관없는
 # 알고리즘 개발 전용 빌드다(배포 금지).
 set -euo pipefail
-cd "$(dirname "$0")/../.."
+cd "$(dirname "$0")/../../.."
 
 WASM_OUT_DIR="public/wasm"
 

@@ -14,7 +14,7 @@ custom/
   my_filter.h
 
 # 리포 루트에서:
-npm run bootstrap    # 또는 npm run build:wasm && npm run dev
+npm run bootstrap    # 또는 npm run build:wasm -- --dev && npm run dev
 ```
 
 ## 지켜야 할 계약 (`../ff_prot.h`)

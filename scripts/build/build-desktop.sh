@@ -39,7 +39,10 @@ if [[ "${SKIP_WASM_BUILD:-}" == "1" ]]; then
   fi
 else
   echo "▶ 브라우저 타깃 WASM 빌드... ($WASM_OUT_DIR/)"
-  npm run build:wasm
+  # --dev: 이 시점엔 out/ 이 아직 없어 암호화 스테이징의 평문 삭제 로직이 스킵된다
+  # (build-wasm.sh 상단 주석 참고) — 여기선 컴파일만 하고, Tauri 패키징은
+  # build-tauri.sh가 out/ 생성 이후 stage-encrypted-wasm.sh를 별도로 호출한다.
+  npm run build:wasm -- --dev
 fi
 export NEXT_PUBLIC_WASM_DIR="/${WASM_OUT_DIR#public/}"
 

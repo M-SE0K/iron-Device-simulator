@@ -114,6 +114,27 @@ npm run build:tauri -- --mac --devtools
 - **빌드 하드닝·난독화** — `FF_PROT_HARDEN=1 npm run build:wasm`로 빌드하면 Emscripten 하드닝 플래그(`-flto -g0 --closure 1`) → `wasm-opt` 스트립 → `wasm-mutate` 구조 변형 → 상수 XOR 난독화 → 글루 JS 난독화가 순서대로 적용됩니다. 구조 변형 단계만 `cargo install wasm-tools`가 필요하고, 없으면 비파괴적으로 건너뜁니다. 조정 노브는 `native/wasm-engine/custom/README.md` 참고.
 - **암호화 배포** — 패키징 시 `scripts/build/wasm-encryption/stage-encrypted-wasm.sh`가 `.wasm`을 AES-256-GCM으로 암호화해 `src-tauri/resources/ff_prot.wasm.enc`로 동봉하고, `out/`의 평문 사본은 지웁니다. 복호화 키는 바이너리에 상수로 박히지 않고 seed 재료(`.wasm-seed`, 머신당 1회 생성·git 제외)에서 **HKDF-SHA256으로 런타임 파생**되며, GCM AAD로 배포 문맥에 묶여 있습니다. 전체 흐름은 `docs/wasm-encryption.md`에 정리돼 있습니다.
 
+### 알고리즘 개발 전용 빌드 (`--dev`)
+
+정품 알고리즘을 넣고 반복 확인할 때마다 하드닝·난독화·암호화까지 매번 거치면 피드백 루프가 느려집니다. `build:tauri`에 `--dev`를 추가하면 `FF_PROT_HARDEN`을 강제로 끄고, `stage-encrypted-wasm.sh` 대신 `stage-dev-wasm.sh`가 실행되어 평문 `.wasm`을 암호화 없이 그대로 번들 리소스로 넣습니다. **배포용으로는 절대 쓰지 마세요.**
+
+```bash
+npm run build:tauri -- --windows --dev
+```
+
+### 배포 전 검증 (Docker)
+
+"내 머신에서는 되는데 갓 클론한 사람에게만 깨지는" 사고 — `.gitignore`로 빠진 파일에 빌드가 몰래 의존하거나, 실행 비트가 빠졌거나, 문서와 실제 동작이 어긋나는 경우 — 를 잡기 위해 클론 → 온보딩 → 알고리즘 드롭인 빌드 → 하드닝 → 정적 번들 → Tauri 패키징까지 전 과정을 격리된 컨테이너에서 재현하는 검증 하네스가 있습니다. 컨테이너에는 `git archive`로 뜬 **tracked 파일만** 들어가므로, 로컬에만 있어 영원히 재현되지 않는 문제를 걸러냅니다.
+
+```bash
+npm run verify:docker                          # 기본(L0, L2~L6) — 10~25분
+npm run verify:docker:full                     # 전체(L0~L7, bare 이미지 포함) — 40~90분
+npm run verify:docker -- --layers L0,L3        # 특정 레이어만
+npm run verify:docker -- --dirty               # 커밋 전 워킹 트리 그대로 검증
+```
+
+레이어 구성과 Docker로는 검증할 수 없는 항목(macOS CoreAudio 헬퍼, 실제 오디오 캡처/V·I 센싱 루프 등)은 `docker/verify/README.md`를 참고하세요.
+
 ## 환경 변수
 
 | 변수 | 기본값 | 설명 |
@@ -137,11 +158,16 @@ npm run build:tauri -- --mac --devtools
 웹에서의 동작은 배제하고 작성된 명령어로, Tauri 개발 명령어이니 참고 부탁드립니다.
 
 ```bash
-npm run build:wasm          # native/wasm-engine의 C 소스를 브라우저 타깃 WASM으로 컴파일
+npm run build:wasm          # native/wasm-engine의 C 소스를 브라우저 타깃 WASM으로 컴파일하고
+                            #   Tauri 암호화 WASM 리소스 스테이징까지 수행 (기본값)
                             #   (emcc가 없으면 Docker 이미지로 자동 폴백)
+npm run build:wasm -- --dev # 컴파일만, 암호화 스테이징 생략 (일반 dev/CI 빌드용)
 npm run build:desktop       # 정적 빌드 → out/ (위 빌드 항목 참고)
-npm run build:tauri         # 정적 빌드 + Tauri 패키징 → out/ + dist-tauri/ (-- --mac/--windows/--linux 추가 가능)
+npm run build:tauri         # 정적 빌드 + Tauri 패키징 → out/ + dist-tauri/
+                            #   (-- --mac/--windows/--linux, --devtools, --dev 조합 가능)
 npm run tauri:preview       # npx tauri dev — 현재 out/ 기준 실행, 패키징 없음.
+npm run verify:docker       # 클론~패키징 전 과정을 Docker로 재검증 (기본 레이어, 위 "배포 전 검증" 참고)
+npm run verify:docker:full  # 위 전체 + 느린 레이어까지 포함
 ```
 
 ## 기술 스택

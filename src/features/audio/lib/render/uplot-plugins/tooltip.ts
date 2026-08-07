@@ -1,14 +1,26 @@
 import type uPlot from "uplot";
 
+/**
+ * u.data[]에 실데이터가 없는 시리즈(예: live-envelope-overlay.ts로 직접 캔버스에 그리는
+ * 라이브 오버레이)를 툴팁에 포함시키기 위한 값 조회 훅. seriesIdx는 표시 여부(show)를
+ * 빌려올 u.series 인덱스, resolve는 커서의 x값(초)을 받아 그 시각의 값을 돌려준다.
+ */
+export interface TooltipVirtualSeries {
+  label: string;
+  seriesIdx: number;
+  resolve: (timeSec: number) => number | null;
+}
+
 export interface TooltipOptions {
   unit: string;
   decimals: number;
   timeDecimals?: number;
+  virtualSeries?: TooltipVirtualSeries[];
 }
 
 /** 커서 추적 툴팁 — 다크 스타일 div 오버레이. */
 export function tooltipPlugin(opts: TooltipOptions): uPlot.Plugin {
-  const { unit, decimals, timeDecimals = 3 } = opts;
+  const { unit, decimals, timeDecimals = 3, virtualSeries = [] } = opts;
   let el: HTMLDivElement | null = null;
 
   return {
@@ -51,6 +63,14 @@ export function tooltipPlugin(opts: TooltipOptions): uPlot.Plugin {
           const v = u.data[i][idx];
           if (v == null) continue;
           lines.push(`${series.label}: <b>${v.toFixed(decimals)}${unit ? ` ${unit}` : ""}</b>`);
+        }
+        if (t !== undefined) {
+          for (const vs of virtualSeries) {
+            if (!u.series[vs.seriesIdx]?.show) continue;
+            const v = vs.resolve(t);
+            if (v == null) continue;
+            lines.push(`${vs.label}: <b>${v.toFixed(decimals)}${unit ? ` ${unit}` : ""}</b>`);
+          }
         }
         if (lines.length === 0 || t === undefined) {
           el.style.display = "none";
