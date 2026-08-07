@@ -180,6 +180,14 @@ export function useNativeCapture(deps: NativeCaptureDeps) {
       wireSamplesPerCh,
       (frame) => {
         if (!analysisActiveRef.current) return;
+        // ⚠️ emittedFrames(재생 PCM에서 몇 번째 프레임을 실을지)와 소켓 내부의 frameCount
+        // (그 결과가 차트 x축 어디에 놓일지)는 **반드시 같은 수를 세야 한다**. 소켓은
+        // OPEN이 아닌 동안 send()를 조용히 무시하는데(local-socket.ts / worker-socket.ts),
+        // 그 사이 여기서만 번호를 올리면 이후 모든 프레임에서 "재생 위치 N+D의 오디오가
+        // x=N에 그려지는" 어긋남이 남는다 — Protected 파형이 Input(원본)보다 D프레임만큼
+        // 앞당겨져 보이는 증상이 정확히 이것이다. 소켓과 같은 조건으로 먼저 걸러
+        // 두 카운터가 갈라질 여지 자체를 없앤다.
+        if (ws.readyState !== WebSocket.OPEN) return;
         const audioBuf = buildAudioBufFrame(playback?.pcm ?? null, emittedFrames++, wireSamplesPerCh);
         ws.send(concatFrames(audioBuf, frame));
         ++frameCountRef.current;

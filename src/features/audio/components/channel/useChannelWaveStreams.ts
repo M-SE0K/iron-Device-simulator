@@ -82,6 +82,11 @@ export function useChannelWaveStreams({
   // 세션 세대 토큰 — 리셋 때 올려서, 진행 중이던 백필이 새 세션 스토어에 옛 데이터를 흘려
   // 넣지 못하게 한다.
   const sessionTokenRef = useRef(0);
+  // 라이브 청크를 채널별 평면 샘플로 풀어낼 때 쓰는 재사용 버퍼 — 청크마다(초당 100회)
+  // 채널 수만큼 새 Float32Array를 만들지 않기 위함이다. addBlock()은 값을 즉시 버킷으로
+  // 소화하고 배열 참조를 보관하지 않으므로 채널 사이에 돌려 써도 안전하다(백필 루프가
+  // 쓰는 scratch와 같은 규약).
+  const chunkScratchRef = useRef<Float32Array>(new Float32Array(0));
 
   // 선택 해제된 채널은 스토어/시드 여부를 지워 메모리를 되돌린다 — 나중에 다시 선택되면
   // 처음 선택했을 때와 동일하게 세션 전체를 다시 백필한다.
@@ -115,10 +120,15 @@ export function useChannelWaveStreams({
     if (wanted.length === 0) return;
 
     const view = new DataView(chunk);
+    // 프레임 수가 바뀔 때만 다시 잡는다 — 헬퍼가 고정 크기로 보내므로 세션당 사실상 한 번이다.
+    let samples = chunkScratchRef.current;
+    if (samples.length !== frameCount) {
+      samples = new Float32Array(frameCount);
+      chunkScratchRef.current = samples;
+    }
     for (const ch of wanted) {
       if (ch >= channels) continue;
       const waveStore = getStore(ch);
-      const samples = new Float32Array(frameCount);
       for (let i = 0; i < frameCount; i++) {
         samples[i] = view.getInt16(i * bytesPerFrame + ch * BYTES_PER_SAMPLE, true) / INT16_SCALE;
       }

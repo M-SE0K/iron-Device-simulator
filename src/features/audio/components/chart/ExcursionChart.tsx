@@ -39,7 +39,6 @@ export default function ExcursionChart({
   const { isEnabled, draw } = useDrawMode(annotations, canAnnotate);
   const {
     current: currentExc,
-    timeDecimals,
     showChart,
   } = useMetricChartRuntime({
     metric: "excursion",
@@ -75,13 +74,12 @@ export default function ExcursionChart({
       fill: ["rgba(16,185,129,0.15)", "rgba(16,185,129,0)"],
       pointSize: 4,
     },
-    timeDecimals,
     axisSize: 60,
     axisFormatter: (v: number) => v.toFixed(MM_DECIMALS),
     tooltipUnit: "mm",
     tooltipDecimals: MM_DECIMALS,
     extraPlugins: annotations ? [annotatePlugin({ store: annotations, isEnabled })] : undefined,
-  }), [timeDecimals, annotations, isEnabled]);
+  }), [annotations, isEnabled]);
 
   return (
     <MetricChartCard

@@ -14,11 +14,38 @@ export type UPlotOptions = Omit<uPlot.Options, "width" | "height">;
  * 경우에 쓴다 — 갱신 알림이 오면 rAF로 합쳐 최대 화면 주사율(≈60Hz)로만 uPlot에 커밋하므로,
  * 도착 빈도가 아무리 높아도 그리기 횟수와 리렌더 횟수가 함께 뛰지 않는다.
  */
+/**
+ * read()에 전달되는 현재 표시 상태 — "지금 화면에 보이는 x 구간을, 이 픽셀 폭에 맞춰"
+ * 읽어 오라는 요청이다. 세션 전체를 매번 커밋하는 대신 뷰포트만 커밋하려는 소스가 쓴다.
+ */
+export interface UPlotReadView {
+  /** 현재 x 스케일의 최소/최대(데이터 좌표). */
+  xMin: number;
+  xMax: number;
+  /** 플롯 영역의 CSS 픽셀 폭 — 낼 점 수 예산을 여기서 정한다. */
+  pxWidth: number;
+}
+
 export interface UPlotDataSource {
   /** 갱신 알림 구독. 이펙트 의존성으로 쓰이므로 반드시 안정된 참조여야 한다. */
   subscribe: (cb: () => void) => () => void;
-  /** 커밋할 데이터 스냅샷. 그릴 게 없으면 null. 참조는 매 렌더 새로 만들어도 된다. */
-  read: () => { data: uPlot.AlignedData; yRange?: [number, number] } | null;
+  /**
+   * 커밋할 데이터 스냅샷. 그릴 게 없으면 null. 참조는 매 렌더 새로 만들어도 된다.
+   *
+   * `view`는 인스턴스가 아직 없는 최초 시드 호출에서만 생략된다 — 그 경우 소스는 전체
+   * 범위를 적당한 기본 예산으로 읽으면 된다. `view`를 무시하고 늘 전체를 돌려줘도 되므로
+   * 기존 소스는 그대로 동작한다.
+   *
+   * `xFull`은 **뷰포트만 커밋하는 소스**가 "전체(줌 아웃) x 도메인"을 알려주는 값이다.
+   * 뷰포트 데이터의 extent는 이제 "지금 보는 창"일 뿐 전체 도메인이 아니라서, 줌 판정과
+   * "줌 아님" 상태의 도메인 복원을 데이터 extent로 하면 창이 스스로 좁아진다. 돌려주지
+   * 않으면 기존처럼 xRange prop과 데이터 extent를 쓴다.
+   */
+  read: (view?: UPlotReadView) => {
+    data: uPlot.AlignedData;
+    yRange?: [number, number];
+    xFull?: [number, number];
+  } | null;
 }
 
 interface Props {
@@ -120,6 +147,13 @@ export default function UPlotChart({ options, data, source, yRange, xRange, onUs
   const dataRef = useRef<uPlot.AlignedData | null>(data ?? null);
   const yRangeRef = useRef<[number, number] | null>(yRange ?? null);
   const xRangeRef = useRef<[number, number] | null>(xRange ?? null);
+  // source가 알려준 전체 x 도메인(read()의 xFull). xRange prop과 같은 역할이지만 React
+  // 리렌더 없이 커밋 시점에 갱신된다 — 세션 길이처럼 초당 수십 번 자라는 값을 prop으로
+  // 올리면 그때마다 리렌더가 나기 때문이다.
+  const sourceXFullRef = useRef<[number, number] | null>(null);
+  // 뷰포트만 커밋하는 source에게 "지금 창을 다시 읽어 달라"고 요청하는 훅 — 사용자 줌으로
+  // 창이 바뀌었을 때 setScale 훅이 부른다. source 이펙트가 살아있는 동안만 채워져 있다.
+  const sourceRefreshRef = useRef<(() => void) | null>(null);
   const onUserZoomRef = useRef(onUserZoom);
   const sourceReadRef = useRef(source?.read);
   // 인스턴스에 이미 반영된 데이터 — 재생성 직후 data effect가 같은 데이터를 중복 커밋하지 않게 한다.
@@ -141,6 +175,9 @@ export default function UPlotChart({ options, data, source, yRange, xRange, onUs
   // 매 프레임 xmax = anchorTime + (now - anchorWall) 로 오른쪽 끝을 균일하게 흐르게 한다.
   const streamAnchorTimeRef = useRef<number | null>(null);
   const streamAnchorWallRef = useRef(0);
+
+  /** 전체(줌 아웃) x 도메인 — source가 알려준 값이 있으면 그쪽, 없으면 xRange prop. */
+  const fullXRange = (): [number, number] | null => sourceXFullRef.current ?? xRangeRef.current;
 
   // 현재 앵커 기준으로 x 스케일을 [0, 시계 추정 시각]으로 맞춘다. 데이터가 안 들어온
   // 프레임에도 호출돼 창이 계속 흐르게 하므로 60/120 Hz 어디서든 전진량이 일정하다.
@@ -212,10 +249,14 @@ export default function UPlotChart({ options, data, source, yRange, xRange, onUs
             const anchorT = streamAnchorTimeRef.current;
             zoomedRef.current = streamFollowRef.current && anchorT != null
               ? isZoomedFollow(u, anchorT, streamAnchorWallRef.current)
-              : isZoomed(u, xRangeRef.current);
+              : isZoomed(u, fullXRange());
             const min = u.scales.x.min;
             const max = u.scales.x.max;
             if (min != null && max != null) onUserZoomRef.current?.(min, max, zoomedRef.current);
+            // 뷰포트만 커밋하는 source는 창이 바뀌면 그 창의 데이터를 새로 읽어야 한다.
+            // 재생 중에는 다음 갱신 알림(≤10 ms)이 곧 채워 주지만, 일시정지 중에는 알림이
+            // 아예 오지 않아 확대해도 새 구간이 영영 비어 있게 된다.
+            sourceRefreshRef.current?.();
           },
         ],
       },
@@ -225,6 +266,9 @@ export default function UPlotChart({ options, data, source, yRange, xRange, onUs
     // source에서 다시 읽는다 — 재생성과 스트리밍 커밋 사이에 데이터가 되돌아가지 않게 한다.
     const seed = sourceReadRef.current?.();
     if (seed?.yRange) yRangeRef.current = seed.yRange;
+    // 없으면 null로 되돌린다 — 세션 리셋으로 데이터가 비었는데 옛 도메인이 남아 있으면
+    // 빈 차트를 지난 세션 길이에 맞춰 그리려 든다.
+    sourceXFullRef.current = seed?.xFull ?? null;
     const initialData = seed?.data ?? dataRef.current ?? emptyData(options);
 
     internalCommitRef.current = true;
@@ -235,7 +279,8 @@ export default function UPlotChart({ options, data, source, yRange, xRange, onUs
     // 생성 직후 uPlot 자체 auto-range는 "지금 들어온 데이터"의 extent를 기준으로 잡는다
     // (예: 채널 파형은 아직 로드 전이라 비어있거나 극히 짧음) — xRange가 있으면(세션 전체
     // 길이처럼 데이터보다 넓은 고정 도메인) 그 쪽을 우선한다.
-    if (xRangeRef.current) u.setScale("x", { min: xRangeRef.current[0], max: xRangeRef.current[1] });
+    const seededXFull = fullXRange();
+    if (seededXFull) u.setScale("x", { min: seededXFull[0], max: seededXFull[1] });
     applySeriesShow(u);
     sizeToContainer(u, el);
     internalCommitRef.current = false;
@@ -249,6 +294,9 @@ export default function UPlotChart({ options, data, source, yRange, xRange, onUs
       internalCommitRef.current = true;
       sizeToContainer(chart, el);
       internalCommitRef.current = false;
+      // 폭이 바뀌면 뷰포트 소스의 점 수 예산도 달라진다 — 다음 갱신 알림을 기다리지 않고
+      // 새 폭으로 다시 읽는다(정지 상태에서 사이드바를 접었다 펴도 해상도가 따라오게).
+      sourceRefreshRef.current?.();
     });
     ro.observe(el);
 
@@ -272,7 +320,7 @@ export default function UPlotChart({ options, data, source, yRange, xRange, onUs
 
     const zoomed = zoomedRef.current;
     const yR = yRangeRef.current;
-    const xR = xRangeRef.current;
+    const xR = fullXRange();
     const follow = streamFollowRef.current;
     const t0 = performance.now();
     // streamFollow: 방금 커밋된 최신 데이터 시각에 벽시계 앵커를 재설정한다 — 이후 rAF가
@@ -323,10 +371,21 @@ export default function UPlotChart({ options, data, source, yRange, xRange, onUs
 
     const commitFromSource = () => {
       frame = null;
-      if (!chartRef.current) return;
-      const res = sourceReadRef.current?.();
+      const u = chartRef.current;
+      if (!u) return;
+      // 지금 보이는 창과 플롯 폭을 그대로 넘긴다 — 소스가 이 예산에 맞춰 점 수를 줄인다.
+      // bbox는 디바이스 픽셀이라 CSS 픽셀로 환산하고, 아직 크기가 안 잡혔으면 차트 폭으로
+      // 대신한다.
+      const pxRatio = window.devicePixelRatio || 1;
+      const plotWidth = u.bbox && u.bbox.width > 0 ? u.bbox.width / pxRatio : u.width;
+      const res = sourceReadRef.current?.({
+        xMin: u.scales.x.min ?? 0,
+        xMax: u.scales.x.max ?? 0,
+        pxWidth: Math.max(1, Math.round(plotWidth)),
+      });
       if (!res) return;
       if (res.yRange) yRangeRef.current = res.yRange;
+      sourceXFullRef.current = res.xFull ?? null;
       commitRef.current(res.data);
     };
 
@@ -334,10 +393,12 @@ export default function UPlotChart({ options, data, source, yRange, xRange, onUs
       if (frame === null) frame = requestAnimationFrame(commitFromSource);
     };
 
+    sourceRefreshRef.current = onUpdate;
     const off = subscribe(onUpdate);
     onUpdate(); // 구독 직후 현재 상태를 한 번 맞춘다(늦게 마운트된 차트의 백필)
     return () => {
       off();
+      sourceRefreshRef.current = null;
       if (frame !== null) cancelAnimationFrame(frame);
     };
   }, [subscribe]);

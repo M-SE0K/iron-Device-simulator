@@ -6,7 +6,7 @@ import UPlotChart, { type UPlotOptions } from "@/shared/components/UPlotChart";
 import { cn } from "@/shared/lib/utils";
 import { INT16_SCALE, CHANNELS } from "@/features/audio/lib/engine/core";
 import SegmentedControl from "@/shared/components/ui/SegmentedControl";
-import { buildTimeAxis, buildValueAxis, timeDecimalsForInterval } from "@/features/audio/lib/render/uplot-option";
+import { buildTimeAxis, buildValueAxis } from "@/features/audio/lib/render/uplot-option";
 import { staticSeriesLayerPlugin, liveEnvelopeOverlayPlugin, tooltipPlugin, zoomPlugin } from "@/features/audio/lib/render/uplot-plugins";
 import {
   BucketEnvelope,
@@ -25,8 +25,9 @@ const Y_MIN_SPAN = 0.05;
 
 /**
  * Protected 트레이스는 독립된 growing store로 그려진다(live-envelope-overlay.ts) — 초기
- * 버킷 폭을 1ms로 잡아, 재생 초반부는 실제로 ms 단위 해상도로 확인할 수 있다. 5초 지점부터는
- * ChannelWaveStore의 압축 로직대로 점점 넓어진다(세션이 길어져도 버킷 개수 상한은 유지).
+ * 버킷 폭을 1ms로 잡아, 재생 초반부는 실제로 ms 단위 해상도로 확인할 수 있다. 50초
+ * (= MAX_WAVE_BUCKETS × 1ms) 지점부터는 ChannelWaveStore의 압축 로직대로 점점 넓어진다
+ * (세션이 길어져도 버킷 개수 상한은 유지).
  */
 const PROTECTED_INITIAL_BUCKET_SEC = 0.001;
 
@@ -46,9 +47,16 @@ function computeInputBuckets(durationSec: number): number {
 
 type ChannelMode = "L" | "R" | "Both";
 
-export const COLOR_INPUT_L     = "#93c5fd";
+/**
+ * Input(원본)은 **무채색**, Protected(보호 후)는 유채색이다. 이 패널의 관심사는 "원본 대비
+ * 무엇이 얼마나 깎였나"라, 두 쌍을 같은 채도로 그리면 겹친 구간에서 어느 쪽이 결과인지
+ * 한눈에 안 들어온다. 원본은 배경 기준선으로 물러나고 보호 결과만 색으로 떠오르게 한다.
+ *
+ * L/R 구분은 채도가 아니라 **명도 두 단계**로 준다(iron-600 / iron-400 = 프로젝트 회색 팔레트).
+ */
+export const COLOR_INPUT_L     = "#475569";
 export const COLOR_PROTECTED_L = "#2563eb";
-export const COLOR_INPUT_R     = "#fcd34d";
+export const COLOR_INPUT_R     = "#94A3B8";
 export const COLOR_PROTECTED_R = "#d97706";
 
 function ProtectedComparePanelImpl({
@@ -288,18 +296,19 @@ function ProtectedComparePanelImpl({
 
   const options = useMemo<UPlotOptions | null>(() => {
     if (!original) return null;
-    const timeDecimals = timeDecimalsForInterval(original.durationSec / computeInputBuckets(original.durationSec));
     const inputSeries = (label: string, color: string): uPlot.Series => ({
       label, stroke: `${color}D9`, width: 1, spanGaps: true,
       paths: () => null,
       points: { show: false },
     });
     // Protected도 uPlot의 기본 경로 빌드를 끈다 — 실제 스트로크는 liveEnvelopeOverlayPlugin이
-    // u.series[idx].show/stroke/width만 빌려 캔버스에 직접 그린다(u.data[idx]는 안 읽음).
+    // u.series[idx]의 show/stroke/width/points만 빌려 캔버스에 직접 그린다(u.data[idx]는 안 읽음).
+    // points는 Temperature/Excursion과 같은 규약이다 — 지름(CSS px)만 주면 오버레이가 uPlot과
+    // 동일한 기준(점 간격이 촘촘해지면 생략)으로 알아서 켜고 끈다.
     const protectedSeries = (label: string, color: string): uPlot.Series => ({
       label, stroke: color, width: 1.8, spanGaps: true,
       paths: () => null,
-      points: { show: false },
+      points: { size: 4, fill: color },
     });
     const [storeL, storeR] = protectedStoresRef.current;
     return {
@@ -313,7 +322,7 @@ function ProtectedComparePanelImpl({
         protectedSeries("Protected R", COLOR_PROTECTED_R),
       ],
       axes: [
-        buildTimeAxis(timeDecimals),
+        buildTimeAxis(),
         buildValueAxis({ size: 56, formatter: (v: number) => v.toFixed(2) }),
       ],
       plugins: [
@@ -324,7 +333,7 @@ function ProtectedComparePanelImpl({
         ]),
         zoomPlugin({ getFullXRange: () => [0, original.durationSec] }),
         tooltipPlugin({
-          unit: "", decimals: 3, timeDecimals: 3,
+          unit: "", decimals: 3,
           virtualSeries: [
             { label: "Protected L", seriesIdx: 3, resolve: (t) => storeL.valueAt(t) },
             { label: "Protected R", seriesIdx: 4, resolve: (t) => storeR.valueAt(t) },

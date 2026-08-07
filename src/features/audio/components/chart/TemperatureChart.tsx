@@ -41,7 +41,6 @@ export default function TemperatureChart({
   const { isEnabled, draw } = useDrawMode(annotations, canAnnotate);
   const {
     current: currentTemp,
-    timeDecimals,
     showChart,
   } = useMetricChartRuntime({
     metric: "temperature",
@@ -70,7 +69,6 @@ export default function TemperatureChart({
       spline: true,
       fill: ["rgba(11,65,113,0.18)", "rgba(11,65,113,0)"],
     },
-    timeDecimals,
     axisSize: 52,
     tooltipUnit: "°C",
     tooltipDecimals: 1,
@@ -81,7 +79,7 @@ export default function TemperatureChart({
       ]),
       ...(annotations ? [annotatePlugin({ store: annotations, isEnabled })] : []),
     ],
-  }), [timeDecimals, warnThreshold, dangerThreshold, annotations, isEnabled]);
+  }), [warnThreshold, dangerThreshold, annotations, isEnabled]);
 
   return (
     <MetricChartCard

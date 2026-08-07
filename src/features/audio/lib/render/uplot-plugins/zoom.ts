@@ -15,6 +15,11 @@ export interface ZoomPluginOptions {
    * 넘기면 uPlot 인스턴스가 매번 재생성된다.
    */
   getFullXRange?: () => [number, number] | null;
+  /**
+   * 확대 하한(x 범위의 최소 폭). 생략하면 무한히 확대된다 — 원본 샘플까지 내려가는 채널
+   * 파형은 화면에 샘플이 몇 개는 남도록 이 값을 준다(예: 16 / sampleRate).
+   */
+  minXRange?: number;
 }
 
 /** 전체(줌 아웃) x 범위 — getFullXRange가 있으면 그 값, 없으면 현재 로드된 데이터의 extent. */
@@ -39,7 +44,7 @@ function fullXRange(u: uPlot, getFullXRange?: () => [number, number] | null): [n
  * 보정한다.
  */
 export function zoomPlugin(opts: ZoomPluginOptions = {}): uPlot.Plugin {
-  const { getFullXRange } = opts;
+  const { getFullXRange, minXRange } = opts;
 
   return {
     hooks: {
@@ -61,7 +66,12 @@ export function zoomPlugin(opts: ZoomPluginOptions = {}): uPlot.Plugin {
             const [fullMin, fullMax] = fullXRange(u, getFullXRange);
             const fullRange = fullMax - fullMin;
 
-            const nextRange = e.deltaY < 0 ? curRange * WHEEL_ZOOM_FACTOR : curRange / WHEEL_ZOOM_FACTOR;
+            let nextRange = e.deltaY < 0 ? curRange * WHEEL_ZOOM_FACTOR : curRange / WHEEL_ZOOM_FACTOR;
+            if (minXRange != null && minXRange > 0 && nextRange < minXRange) {
+              // 이미 하한이면 더 확대하지 않는다(같은 범위로 setScale하면 불필요한 리드로우만 난다).
+              if (curRange <= minXRange) return;
+              nextRange = minXRange;
+            }
             if (fullRange > 0 && nextRange >= fullRange * FULL_RANGE_SNAP) {
               u.setScale("x", { min: fullMin, max: fullMax });
               return;

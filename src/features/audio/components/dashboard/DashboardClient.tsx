@@ -390,6 +390,7 @@ export default function DashboardPage({ useQueue }: DashboardPageProps) {
               tempThresholds={tempThresholds}
               audioFile={audioFile}
               subscribeChannelStream={subscribeChannelStream}
+              getChannelsSnapshot={getChannelsSnapshot}
               getProtectedBlob={getProtectedBlob}
               channelHeader={channelHeader}
               getWaveStore={getWaveStore}

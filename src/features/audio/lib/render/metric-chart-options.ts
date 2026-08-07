@@ -22,7 +22,6 @@ interface MetricSeriesStyle {
 
 export interface MetricChartOptionsConfig {
   series: MetricSeriesStyle;
-  timeDecimals: number;
   axisSize: number;
   axisFormatter?: (v: number) => string;
   tooltipUnit: string;
@@ -32,7 +31,7 @@ export interface MetricChartOptionsConfig {
 }
 
 export function buildMetricChartOptions(config: MetricChartOptionsConfig): UPlotOptions {
-  const { series, timeDecimals, axisSize, axisFormatter, tooltipUnit, tooltipDecimals, extraPlugins } = config;
+  const { series, axisSize, axisFormatter, tooltipUnit, tooltipDecimals, extraPlugins } = config;
   return {
     legend: { show: false },
     cursor: { drag: { x: true, y: false } },
@@ -47,10 +46,10 @@ export function buildMetricChartOptions(config: MetricChartOptionsConfig): UPlot
         points: { size: series.pointSize ?? 5, fill: series.color },
       },
     ],
-    axes: [buildTimeAxis(timeDecimals), buildValueAxis({ size: axisSize, formatter: axisFormatter })],
+    axes: [buildTimeAxis(), buildValueAxis({ size: axisSize, formatter: axisFormatter })],
     plugins: [
       zoomPlugin(),
-      tooltipPlugin({ unit: tooltipUnit, decimals: tooltipDecimals, timeDecimals }),
+      tooltipPlugin({ unit: tooltipUnit, decimals: tooltipDecimals }),
       ...(extraPlugins ?? []),
     ],
   };

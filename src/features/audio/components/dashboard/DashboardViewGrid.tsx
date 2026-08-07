@@ -6,7 +6,7 @@
 // 행에 혼자 남으면 전체 폭으로 늘려 빈 칸을 만들지 않는다 — 기본 선택 상태의 결과가 곧
 // 예전 고정 배치(1행 Protection / 2행 Excursion·Temperature)다.
 import { useMemo } from "react";
-import type { CaptureStreamListener } from "@/features/audio/components/player/capture/types";
+import type { CaptureSnapshot, CaptureStreamListener } from "@/features/audio/components/player/capture/types";
 import type { ChartStore } from "@/features/audio/lib/render/chart-store";
 import type { ChannelWaveStore } from "@/features/audio/lib/render/wave-store";
 import type { AnnotationStore } from "@/features/audio/lib/render/annotation-store";
@@ -36,6 +36,8 @@ interface Props {
   tempThresholds: TempThresholds;
   audioFile: File | null;
   subscribeChannelStream: (fn: CaptureStreamListener) => () => void;
+  /** 채널 파형이 확대 시 원본 PCM을 직접 읽는 데 쓰는 스냅샷 getter(안정된 참조). */
+  getChannelsSnapshot: () => CaptureSnapshot | null;
   getProtectedBlob: () => Blob | null;
   channelHeader: ChannelStreamHeader | null;
   getWaveStore: (ch: number) => ChannelWaveStore;
@@ -90,6 +92,7 @@ export default function DashboardViewGrid({
   tempThresholds,
   audioFile,
   subscribeChannelStream,
+  getChannelsSnapshot,
   getProtectedBlob,
   channelHeader,
   getWaveStore,
@@ -158,6 +161,7 @@ export default function DashboardViewGrid({
         store={getWaveStore(ch)}
         annotations={getAnnotationStore(id)}
         canAnnotate={!isPlaying}
+        getCaptureSnapshot={getChannelsSnapshot}
       />
     );
   };
