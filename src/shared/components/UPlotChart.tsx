@@ -6,6 +6,7 @@
 import { useLayoutEffect, useRef } from "react";
 import uPlot from "uplot";
 import "uplot/dist/uPlot.min.css";
+import { attachYZoom } from "./uplot-y-zoom";
 
 export type UPlotOptions = Omit<uPlot.Options, "width" | "height">;
 
@@ -87,6 +88,13 @@ interface Props {
    * 따라 흐른다. xRange와는 배타적이며(둘 다 있으면 streamFollow 우선), 재생 중일 때만 켠다.
    */
   streamFollow?: boolean;
+  /**
+   * y축 gutter(왼쪽 눈금 영역)에서의 사용자 확대/이동을 켠다. 휠은 커서가 가리키는 값을
+   * 고정한 채 y 범위를 좁히고 넓히며, 상하 드래그는 그 범위를 통째로 민다. 잡은 범위는
+   * 이후 커밋에서도 유지되고(자동 범위가 덮어쓰지 않는다), 더블클릭하거나 자동 범위 폭까지
+   * 축소하면 다시 자동 추종으로 돌아간다. x축 줌과 독립이라 둘을 겹쳐 쓸 수 있다.
+   */
+  yZoom?: boolean;
   className?: string;
 }
 
@@ -137,10 +145,13 @@ function isZoomedFollow(u: uPlot, anchorT: number, anchorWall: number): boolean 
   return Math.abs(min - 0) > tol || Math.abs(max - expectedMax) > tol;
 }
 
-export default function UPlotChart({ options, data, source, yRange, xRange, onUserZoom, seriesShow, streamFollow, className }: Props) {
+export default function UPlotChart({ options, data, source, yRange, xRange, onUserZoom, seriesShow, streamFollow, yZoom, className }: Props) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const chartRef = useRef<uPlot | null>(null);
   const zoomedRef = useRef(false);
+  // 사용자가 y축에서 직접 잡은 범위(yZoom). 채워져 있는 동안은 소스/prop이 주는 자동
+  // 범위(yRangeRef)보다 항상 우선한다 — 스트리밍으로 데이터가 자라도 잠긴 창이 풀리지 않게.
+  const yLockRef = useRef<[number, number] | null>(null);
   // true인 동안의 setScale은 우리가 유발한 내부 커밋(생성/setData) — 사용자 줌이 아니다.
   const internalCommitRef = useRef(false);
   // 최신 props를 훅/이펙트가 항상 안정된 참조로 읽을 수 있게 미러링한다.
@@ -178,6 +189,9 @@ export default function UPlotChart({ options, data, source, yRange, xRange, onUs
 
   /** 전체(줌 아웃) x 도메인 — source가 알려준 값이 있으면 그쪽, 없으면 xRange prop. */
   const fullXRange = (): [number, number] | null => sourceXFullRef.current ?? xRangeRef.current;
+
+  /** 실제로 그려야 할 y 범위 — 사용자가 잡아둔 창이 있으면 그쪽이 자동 범위를 덮는다. */
+  const effectiveYRange = (): [number, number] | null => yLockRef.current ?? yRangeRef.current;
 
   // 현재 앵커 기준으로 x 스케일을 [0, 시계 추정 시각]으로 맞춘다. 데이터가 안 들어온
   // 프레임에도 호출돼 창이 계속 흐르게 하므로 60/120 Hz 어디서든 전진량이 일정하다.
@@ -232,7 +246,9 @@ export default function UPlotChart({ options, data, source, yRange, xRange, onUs
         },
         y: {
           ...options.scales?.y,
-          range: (u, dataMin, dataMax) => yRangeRef.current ?? [dataMin, dataMax],
+          // setData(data, true)가 유발하는 auto-range가 여기로 들어온다 — 사용자가 잡은
+          // 창(yLockRef)을 여기서 되돌려줘야 매 커밋마다 자동 범위로 튕겨나가지 않는다.
+          range: (u, dataMin, dataMax) => effectiveYRange() ?? [dataMin, dataMax],
         },
       },
       hooks: {
@@ -276,6 +292,9 @@ export default function UPlotChart({ options, data, source, yRange, xRange, onUs
     chartRef.current = u;
     appliedDataRef.current = initialData;
     zoomedRef.current = false;
+    // 인스턴스가 새로 만들어지면(옵션 변경/새 세션) y 잠금도 함께 푼다 — x 줌 상태를
+    // 여기서 초기화하는 것과 같은 이유다.
+    yLockRef.current = null;
     // 생성 직후 uPlot 자체 auto-range는 "지금 들어온 데이터"의 extent를 기준으로 잡는다
     // (예: 채널 파형은 아직 로드 전이라 비어있거나 극히 짧음) — xRange가 있으면(세션 전체
     // 길이처럼 데이터보다 넓은 고정 도메인) 그 쪽을 우선한다.
@@ -319,7 +338,7 @@ export default function UPlotChart({ options, data, source, yRange, xRange, onUs
     appliedDataRef.current = next;
 
     const zoomed = zoomedRef.current;
-    const yR = yRangeRef.current;
+    const yR = effectiveYRange();
     const xR = fullXRange();
     const follow = streamFollowRef.current;
     const t0 = performance.now();
@@ -435,12 +454,33 @@ export default function UPlotChart({ options, data, source, yRange, xRange, onUs
   }, [seriesShow?.join(",")]);
 
   // yRange/xRange만 바뀐 경우(데이터 동일)에도 스케일을 따라가게 한다.
+  // y를 사용자가 잡아둔 상태면 자동 범위가 갱신돼도 그대로 둔다.
   useLayoutEffect(() => {
     const u = chartRef.current;
     if (!u) return;
-    if (!zoomedRef.current && yRange) u.setScale("y", { min: yRange[0], max: yRange[1] });
+    if (!zoomedRef.current && !yLockRef.current && yRange) u.setScale("y", { min: yRange[0], max: yRange[1] });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [yRange?.[0], yRange?.[1]]);
+
+  // y축 확대/이동 — 인스턴스가 살아있는 동안만 리스너를 붙인다. 잠금 해제(null)일 때
+  // 자동 범위가 있으면 그 값으로 되돌리고, 없으면(데이터 extent를 쓰는 차트) 현재 데이터로
+  // 다시 auto-range를 태운다.
+  useLayoutEffect(() => {
+    const u = chartRef.current;
+    if (!u || !yZoom) return;
+    return attachYZoom(u, {
+      getAuto: () => yRangeRef.current,
+      apply: (range) => {
+        yLockRef.current = range;
+        internalCommitRef.current = true;
+        const next = effectiveYRange();
+        if (next) u.setScale("y", { min: next[0], max: next[1] });
+        else u.setData(u.data, true);
+        internalCommitRef.current = false;
+      },
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [options, yZoom]);
 
   return <div ref={containerRef} className={className} style={{ width: "100%", height: "100%", position: "relative" }} />;
 }

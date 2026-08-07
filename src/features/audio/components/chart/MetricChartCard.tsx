@@ -64,6 +64,7 @@ export default function MetricChartCard({
             options={options}
             source={source}
             streamFollow={streaming}
+            yZoom
           />
         ) : (
           <div className="chart-empty-state h-full flex items-center justify-center text-xs text-iron-300">

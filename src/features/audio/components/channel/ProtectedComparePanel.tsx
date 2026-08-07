@@ -388,6 +388,7 @@ function ProtectedComparePanelImpl({
               yRange={yRange}
               xRange={[0, original!.durationSec]}
               seriesShow={seriesShow}
+              yZoom
             />
           </div>
         ) : (

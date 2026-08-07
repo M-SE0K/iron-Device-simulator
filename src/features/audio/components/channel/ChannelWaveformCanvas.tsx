@@ -190,7 +190,7 @@ export function ChannelWaveformCanvas({
     ],
   }), [color, sampleRate, getFullXRange, annotations, isDrawEnabled]);
 
-  return <UPlotChart options={options} source={source} />;
+  return <UPlotChart options={options} source={source} yZoom />;
 }
 
 /**
