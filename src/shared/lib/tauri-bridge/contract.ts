@@ -21,6 +21,9 @@ export const COMMANDS = {
   audioPlayCaptureFinalizeWrite: "audio_playcapture_finalize_write",
   audioPlayCaptureCancelWrite: "audio_playcapture_cancel_write",
   audioPlayCaptureStart: "audio_playcapture_start",
+  // 스트리밍 재생 모드(opts.stream) 전용 — 보호 처리된 PCM을 프레임 단위로 헬퍼에 밀어 넣는다.
+  // write_chunk와 같은 raw invoke body 커맨드지만 write-id 헤더는 없다(스트림이 하나뿐).
+  audioPlayCaptureWritePcm: "audio_playcapture_write_pcm",
   audioPlayCaptureControl: "audio_playcapture_control",
   audioPlayCaptureStop: "audio_playcapture_stop",
 
@@ -69,6 +72,8 @@ export const ARG_KEYS = {
   refChannels: "refChannels",
   outputChannel: "outputChannel",
   outputChannelR: "outputChannelR",
+  stream: "stream",
+  prefillMs: "prefillMs",
   writeId: "writeId",
   action: "action",
   path: "path",

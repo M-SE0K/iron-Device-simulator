@@ -133,6 +133,7 @@ fn main() {
             audio_playcapture::audio_playcapture_finalize_write,
             audio_playcapture::audio_playcapture_cancel_write,
             audio_playcapture::audio_playcapture_start,
+            audio_playcapture::audio_playcapture_write_pcm,
             audio_playcapture::audio_playcapture_control,
             audio_playcapture::audio_playcapture_stop,
             local_folder::local_folder_select,

@@ -183,6 +183,15 @@ pub struct PlayCaptureStartOptions {
     /// R 출력 채널 — 범위 밖/L과 중복이면 헬퍼가 에러 없이 모노로 폴백한다.
     #[serde(default)]
     output_channel_r: Option<u32>,
+    /// true면 `--ref`(파일 전체 선업로드) 대신 stdin 스트리밍 재생 모드(`--stream`)로 띄운다.
+    /// 재생 PCM은 `audio_playcapture_write_pcm`으로 프레임마다 들어온다 —
+    /// 렌더러가 ff_prot을 통과시킨 결과를 밀어 넣으므로 스피커로는 보호된 신호만 나간다.
+    /// 이 모드에서는 `ref_write_id`가 필요 없다.
+    #[serde(default)]
+    stream: Option<bool>,
+    /// `--stream` 전용: 재생을 시작하기 전에 링에 채워둘 분량(ms). 생략 시 헬퍼 기본값(40).
+    #[serde(default)]
+    prefill_ms: Option<u32>,
 }
 
 // audio_capture_start와 같은 이유로 `async fn` + `Result` — 재생 버튼의 가장 큰 프리즈가
@@ -203,25 +212,38 @@ pub async fn audio_playcapture_start(
         return Ok(serde_json::json!({ "success": false, "error": "play-capture-already-running" }));
     }
 
-    // refWriteId가 없거나, 있어도 finalize-write를 거치지 않았으면(=finalizedRefs에 없으면)
-    // 진행할 수 없다 — 원본 JS의 `if (!refWriteId || !refPath) return missing-ref-write-id` 그대로.
-    let ref_path = match &opts.ref_write_id {
-        Some(id) => state.finalized_refs.lock().unwrap().remove(id),
-        None => None,
-    };
-    let Some(ref_path) = ref_path else {
-        return Ok(serde_json::json!({ "success": false, "error": "missing-ref-write-id" }));
+    // 스트리밍 모드는 재생 PCM이 stdin으로 들어오므로 ref 파일 자체가 없다.
+    // ref 모드에서는 refWriteId가 없거나, 있어도 finalize-write를 거치지 않았으면
+    // (=finalizedRefs에 없으면) 진행할 수 없다 — 원본 JS의
+    // `if (!refWriteId || !refPath) return missing-ref-write-id` 그대로.
+    let stream_mode = opts.stream.unwrap_or(false);
+    let ref_path = if stream_mode {
+        None
+    } else {
+        let path = match &opts.ref_write_id {
+            Some(id) => state.finalized_refs.lock().unwrap().remove(id),
+            None => None,
+        };
+        let Some(path) = path else {
+            return Ok(serde_json::json!({ "success": false, "error": "missing-ref-write-id" }));
+        };
+        Some(path)
     };
 
-    let mut base_args = vec![
-        "play-capture".to_string(),
-        "--ref".to_string(),
-        ref_path.to_string_lossy().into_owned(),
-        opts.sample_rate.to_string(),
-        opts.buffer_size.to_string(),
-        // 원본 JS `String(channels || 2)` — 0도 "미지정"과 동일하게 취급해 2로 폴백한다.
-        opts.channels.filter(|&c| c != 0).unwrap_or(2).to_string(),
-    ];
+    let mut base_args = vec!["play-capture".to_string()];
+    match &ref_path {
+        Some(path) => {
+            base_args.push("--ref".to_string());
+            base_args.push(path.to_string_lossy().into_owned());
+        }
+        None => base_args.push("--stream".to_string()),
+    }
+    // 위 옵션들은 헬퍼가 위치 인자 파싱 전에 걷어내므로 sampleRate/bufferSize/channels의
+    // 위치는 두 모드에서 동일하다.
+    base_args.push(opts.sample_rate.to_string());
+    base_args.push(opts.buffer_size.to_string());
+    // 원본 JS `String(channels || 2)` — 0도 "미지정"과 동일하게 취급해 2로 폴백한다.
+    base_args.push(opts.channels.filter(|&c| c != 0).unwrap_or(2).to_string());
     if let Some(v) = opts.ref_channels {
         base_args.push("--ref-channels".to_string());
         base_args.push(v.to_string());
@@ -234,14 +256,21 @@ pub async fn audio_playcapture_start(
         base_args.push("--out-ch-r".to_string());
         base_args.push(v.to_string());
     }
+    if stream_mode {
+        if let Some(v) = opts.prefill_ms {
+            base_args.push("--prefill-ms".to_string());
+            base_args.push(v.to_string());
+        }
+    }
     let args = with_device(base_args, opts.device_uid.as_deref());
 
     // 재생 완료(code 0) 포함 모든 종료 경로(정상 종료·에러·조기 kill)에서 ref 임시 파일을
     // 정리한다 — 원본의 onChildError/onChildExit 콜백을 합친 것과 동등(Rust에서는 spawn 실패
-    // 아니면 exit뿐이라 콜백 하나로 충분).
-    let cleanup_path = ref_path.clone();
-    let cleanup: Box<dyn FnOnce() + Send> = Box::new(move || {
-        let _ = std::fs::remove_file(&cleanup_path);
+    // 아니면 exit뿐이라 콜백 하나로 충분). 스트리밍 모드에는 지울 임시 파일이 없다.
+    let cleanup: Option<Box<dyn FnOnce() + Send>> = ref_path.map(|path| {
+        Box::new(move || {
+            let _ = std::fs::remove_file(&path);
+        }) as Box<dyn FnOnce() + Send>
     });
 
     Ok(run_streaming_helper(
@@ -251,11 +280,50 @@ pub async fn audio_playcapture_start(
         args,
         data,
         "audio-playcapture:ended".to_string(),
-        Some(cleanup),
+        cleanup,
     ))
 }
 
-/// pause/resume — 헬퍼 stdin 라인 명령으로 중계. stop은 별도 커맨드(stdin EOF→유예→kill).
+/// `--stream` 모드 전용: 보호 처리된 PCM 한 덩이를 헬퍼 stdin에 프레이밍해 밀어 넣는다.
+///
+/// `audio_playcapture_write_chunk`와 같은 이유로 sync다 — raw invoke body(`Request<'a>`)가
+/// 호출 스택 프레임을 빌리는 타입이라 `async fn`의 `'static` 요구와 맞지 않는다. 즉 이 커맨드는
+/// IPC 디스패치 스레드에서 인라인으로 실행된다.
+///
+/// ⚠️ 그래서 **호출 빈도가 이 커맨드의 안전 조건**이다. 감당 가능한 건 페이로드 크기가 아니라
+/// 초당 호출 횟수 쪽이다 — 처음엔 프레임마다 한 번씩 부르게 짰다가, bufferSize를 16으로 낮추면
+/// 초당 3000회가 되어 메인 스레드가 잠기고 재생이 지지직거리는 것을 실측으로 확인했다.
+/// 지금은 렌더러(`useNativeCapture.ts`의 `PLAYBACK_WRITE_BATCH_MS`)가 ~10 ms어치씩 모아
+/// 보내서 bufferSize와 무관하게 ~100 Hz로 묶어 준다. 그 배칭이 이 sync 구현의 전제다 —
+/// 호출 빈도를 올리려면 먼저 이걸 async로 옮겨야 한다(raw body를 `Vec<u8>`로 복사한 뒤 spawn).
+#[tauri::command]
+pub fn audio_playcapture_write_pcm(
+    state: State<'_, PlayCaptureState>,
+    request: Request<'_>,
+) -> Value {
+    let bytes = match request.body() {
+        InvokeBody::Raw(bytes) => bytes,
+        InvokeBody::Json(_) => {
+            return serde_json::json!({ "success": false, "error": "invalid-pcm-body" });
+        }
+    };
+    if bytes.is_empty() {
+        return serde_json::json!({ "success": true });
+    }
+    // 헬퍼 프레이밍: `"pcm <바이트수>\n"` + 페이로드. 한 번의 write_all로 보내야 헤더와
+    // 페이로드 사이에 pause/end 같은 제어 라인이 끼어들 수 없다(streaming.rs 참고).
+    let mut framed = Vec::with_capacity(bytes.len() + 16);
+    framed.extend_from_slice(format!("pcm {}\n", bytes.len()).as_bytes());
+    framed.extend_from_slice(bytes);
+    match state.controller.write_stdin_bytes(&framed) {
+        Ok(()) => serde_json::json!({ "success": true }),
+        Err(err) => serde_json::json!({ "success": false, "error": err }),
+    }
+}
+
+/// pause/resume/end — 헬퍼 stdin 라인 명령으로 중계. stop은 별도 커맨드(stdin EOF→유예→kill).
+/// `end`는 `--stream` 모드에서 "재생 PCM은 여기까지"를 알리는 신호다 — 헬퍼는 링을 다 비운 뒤
+/// 감쇠 테일까지 캡처하고 exit 0으로 끝낸다(= 기존 재생 완료와 같은 경로).
 #[tauri::command]
 pub async fn audio_playcapture_control(
     state: State<'_, PlayCaptureState>,
@@ -264,7 +332,7 @@ pub async fn audio_playcapture_control(
     if !state.controller.is_running() {
         return Ok(serde_json::json!({ "success": false, "error": "not-running" }));
     }
-    if action != "pause" && action != "resume" {
+    if action != "pause" && action != "resume" && action != "end" {
         return Ok(serde_json::json!({ "success": false, "error": format!("unknown-action: {action}") }));
     }
     match state.controller.write_stdin_line(&format!("{action}\n")) {

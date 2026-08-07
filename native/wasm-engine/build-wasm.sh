@@ -51,6 +51,23 @@ if [[ "${FF_PROT_DUMMY_ATTENUATION:-}" == "1" ]]; then
   EMCC_DEFINES+=("-DFF_PROT_DUMMY_ATTENUATION=1")
   echo "→ 더미 감쇠 빌드: FF_PROT_DUMMY_ATTENUATION=1 (pass B 감쇠 항상 미개입, 출력: $WASM_OUT_DIR)"
 fi
+# 검증 전용(기본 비활성) — 무음(0) 소스로도 보호 개입을 눈으로 보려는 훅. buf 를 프레임마다
+# STEP 만큼 커지는 DC 램프로 덮어써서, 진폭이 EXC 한계를 넘는 지점부터 감쇠가 걸리는 걸
+# Protected 트레이스에서 확인한다(custom/ff_prot.c 의 FF_PROT_TEST_INJECT 블록 참고).
+#   FF_PROT_TEST_INJECT=1 npm run build:wasm
+#   FF_PROT_TEST_INJECT=1 FF_PROT_TEST_INJECT_STEP=50 FF_PROT_TEST_INJECT_MAX=12000 npm run build:wasm
+# ⚠️ Protected 재생 모드에선 이 DC 램프가 그대로 스피커로 나간다 — 하드웨어 물린 채로는
+#   앰프를 내리거나 MAX 를 낮출 것. 확인 후 반드시 플래그 없이 재빌드해 public/wasm/ 복구.
+if [[ "${FF_PROT_TEST_INJECT:-}" == "1" ]]; then
+  EMCC_DEFINES+=("-DFF_PROT_TEST_INJECT=1")
+  if [[ -n "${FF_PROT_TEST_INJECT_STEP:-}" ]]; then
+    EMCC_DEFINES+=("-DFF_PROT_TEST_INJECT_STEP=${FF_PROT_TEST_INJECT_STEP}")
+  fi
+  if [[ -n "${FF_PROT_TEST_INJECT_MAX:-}" ]]; then
+    EMCC_DEFINES+=("-DFF_PROT_TEST_INJECT_MAX=${FF_PROT_TEST_INJECT_MAX}")
+  fi
+  echo "⚠ 검증 전용 빌드: FF_PROT_TEST_INJECT=1 (buf 를 DC 램프로 덮어씀 — step=${FF_PROT_TEST_INJECT_STEP:-10}, max=${FF_PROT_TEST_INJECT_MAX:-32767}). 배포 금지."
+fi
 # 재현 전용(기본 비활성) — "차트는 멈추는데 오디오는 계속 나온다" 증상을 격리 재현하기
 # 위한 훅. 절대 기본 빌드에 섞이지 않는다: 명시적으로 env var를 켜야만 정의된다.
 #   FF_PROT_DEBUG_HANG=1 npm run wasm:build   # ff_prot_start_exec 진입 시 무한 루프 → 절대 반환 안 함

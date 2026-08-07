@@ -12,6 +12,7 @@
 //   audio-device-helper set          [--device <UID>] <sampleRate> <bufferFrameSize>
 //   audio-device-helper capture      [--device <UID>] <sampleRate> <bufferFrameSize> [channels=2]
 //   audio-device-helper play-capture [--device <UID>] --ref <path> [--ref-channels <1|2>] [--out-ch <n>] [--out-ch-r <n>] <sampleRate> <bufferFrameSize> [channels=2]
+//   audio-device-helper play-capture --stream [--device <UID>] [--prefill-ms <n>] [--out-ch <n>] [--out-ch-r <n>] <sampleRate> <bufferFrameSize> [channels=2]
 //
 // --device <UID>가 없으면 OS 기본 입력 장치를 대상으로 한다(기존 동작).
 // --out-ch <n>(play-capture 전용, 생략 시 0)는 --ref 신호를 내보낼 출력 채널 인덱스 —
@@ -26,6 +27,17 @@
 // capture 모드와 동일한 int16 스트림으로 내보낸다.
 // stdin 라인 명령(pause/resume/stop)으로 제어하고, 재생이 끝나면(+감쇠 테일) exit 0으로
 // 스스로 종료한다 — exit 0 = "재생 완료" 신호.
+//
+// --stream(play-capture 전용)은 --ref 대신 **재생 PCM을 stdin으로 계속 받아** 재생한다.
+// 렌더러가 보호 알고리즘(ff_prot)을 통과시킨 PCM을 프레임 단위로 밀어 넣는 용도라, 스피커로
+// 나가는 신호가 처음부터 끝까지 보호된 신호가 된다(docs/protected-playback-plan.md).
+// 이때 stdin은 라인 명령과 바이너리 페이로드가 섞인 프레이밍을 쓴다:
+//   "pcm <바이트수>\n" + <바이트수 바이트>   재생 PCM 한 덩이(int16 인터리브 스테레오 LE)
+//   "end\n"                                   더 보낼 PCM 없음 → 링 소진 + 테일 후 exit 0
+//   "pause\n" / "resume\n" / "stop\n"          기존과 동일 (pause는 링 소비도 함께 멈춘다)
+// --prefill-ms(기본 40)만큼 재생 링버퍼가 찰 때까지 IOProc 시작을 미룬다 — 재생과 캡처가
+// 같은 IOProc이므로 이 지연이 곧 "캡처도 같이 늦게 시작"이라 단일 클록 등식은 그대로다.
+// 프리필이 --prefill-timeout-s(기본 15) 안에 차지 않으면 exit 4로 끝낸다.
 // list는 연결된 입력 장치 전체를 UID/이름/채널과 함께 반환한다(장치 선택 드롭다운용).
 // get/set 출력은 한 줄 JSON (stdout).
 // capture는 상주 모드: 첫 줄 JSON 헤더 → 이후 stdout은 int16 인터리브 raw PCM 스트림.
@@ -35,6 +47,7 @@
 
 import CoreAudio
 import Foundation
+import os   // os_unfair_lock — PlaybackRing(스트리밍 재생 링버퍼)의 인덱스 보호용
 
 func writeJSONLine(_ dict: [String: Any]) {
     if let data = try? JSONSerialization.data(withJSONObject: dict),
@@ -360,13 +373,105 @@ func createIOProcOrExit(_ device: AudioDeviceID, _ ioBlock: @escaping AudioDevic
 // 일반 크래시와 다른 안내 문구를 보여준다(useNativeCapture.ts의 offEnded 참고).
 let EXIT_CODE_DEVICE_DISCONNECTED: Int32 = 3
 
+// 종료 코드 4 = --stream 모드에서 프리필이 제한 시간 안에 차지 않음. 렌더러가 보호 PCM을
+// 밀어 넣지 못했다는 뜻이라(엔진 로드 실패 등) 재생을 시작하지 않고 끝낸다.
+let EXIT_CODE_PREFILL_TIMEOUT: Int32 = 4
+
+// ─── 스트리밍 재생 링버퍼 (--stream 전용) ─────────────────────────────────
+// 생산자는 stdin 리더 스레드(렌더러가 보낸 보호 PCM), 소비자는 IOProc이다.
+// 임계구역은 인덱스 산술과 한 콜백 분량(수 KB) 복사뿐이고, 같은 IOProc이 이미 배열 할당과
+// write(2)를 하고 있어 이 락이 이 파일의 실시간성 하한을 새로 낮추지는 않는다.
+// os_unfair_lock은 포인터로 들고 있어야 한다 — 저장 프로퍼티에 &를 붙이면 Swift가 사본을
+// 넘길 수 있어 락이 조용히 무력화된다.
+final class PlaybackRing {
+    private let capacityFrames: Int
+    private let channels: Int
+    private let storage: UnsafeMutablePointer<Float32>
+    private let lock = UnsafeMutablePointer<os_unfair_lock>.allocate(capacity: 1)
+
+    private var readPos = 0     // 다음에 읽을 프레임 슬롯
+    private var available = 0   // 아직 소비되지 않은 프레임 수
+    private var atEnd = false
+    private var underruns = 0
+
+    init(capacityFrames: Int, channels: Int) {
+        self.capacityFrames = max(1, capacityFrames)
+        self.channels = channels
+        storage = .allocate(capacity: self.capacityFrames * channels)
+        storage.initialize(repeating: 0, count: self.capacityFrames * channels)
+        lock.initialize(to: os_unfair_lock())
+    }
+
+    private func withLock<T>(_ body: () -> T) -> T {
+        os_unfair_lock_lock(lock)
+        defer { os_unfair_lock_unlock(lock) }
+        return body()
+    }
+
+    var level: Int { withLock { available } }
+    var endOfStream: Bool { withLock { atEnd } }
+    var underrunFrames: Int { withLock { underruns } }
+    /// 재생할 것이 더 없음 — "end"를 받았고 링까지 비었다. 이 시점부터 테일을 센다.
+    var isDrained: Bool { withLock { atEnd && available == 0 } }
+
+    func markEndOfStream() { withLock { atEnd = true } }
+    func countUnderrun(_ frames: Int) { withLock { underruns += frames } }
+
+    /// 인터리브 int16을 Float32로 풀어 링에 적재한다. 공간이 모자라면 들어가는 만큼만 넣고
+    /// 실제 적재한 프레임 수를 반환한다 — 호출자가 남은 만큼 재시도하며 자연스러운 백프레셔가 된다.
+    func write(_ src: UnsafeBufferPointer<Int16>, fromFrame: Int, maxFrames: Int) -> Int {
+        withLock {
+            let n = min(capacityFrames - available, maxFrames)
+            guard n > 0 else { return 0 }
+            var w = (readPos + available) % capacityFrames
+            for f in 0..<n {
+                let s = (fromFrame + f) * channels
+                let d = w * channels
+                for c in 0..<channels {
+                    storage[d + c] = Float32(src[s + c]) / 32768.0
+                }
+                w += 1
+                if w == capacityFrames { w = 0 }
+            }
+            available += n
+            return n
+        }
+    }
+
+    /// 최대 maxFrames 프레임을 인터리브 Float32로 out에 꺼낸다. 반환값이 요청보다 작으면
+    /// 그만큼은 호출자가 무음으로 메워야 한다(링이 빈 상태 = 언더런 또는 재생 종료).
+    func read(maxFrames: Int, into out: UnsafeMutablePointer<Float32>) -> Int {
+        withLock {
+            let n = min(available, maxFrames)
+            guard n > 0 else { return 0 }
+            var r = readPos
+            for f in 0..<n {
+                let d = f * channels
+                let s = r * channels
+                for c in 0..<channels { out[d + c] = storage[s + c] }
+                r += 1
+                if r == capacityFrames { r = 0 }
+            }
+            readPos = r
+            available -= n
+            return n
+        }
+    }
+}
+
 // 상주 모드 공통 종료 처리 설치: SIGTERM/SIGINT + stdin 감시 + 장치 연결 해제 감지. 반환값은
 // idempotent한 stopAndExit(code)(IOProc stop/destroy 후 exit(code), 기본 0=정상 종료).
 // stdinLineHandler가 nil이면 stdin은 EOF 감시 전용(고아 방지 — 기존 capture 동작).
 // non-nil이면 같은 스레드가 stdin을 라인 단위로 잘라 메인 큐에서 핸들러를 부른다
 // (play-capture의 pause/resume/stop 제어 채널). EOF 시에는 어느 쪽이든 stopAndExit(0).
+//
+// stdinPcmHandler가 non-nil이면(--stream 모드) "pcm <바이트수>" 라인 뒤의 그 바이트 수만큼을
+// 라인이 아닌 바이너리 페이로드로 읽어 이 핸들러에 넘긴다. 다른 라인 핸들러와 달리 메인 큐로
+// 넘기지 않고 **리더 스레드에서 그대로** 부르는데, 링이 가득 찼을 때 이 스레드가 잠깐 막히는
+// 것이 곧 파이프를 타고 부모(Rust write_all)와 렌더러까지 전달되는 백프레셔이기 때문이다.
 func installResidentLifecycle(device: AudioDeviceID, procID: AudioDeviceIOProcID,
-                              stdinLineHandler: ((String) -> Void)? = nil) -> (Int32) -> Void {
+                              stdinLineHandler: ((String) -> Void)? = nil,
+                              stdinPcmHandler: ((Data) -> Void)? = nil) -> (Int32) -> Void {
     var stopped = false
     func stopAndExit(_ code: Int32 = 0) {
         if stopped { return }
@@ -391,16 +496,37 @@ func installResidentLifecycle(device: AudioDeviceID, procID: AudioDeviceIOProcID
 
     DispatchQueue.global(qos: .utility).async {
         var pending = Data()
+        // 0보다 크면 "지금 pending 앞쪽 이만큼은 라인이 아니라 PCM 페이로드"라는 뜻이다.
+        var awaitingPcmBytes = 0
         while true {
             let chunk = FileHandle.standardInput.availableData
             if chunk.isEmpty { break } // EOF = 부모(Tauri 코어) 종료
-            guard let handler = stdinLineHandler else { continue }
+            if stdinLineHandler == nil && stdinPcmHandler == nil { continue }
             pending.append(chunk)
-            while let nl = pending.firstIndex(of: 0x0a) {
+            // read 한 번에 여러 라인/페이로드가 함께 올 수 있으니 더 못 자를 때까지 훑는다.
+            while true {
+                if awaitingPcmBytes > 0 {
+                    guard pending.count >= awaitingPcmBytes else { break }
+                    let end = pending.index(pending.startIndex, offsetBy: awaitingPcmBytes)
+                    let payload = Data(pending[pending.startIndex..<end])
+                    pending.removeSubrange(pending.startIndex..<end)
+                    awaitingPcmBytes = 0
+                    stdinPcmHandler?(payload)
+                    continue
+                }
+                guard let nl = pending.firstIndex(of: 0x0a) else { break }
                 let lineData = pending.subdata(in: pending.startIndex..<nl)
                 pending.removeSubrange(pending.startIndex...nl)
-                if let line = String(data: lineData, encoding: .utf8)?
-                    .trimmingCharacters(in: .whitespacesAndNewlines), !line.isEmpty {
+                guard let line = String(data: lineData, encoding: .utf8)?
+                    .trimmingCharacters(in: .whitespacesAndNewlines), !line.isEmpty else { continue }
+                // 페이로드 헤더는 리더 스레드에서 바로 해석한다 — 앱 로직이 아니라 프레이밍의 일부다.
+                if stdinPcmHandler != nil, line.hasPrefix("pcm ") {
+                    let n = Int(line.dropFirst(4)) ?? 0
+                    // 말이 안 되는 길이는 무시한다 — 프레임 하나가 1MB를 넘을 일이 없다.
+                    awaitingPcmBytes = (n > 0 && n <= 1 << 20) ? n : 0
+                    continue
+                }
+                if let handler = stdinLineHandler {
                     DispatchQueue.main.async { handler(line) }
                 }
             }
@@ -481,11 +607,13 @@ func readRefSignal(path: String) -> [Float32]? {
     }
 }
 
-func runPlayCapture(device: AudioDeviceID, sampleRate reqRate: Double, bufferFrames reqBuffer: UInt32,
-                    outChannels: Int, refSignal: [Float32], refChannels: Int,
-                    outputChannel: Int, outputChannelR: Int?) -> Never {
-    signal(SIGPIPE, SIG_IGN)
-
+// 출력 채널 유효성 확인 + R 채널(best-effort) 결정 — --ref 모드와 --stream 모드가 공유한다.
+// 출력이 아예 없거나 L 채널이 범위 밖이면 에러 JSON을 쓰고 종료한다. 반환값은 실제로 쓸 R 채널.
+//
+// R은 best-effort다 — 범위 밖이거나 L과 같으면 에러로 죽이지 않고 조용히 스테레오를 포기한다
+// (모노로 폴백). 렌더러는 항상 outputChannelR=L+1을 보내므로, 출력 채널이 1개뿐인 장치에서도
+// 재생 자체는 계속되게 하려는 의도(하드웨어 리그가 항상 스테레오는 아님).
+func resolvePlaybackChannels(device: AudioDeviceID, outputChannel: Int, outputChannelR: Int?) -> Int? {
     let deviceOutChannels = outputChannelCount(device)
     guard deviceOutChannels > 0 else {
         printJSONAndExit(["success": false, "error": "device-has-no-output(play-capture requires an input+output device)"])
@@ -493,18 +621,20 @@ func runPlayCapture(device: AudioDeviceID, sampleRate reqRate: Double, bufferFra
     guard outputChannel >= 0 && outputChannel < deviceOutChannels else {
         printJSONAndExit(["success": false, "error": "invalid-out-ch(\(outputChannel) not in 0..<\(deviceOutChannels))"])
     }
+    guard let r = outputChannelR, r >= 0, r < deviceOutChannels, r != outputChannel else { return nil }
+    return r
+}
+
+func runPlayCapture(device: AudioDeviceID, sampleRate reqRate: Double, bufferFrames reqBuffer: UInt32,
+                    outChannels: Int, refSignal: [Float32], refChannels: Int,
+                    outputChannel: Int, outputChannelR: Int?) -> Never {
+    signal(SIGPIPE, SIG_IGN)
+
+    let playbackChR = resolvePlaybackChannels(device: device, outputChannel: outputChannel,
+                                              outputChannelR: outputChannelR)
     guard !refSignal.isEmpty else {
         printJSONAndExit(["success": false, "error": "empty-ref-signal"])
     }
-
-    // R 채널은 best-effort다 — 범위 밖이거나 L과 같으면 에러로 죽이지 않고 조용히 스테레오를
-    // 포기한다(모노로 폴백). 렌더러는 항상 outputChannelR=L+1을 보내므로, 출력 채널이 1개뿐인
-    // 장치에서도 재생 자체는 계속되게 하려는 의도(하드웨어 리그가 항상 스테레오는 아님).
-    let playbackChR: Int? = {
-        guard let r = outputChannelR else { return nil }
-        guard r >= 0, r < deviceOutChannels, r != outputChannel else { return nil }
-        return r
-    }()
 
     // refChannels==2면 인터리브 스테레오를 프레임 단위로 L/R 분리한다. refChannels==1이거나
     // (모노 파일인데 stereo out을 요청한 경우 등) R 출력이 비활성화되면 refR은 그냥 refL과
@@ -614,6 +744,168 @@ func runPlayCapture(device: AudioDeviceID, sampleRate reqRate: Double, bufferFra
     dispatchMain()
 }
 
+// ─── play-capture --stream 모드 (보호 PCM 스트리밍 재생 + V/I 캡처) ──────────
+// --ref(파일 전체 선업로드) 대신 stdin으로 계속 흘러들어오는 PCM을 재생한다. 렌더러가
+// ff_prot을 통과시킨 결과를 프레임 단위로 밀어 넣으므로, 스피커로 나가는 신호가 처음부터
+// 끝까지 보호된 신호가 된다(docs/protected-playback-plan.md).
+//
+// --ref 모드와의 유일한 구조적 차이는 "재생 소스가 고정 배열이냐 링버퍼냐"뿐이다. 단일
+// IOProc·단일 클록·pause/stop 의미론·입력 캡처 경로는 전부 그대로다. 다만 IOProc 시작을
+// 프리필이 찰 때까지 미루므로, 재생과 캡처가 함께 늦게 시작해 "수신 캡처 프레임 수 = 재생
+// 프레임 수" 등식은 여전히 성립한다.
+
+// 인터리브 스테레오 스크래치의 앞 frames 프레임을 출력 ABL의 L/R 채널로 흩뿌린다.
+// (--ref 모드는 재생 배열을 playPos로 직접 인덱싱해 소스 모양이 달라 공유하지 않는다.)
+func scatterStereoToOutputABL(_ outOutputData: UnsafeMutablePointer<AudioBufferList>,
+                              src: UnsafePointer<Float32>, frames: Int,
+                              channelL: Int, channelR: Int?) {
+    let outABL = UnsafeMutableAudioBufferListPointer(outOutputData)
+    var outDeviceCh = 0
+    for buf in outABL {
+        guard let md = buf.mData else { continue }
+        let chans = max(1, Int(buf.mNumberChannels))
+        let bufFrames = min(frames, Int(buf.mDataByteSize) / (chans * 4))
+        let samples = md.assumingMemoryBound(to: Float32.self)
+        for ch in 0..<chans {
+            let globalCh = outDeviceCh + ch
+            if globalCh == channelL {
+                for f in 0..<bufFrames { samples[f * chans + ch] = src[f * 2] }
+            } else if let rCh = channelR, globalCh == rCh {
+                for f in 0..<bufFrames { samples[f * chans + ch] = src[f * 2 + 1] }
+            }
+        }
+        outDeviceCh += chans
+    }
+}
+
+func runPlayCaptureStream(device: AudioDeviceID, sampleRate reqRate: Double, bufferFrames reqBuffer: UInt32,
+                          outChannels: Int, outputChannel: Int, outputChannelR: Int?,
+                          prefillMs: Double, prefillTimeoutS: Double) -> Never {
+    signal(SIGPIPE, SIG_IGN)
+
+    let playbackChL = outputChannel
+    let playbackChR = resolvePlaybackChannels(device: device, outputChannel: outputChannel,
+                                              outputChannelR: outputChannelR)
+
+    let (actualRate, actualBuffer) = applyDeviceConfig(device, reqRate, reqBuffer)
+    let fs = actualRate > 0 ? actualRate : reqRate
+    let prefillFrames = max(1, Int((prefillMs / 1000.0) * fs))
+    let tailFrames = Int(0.25 * fs) // 마지막 샘플 이후 장치의 감쇠 응답까지 캡처(--ref 모드와 동일)
+
+    // 링은 프리필의 몇 배는 되어야 렌더러 지터(GC·메인 스레드 정체)를 흡수한다 — 최소 1초.
+    let ring = PlaybackRing(capacityFrames: max(prefillFrames * 8, Int(fs)), channels: 2)
+    // IOProc 안에서 새로 할당하지 않도록 링에서 꺼낼 스크래치를 미리 잡아둔다.
+    let scratchFrames = 8192
+    let scratch = UnsafeMutablePointer<Float32>.allocate(capacity: scratchFrames * 2)
+    scratch.initialize(repeating: 0, count: scratchFrames * 2)
+
+    var paused = false
+    var started = false
+    var finished = false
+    var tailCount = 0
+
+    let ioBlock: AudioDeviceIOBlock = { _, inInputData, _, outOutputData, _ in
+        let framesThis = cycleFrameCount(inInputData, outOutputData)
+        guard framesThis > 0 else { return }
+
+        // ── 출력: 전 채널 무음으로 채운 뒤, 재생 중이면 링에서 꺼낸 만큼만 L/R에 쓴다 ──
+        let outABL = UnsafeMutableAudioBufferListPointer(outOutputData)
+        for buf in outABL {
+            if let md = buf.mData { memset(md, 0, Int(buf.mDataByteSize)) }
+        }
+        if !paused {
+            let got = ring.read(maxFrames: min(framesThis, scratchFrames), into: scratch)
+            if got > 0 {
+                scatterStereoToOutputABL(outOutputData, src: scratch, frames: got,
+                                         channelL: playbackChL, channelR: playbackChR)
+            }
+            // 못 채운 만큼은 무음이 나가지만 링의 읽기 위치는 그만큼 소비되지 않는다 —
+            // 샘플을 버리는 게 아니라 뒤로 미루는 것이라 "프레임을 드롭하지 않는다"는 규약이 지켜진다.
+            if got < framesThis && !ring.endOfStream { ring.countUnderrun(framesThis - got) }
+            if ring.isDrained {
+                tailCount += framesThis
+                if tailCount >= tailFrames { finished = true }
+            }
+        }
+
+        // ── 입력: pause 여부와 무관하게 항상 스트리밍(렌더러의 recording/analysis 게이트가 버린다) ──
+        writePCMOrDie(int16FromInputABL(inInputData, framesThis: framesThis, outChannels: outChannels))
+    }
+
+    let procID = createIOProcOrExit(device, ioBlock)
+    var stopFn: ((Int32) -> Void)? = nil
+    let stopAndExit = installResidentLifecycle(
+        device: device, procID: procID,
+        stdinLineHandler: { line in
+            switch line {
+            case "pause": paused = true
+            case "resume": paused = false
+            case "end": ring.markEndOfStream()
+            case "stop": stopFn?(0)
+            default: break // 알 수 없는 명령은 무시(프로토콜 전방 호환)
+            }
+        },
+        stdinPcmHandler: { payload in
+            payload.withUnsafeBytes { raw in
+                let samples = raw.bindMemory(to: Int16.self)
+                let totalFrames = samples.count / 2
+                var done = 0
+                while done < totalFrames {
+                    let n = ring.write(samples, fromFrame: done, maxFrames: totalFrames - done)
+                    // 링이 가득 찼다 — IOProc이 비울 때까지 잠깐 잔다. 렌더러가 리드(K프레임)
+                    // 이상 앞서 보내지 않으므로 정상 동작에서는 여기 걸리지 않는다.
+                    if n == 0 { usleep(1000) }
+                    done += n
+                }
+            }
+        })
+    stopFn = stopAndExit
+
+    // 헤더는 IOProc 시작 전에 쓴다 — 부모(run_streaming_helper)가 이 줄을 받아야 렌더러가
+    // actual 값으로 엔진을 열고 프리필을 밀어 넣을 수 있다. 즉 이 헤더가 프리필의 출발 신호다.
+    writeJSONLine([
+        "success": true,
+        "mode": "play-capture-stream",
+        "device": deviceName(device),
+        "deviceUID": deviceUID(device),
+        "channels": outChannels,
+        "requested": ["sampleRate": reqRate, "bufferSize": reqBuffer],
+        "actual": ["sampleRate": actualRate, "bufferSize": actualBuffer as Any],
+        "prefillFrames": prefillFrames,
+        "playbackChannel": playbackChL,
+        "playbackChannelR": playbackChR as Any,
+    ])
+
+    // 한 타이머가 두 단계를 본다 — 시작 전엔 프리필 게이트, 시작 후엔 재생 종료 감시.
+    // IOProc(실시간 스레드)에서 직접 start/stop을 부르지 않기 위한 폴링이다.
+    let deadline = Date().addingTimeInterval(prefillTimeoutS)
+    let timer = DispatchSource.makeTimerSource(queue: .main)
+    timer.schedule(deadline: .now() + 0.005, repeating: 0.005)
+    timer.setEventHandler {
+        if !started {
+            // end가 먼저 오면(파일이 프리필보다 짧은 경우) 그대로 시작한다 — 안 그러면 영영 못 찬다.
+            guard ring.level >= prefillFrames || ring.endOfStream else {
+                if Date() >= deadline {
+                    timer.cancel()
+                    stopAndExit(EXIT_CODE_PREFILL_TIMEOUT)
+                }
+                return
+            }
+            started = true
+            if AudioDeviceStart(device, procID) != noErr { exit(2) }
+            return
+        }
+        if finished {
+            timer.cancel()
+            stopAndExit(0)
+        }
+    }
+    timer.resume()
+    gRetainedSources.append(timer)
+
+    dispatchMain()
+}
+
 // ─── 진입점 ────────────────────────────────────────────────────────────────
 
 // program name을 뺀 인자. `--device <UID>` 옵션은 위치 어디에 있든 먼저 뽑아내
@@ -648,6 +940,25 @@ if let idx = argv.firstIndex(of: "--ref-channels"), idx + 1 < argv.count {
 var requestedOutChR: Int? = nil
 if let idx = argv.firstIndex(of: "--out-ch-r"), idx + 1 < argv.count {
     requestedOutChR = Int(argv[idx + 1])
+    argv.removeSubrange(idx...(idx + 1))
+}
+// play-capture 전용: --stream — --ref 대신 stdin으로 재생 PCM을 계속 받는 모드(보호 스트리밍 재생).
+var streamMode = false
+if let idx = argv.firstIndex(of: "--stream") {
+    streamMode = true
+    argv.remove(at: idx)
+}
+// --stream 전용: --prefill-ms <n> — 재생을 시작하기 전에 링에 채워둘 분량(기본 40ms).
+var requestedPrefillMs: Double = 40
+if let idx = argv.firstIndex(of: "--prefill-ms"), idx + 1 < argv.count {
+    requestedPrefillMs = Double(argv[idx + 1]) ?? 40
+    argv.removeSubrange(idx...(idx + 1))
+}
+// --stream 전용: --prefill-timeout-s <n> — 이 시간 안에 프리필이 안 차면 exit 4(기본 15초).
+// 첫 실행의 WASM 로드까지 감안한 값이다.
+var requestedPrefillTimeoutS: Double = 15
+if let idx = argv.firstIndex(of: "--prefill-timeout-s"), idx + 1 < argv.count {
+    requestedPrefillTimeoutS = Double(argv[idx + 1]) ?? 15
     argv.removeSubrange(idx...(idx + 1))
 }
 
@@ -736,13 +1047,19 @@ case "capture":
 
 case "play-capture":
     guard argv.count >= 3, let reqRate = Double(argv[1]), let reqBuffer = UInt32(argv[2]) else {
-        printJSONAndExit(["success": false, "error": "usage: audio-device-helper play-capture [--device <UID>] --ref <path> [--ref-channels <1|2>] [--out-ch <n>] [--out-ch-r <n>] <sampleRate> <bufferFrameSize> [channels]"])
+        printJSONAndExit(["success": false, "error": "usage: audio-device-helper play-capture [--device <UID>] (--ref <path> [--ref-channels <1|2>] | --stream [--prefill-ms <n>]) [--out-ch <n>] [--out-ch-r <n>] <sampleRate> <bufferFrameSize> [channels]"])
+    }
+    let outChannels = argv.count >= 4 ? max(1, Int(argv[3]) ?? 2) : 2
+    let outCh = requestedOutCh ?? 0
+    // --stream은 재생 소스를 stdin에서 받으므로 --ref가 없다 — ref 읽기 자체를 건너뛴다.
+    if streamMode {
+        runPlayCaptureStream(device: device, sampleRate: reqRate, bufferFrames: reqBuffer,
+                             outChannels: outChannels, outputChannel: outCh, outputChannelR: requestedOutChR,
+                             prefillMs: requestedPrefillMs, prefillTimeoutS: requestedPrefillTimeoutS)
     }
     guard let path = refPath, let refSignal = readRefSignal(path: path) else {
         printJSONAndExit(["success": false, "error": "missing-or-unreadable---ref"])
     }
-    let outChannels = argv.count >= 4 ? max(1, Int(argv[3]) ?? 2) : 2
-    let outCh = requestedOutCh ?? 0
     runPlayCapture(device: device, sampleRate: reqRate, bufferFrames: reqBuffer,
                    outChannels: outChannels, refSignal: refSignal, refChannels: requestedRefChannels,
                    outputChannel: outCh, outputChannelR: requestedOutChR)

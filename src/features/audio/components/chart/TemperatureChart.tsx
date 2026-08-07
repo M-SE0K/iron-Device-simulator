@@ -9,6 +9,7 @@ import { buildMetricChartOptions } from "@/features/audio/lib/render/metric-char
 import { annotatePlugin, thresholdsPlugin } from "@/features/audio/lib/render/uplot-plugins";
 import { useMetricChartRuntime } from "./hooks/useMetricChartRuntime";
 import { useMetricChartSource } from "./hooks/useMetricChartSource";
+import { useChartFullXRange } from "./hooks/useChartFullXRange";
 import { useDrawMode } from "./hooks/useDrawMode";
 import MetricChartCard from "./MetricChartCard";
 
@@ -61,6 +62,8 @@ export default function TemperatureChart({
     (snap) => computeTemperatureYRange(snap.tempMin, snap.tempMax),
   );
 
+  const getFullXRange = useChartFullXRange(store);
+
   const options = useMemo(() => buildMetricChartOptions({
     series: {
       label: "Temperature",
@@ -72,6 +75,7 @@ export default function TemperatureChart({
     axisSize: 52,
     tooltipUnit: "°C",
     tooltipDecimals: 1,
+    getFullXRange,
     extraPlugins: [
       thresholdsPlugin([
         { y: warnThreshold,   color: "#F59E0B", label: "WARN" },
@@ -79,7 +83,7 @@ export default function TemperatureChart({
       ]),
       ...(annotations ? [annotatePlugin({ store: annotations, isEnabled })] : []),
     ],
-  }), [warnThreshold, dangerThreshold, annotations, isEnabled]);
+  }), [warnThreshold, dangerThreshold, getFullXRange, annotations, isEnabled]);
 
   return (
     <MetricChartCard

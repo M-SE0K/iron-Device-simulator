@@ -64,9 +64,20 @@ export function createAudioPlayCaptureBridge(): NonNullable<Window["audioPlayCap
           [ARG_KEYS.refChannels]: opts.refChannels,
           [ARG_KEYS.outputChannel]: opts.outputChannel,
           [ARG_KEYS.outputChannelR]: opts.outputChannelR,
+          [ARG_KEYS.stream]: opts.stream,
+          [ARG_KEYS.prefillMs]: opts.prefillMs,
         },
         [ARG_KEYS.data]: dataChannel,
       });
+    },
+
+    writePcm: (pcm) => {
+      // pcm은 대개 더 큰 IPC 버퍼를 가리키는 뷰다(analysis.ts의 decodeProcessedPcmMessage가
+      // 한 메시지 안의 input/processed 두 구간을 각각 뷰로 돌려준다) — writeChunk와 같은 이유로
+      // 뷰가 버퍼 전체를 덮지 않으면 복사해서 정확한 바이트 범위만 보낸다.
+      const bytes = new Uint8Array(pcm.buffer, pcm.byteOffset, pcm.byteLength);
+      const raw = pcm.byteOffset !== 0 || pcm.byteLength !== pcm.buffer.byteLength ? bytes.slice() : bytes;
+      return safeInvoke<PlayCaptureWriteAckResult>(COMMANDS.audioPlayCaptureWritePcm, raw);
     },
 
     // "pause" | "resume" — 헬퍼 stdin 라인 명령 중계 (재생 위치 동결/재개, 캡처는 계속)

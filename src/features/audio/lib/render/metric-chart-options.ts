@@ -26,12 +26,18 @@ export interface MetricChartOptionsConfig {
   axisFormatter?: (v: number) => string;
   tooltipUnit: string;
   tooltipDecimals: number;
+  /**
+   * 세션 전체 x 도메인 getter — 뷰포트만 커밋하므로 zoomPlugin의 기본값(데이터 extent)은
+   * "지금 확대한 창"이라 줌아웃·더블클릭 리셋이 제자리를 맴돈다. `useChartFullXRange` 참고.
+   * 반드시 안정된 참조여야 한다(옵션에 박히므로 매 렌더 새 함수면 인스턴스가 재생성된다).
+   */
+  getFullXRange?: () => [number, number] | null;
   /** thresholdsPlugin 등 메트릭별 추가 플러그인 — 기본 zoom/tooltip 뒤에 붙는다. */
   extraPlugins?: uPlot.Plugin[];
 }
 
 export function buildMetricChartOptions(config: MetricChartOptionsConfig): UPlotOptions {
-  const { series, axisSize, axisFormatter, tooltipUnit, tooltipDecimals, extraPlugins } = config;
+  const { series, axisSize, axisFormatter, tooltipUnit, tooltipDecimals, getFullXRange, extraPlugins } = config;
   return {
     legend: { show: false },
     cursor: { drag: { x: true, y: false } },
@@ -48,7 +54,7 @@ export function buildMetricChartOptions(config: MetricChartOptionsConfig): UPlot
     ],
     axes: [buildTimeAxis(), buildValueAxis({ size: axisSize, formatter: axisFormatter })],
     plugins: [
-      zoomPlugin(),
+      zoomPlugin({ getFullXRange }),
       tooltipPlugin({ unit: tooltipUnit, decimals: tooltipDecimals }),
       ...(extraPlugins ?? []),
     ],

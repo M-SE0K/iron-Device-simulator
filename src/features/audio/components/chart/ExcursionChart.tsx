@@ -9,6 +9,7 @@ import { buildMetricChartOptions } from "@/features/audio/lib/render/metric-char
 import { annotatePlugin } from "@/features/audio/lib/render/uplot-plugins";
 import { useMetricChartRuntime } from "./hooks/useMetricChartRuntime";
 import { useMetricChartSource } from "./hooks/useMetricChartSource";
+import { useChartFullXRange } from "./hooks/useChartFullXRange";
 import { useDrawMode } from "./hooks/useDrawMode";
 import MetricChartCard from "./MetricChartCard";
 
@@ -65,6 +66,8 @@ export default function ExcursionChart({
     toMm,
   );
 
+  const getFullXRange = useChartFullXRange(store);
+
   const options = useMemo(() => buildMetricChartOptions({
     series: {
       label: "Excursion",
@@ -78,8 +81,9 @@ export default function ExcursionChart({
     axisFormatter: (v: number) => v.toFixed(MM_DECIMALS),
     tooltipUnit: "mm",
     tooltipDecimals: MM_DECIMALS,
+    getFullXRange,
     extraPlugins: annotations ? [annotatePlugin({ store: annotations, isEnabled })] : undefined,
-  }), [annotations, isEnabled]);
+  }), [getFullXRange, annotations, isEnabled]);
 
   return (
     <MetricChartCard

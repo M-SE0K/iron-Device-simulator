@@ -13,7 +13,7 @@
 //! 내보내지 않도록 억제하기 위해서다.
 
 use std::io::{Read, Write};
-use std::process::{Child, Stdio};
+use std::process::{Child, ChildStdin, Stdio};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
@@ -33,6 +33,11 @@ const READ_BUF_SIZE: usize = 65536;
 /// `audio_capture.rs`/`audio_playcapture.rs`가 각자 별도 인스턴스를 `tauri::State`로 관리한다.
 pub struct StreamController {
     child: Mutex<Option<Child>>,
+    /// 자식의 stdin을 `Child`에서 떼어내 따로 보관한다 — play-capture 스트리밍 모드는 재생
+    /// 프레임마다(~100 Hz) 여기에 PCM을 쓰는데, 그 경로가 `is_running()`/reap 폴링 같은 다른
+    /// 경로와 child 뮤텍스를 다투지 않게 하려는 것. 이 핸들을 drop하는 것이 곧 헬퍼에 보내는
+    /// EOF 신호다(양쪽 헬퍼 모두 stdin EOF를 정상 종료 경로로 처리한다).
+    stdin: Mutex<Option<ChildStdin>>,
     generation: AtomicU64,
 }
 
@@ -46,6 +51,7 @@ impl StreamController {
     pub fn new() -> Self {
         Self {
             child: Mutex::new(None),
+            stdin: Mutex::new(None),
             generation: AtomicU64::new(0),
         }
     }
@@ -56,23 +62,28 @@ impl StreamController {
         self.child.lock().unwrap().is_some()
     }
 
-    /// pause/resume 등 stdin 한 줄 명령 중계 — `audio-playcapture:control`용.
+    /// pause/resume/end 등 stdin 한 줄 명령 중계 — `audio-playcapture:control`용.
     /// 자식이 없으면 `not-running`.
     pub fn write_stdin_line(&self, line: &str) -> Result<(), String> {
-        let mut guard = self.child.lock().unwrap();
-        let child = guard.as_mut().ok_or_else(|| "not-running".to_string())?;
-        let stdin = child
-            .stdin
-            .as_mut()
-            .ok_or_else(|| "not-running".to_string())?;
-        stdin.write_all(line.as_bytes()).map_err(|e| e.to_string())
+        self.write_stdin_bytes(line.as_bytes())
+    }
+
+    /// stdin에 바이트를 그대로 쓴다 — play-capture 스트리밍 모드의 `"pcm <n>\n" + 페이로드`용.
+    /// 한 호출이 곧 한 번의 `write_all`이고 stdin 뮤텍스로 직렬화되므로, 헤더와 페이로드 사이에
+    /// 다른 제어 라인이 끼어들 수 없다.
+    pub fn write_stdin_bytes(&self, bytes: &[u8]) -> Result<(), String> {
+        let mut guard = self.stdin.lock().unwrap();
+        let stdin = guard.as_mut().ok_or_else(|| "not-running".to_string())?;
+        stdin.write_all(bytes).map_err(|e| e.to_string())
     }
 
     /// 새 자식을 등록하고 새 세대 번호를 반환한다. 호출 전 `is_running()`으로 중복 실행을
     /// 확인해야 한다(레이스는 단일 렌더러 호출 패턴에서 실질적 위험이 없다 — 원본과 동일 가정).
-    fn begin(&self, child: Child) -> u64 {
+    fn begin(&self, mut child: Child) -> u64 {
+        let stdin = child.stdin.take();
         let mut guard = self.child.lock().unwrap();
         let gen = self.generation.fetch_add(1, Ordering::SeqCst) + 1;
+        *self.stdin.lock().unwrap() = stdin;
         *guard = Some(child);
         gen
     }
@@ -90,6 +101,9 @@ impl StreamController {
             self.generation.fetch_add(1, Ordering::SeqCst);
             guard.take()
         };
+        // 세대를 올린 **뒤에** stdin을 떨어뜨린다 — 순서가 반대면 EOF를 받은 헬퍼가 먼저 죽어
+        // 리더 스레드가 아직 현재 세대라고 판단하고 ended 이벤트를 내보낼 수 있다.
+        drop(self.stdin.lock().unwrap().take());
         if let Some(mut child) = child {
             stop_streaming_child(&mut child);
             // 종료된 자식을 reap해 좀비 프로세스가 남지 않게 한다. exit code는 여기서는
@@ -100,15 +114,15 @@ impl StreamController {
     }
 }
 
-/// 상주 헬퍼 종료 — SIGTERM으로 바로 죽이면 Windows에서 곧장 TerminateProcess로 강제 종료돼
+/// 상주 헬퍼 종료 대기 — SIGTERM으로 바로 죽이면 Windows에서 곧장 TerminateProcess로 강제 종료돼
 /// ASIOStop/DisposeBuffers/ASIOExit 같은 정리 경로를 건너뛴다(원본 JS 주석과 동일 근거).
-/// 두 플랫폼 헬퍼 모두 stdin EOF를 정상 종료 신호로 이미 처리하므로, stdin 핸들을 먼저 drop해
-/// 그 경로를 타게 하고, `grace` 안에 종료하지 않으면 `kill()`로 강제 정리한다(드라이버 행 등 안전망).
+/// 두 플랫폼 헬퍼 모두 stdin EOF를 정상 종료 신호로 이미 처리하므로, 호출자(`stop()`)가 먼저
+/// stdin 핸들을 drop해 그 경로를 타게 하고, 여기서는 `grace` 안에 종료하는지만 지켜보다
+/// 넘기면 `kill()`로 강제 정리한다(드라이버 행 등 안전망).
 fn stop_streaming_child(child: &mut Child) {
     if matches!(child.try_wait(), Ok(Some(_))) {
         return; // 이미 종료됨
     }
-    drop(child.stdin.take()); // stdin.end() 대응 — 파이프를 닫아 EOF를 신호한다.
     let deadline = Instant::now() + Duration::from_millis(200);
     loop {
         match child.try_wait() {
