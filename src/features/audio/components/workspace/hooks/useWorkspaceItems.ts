@@ -12,7 +12,8 @@ import {
   type SaveWorkspaceInput,
 } from "@/features/audio/lib/cache/workspace";
 import { framesToCsv } from "@/features/audio/lib/export/csv";
-import { downloadBlob, sanitizeFileName, splitFileName } from "@/shared/lib/utils";
+import { downloadBlob } from "@/shared/lib/download";
+import { sanitizeFileName, splitFileName } from "@/shared/lib/utils";
 import { useErrorPopup } from "@/shared/components/error-popup/ErrorPopupContext";
 
 async function withWorkspacePayload<T>(
@@ -57,36 +58,43 @@ export function useWorkspaceItems(onSaved: () => void) {
     void refresh();
   }, [refresh]);
 
-  const saveCurrent = useCallback(async (input: SaveWorkspaceInput) => {
+  const runWorkspaceMutation = useCallback(async <T,>(
+    operation: () => Promise<T>,
+    errorMessage: string,
+    afterSuccess?: (result: T) => void,
+  ): Promise<void> => {
+    let result: T;
     try {
-      await saveWorkspaceItem(input);
+      result = await operation();
     } catch {
-      showError("Failed to save to Workspace.");
+      showError(errorMessage);
       return;
     }
     await refresh();
-    onSaved();
-  }, [refresh, onSaved, showError]);
+    afterSuccess?.(result);
+  }, [refresh, showError]);
+
+  const saveCurrent = useCallback(async (input: SaveWorkspaceInput) => {
+    await runWorkspaceMutation(
+      () => saveWorkspaceItem(input),
+      "Failed to save to Workspace.",
+      onSaved,
+    );
+  }, [runWorkspaceMutation, onSaved]);
 
   const rename = useCallback(async (id: string, name: string) => {
-    try {
-      await renameWorkspaceItem(id, name);
-    } catch {
-      showError("Failed to rename item.");
-      return;
-    }
-    await refresh();
-  }, [refresh, showError]);
+    await runWorkspaceMutation(
+      () => renameWorkspaceItem(id, name),
+      "Failed to rename item.",
+    );
+  }, [runWorkspaceMutation]);
 
   const remove = useCallback(async (id: string) => {
-    try {
-      await deleteWorkspaceItem(id);
-    } catch {
-      showError("Failed to delete item.");
-      return;
-    }
-    await refresh();
-  }, [refresh, showError]);
+    await runWorkspaceMutation(
+      () => deleteWorkspaceItem(id),
+      "Failed to delete item.",
+    );
+  }, [runWorkspaceMutation]);
 
   const exportJson = useCallback(async (meta: WorkspaceItemMeta) => {
     await withWorkspacePayload(

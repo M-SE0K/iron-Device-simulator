@@ -31,11 +31,10 @@
 
 namespace {
 
-// ⚠️ 일회성 명령은 실패해도 **exit 0**이어야 한다.
-// 부모(runAudioHelper)는 execFile을 쓰는데, 종료 코드가 0이 아니면 err 분기로 빠져
-// stdout의 {"success":false,"error":"..."}를 버리고 "Command failed"로 덮어쓴다.
-// 즉 non-zero exit은 구조화된 에러 사유를 통째로 삼킨다. 사유는 항상 JSON으로 전달한다.
-// (상주 모드의 exit 3 = 장치 연결 해제 규약은 이와 별개다 — 그쪽은 부모가 code를 읽는다.)
+// 일회성 명령의 실패는 한 줄 JSON({"success":false,"error":"..."})으로 stdout에 보고한다.
+// 부모(Tauri helper::run_audio_helper)는 프로세스 종료 상태와 무관하게 stdout JSON을 파싱하므로,
+// 구조화된 에러 사유는 항상 JSON에 담아 전달한다.
+// (상주 모드의 exit 3 = 장치 연결 해제 규약은 이와 별개다 — 그쪽은 Tauri streaming.rs가 code를 읽는다.)
 int emit(const std::string& line) 
 {
   fputs(line.c_str(), stdout);
@@ -59,7 +58,7 @@ struct Args
   long refChannels = 1;       // play-capture 전용 — --ref 파일 채널 수(2=인터리브 스테레오)
   long outputChannelR = -1;   // play-capture 전용 — R 출력 채널(생략 시 -1=모노만)
   bool stream = false;        // play-capture 전용 — --ref 대신 stdin으로 재생 PCM을 받는다
-  double prefillMs = 40.0;    // --stream 전용 — 재생 시작 전에 링에 채워둘 분량
+  double prefillMs = audio::kDefaultStreamPrefillMs;  // --stream 전용 — 재생 시작 전에 링에 채워둘 분량
   double prefillTimeoutS = 15.0;  // --stream 전용 — 이 시간 안에 프리필이 안 차면 exit 4
   std::vector<std::string> positional;
 };
@@ -436,7 +435,7 @@ int cmdCapture(const Args& args, bool playCapture) {
   if (!audio::startCapture(cfg, info, error)) return fail(error);
 
   // 이 헤더가 success:true로 나가야 부모가 이후 청크를 렌더러로 중계하기 시작한다
-  // (run-streaming-helper.js). 스트림보다 반드시 먼저 나가야 하므로 writer 시작 전에 쓴다.
+  // (Tauri src-tauri/src/streaming.rs의 run_streaming_helper). 스트림보다 반드시 먼저 나가야 하므로 writer 시작 전에 쓴다.
   json::Writer w;
   w.beginObj()
       .kv("success", true)

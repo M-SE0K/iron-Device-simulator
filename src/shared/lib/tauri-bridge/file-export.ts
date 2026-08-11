@@ -1,6 +1,6 @@
 // file-export.ts — Tauri 전용 파일 저장 우회로. blob + `<a download>` 앵커 다운로드가
 // Tauri 네이티브 웹뷰(특히 macOS WKWebView)에서 저장 다이얼로그를 띄우지 못하는 문제 때문에
-// 추가됐다 — 일반 브라우저는 downloadBlob()의 앵커 다운로드로 충분하다. `shared/lib/utils.ts`의
+// 추가됐다 — 일반 브라우저는 downloadBlob()의 앵커 다운로드로 충분하다. `shared/lib/download.ts`의
 // downloadBlob()이 Tauri 런타임을 감지하면 이 함수로 위임한다.
 //
 // 두 단계로 나눠 invoke한다(file_export.rs 참고 — raw body를 받는 write_temp는 sync 커맨드라야

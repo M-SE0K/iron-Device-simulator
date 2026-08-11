@@ -1,7 +1,7 @@
 // json_out.h — 의존성 없는 최소 JSON 직렬화기.
 //
 // 헬퍼의 stdout 계약은 "한 줄 JSON"이라 문자열을 손으로 이어붙여도 되지만, 키를 빠뜨리거나
-// 콤마를 잘못 넣으면 부모(runAudioHelper)가 invalid-helper-output으로 조용히 삼켜버려
+// 콤마를 잘못 넣으면 부모(Tauri helper::run_audio_helper)가 invalid-helper-output으로 바꿔
 // 디버깅이 어렵다. 구조를 강제하는 최소 빌더를 둔다.
 //
 // 숫자는 정수값이면 정수로 출력한다 — 48000.0이 아니라 48000. 렌더러가 그대로 표시하기 때문.

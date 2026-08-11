@@ -45,4 +45,4 @@ function deriveKey({ a, b, salt }) {
   return Buffer.from(okm);
 }
 
-module.exports = { parseSeed, deriveKey, HKDF_INFO, AAD_CONTEXT };
+module.exports = { parseSeed, deriveKey, AAD_CONTEXT };

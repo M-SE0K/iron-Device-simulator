@@ -10,7 +10,7 @@ import type { AnnotationStore } from "@/features/audio/lib/render/annotation-sto
 import type { ChannelWaveStore } from "@/features/audio/lib/render/wave-store";
 import { useDrawMode } from "@/features/audio/components/chart/hooks/useDrawMode";
 import { ChannelStatsBadge, ChannelWaveformCanvas } from "@/features/audio/components/channel/ChannelWaveformCanvas";
-import type { ChannelStreamHeader } from "@/features/audio/components/channel/useChannelWaveStreams";
+import type { ChannelStreamHeader } from "@/features/audio/components/channel/hooks/useChannelWaveStreams";
 import type { CaptureSnapshot } from "@/features/audio/components/player/capture/types";
 import ChartDrawControls from "@/features/audio/components/chart/ChartDrawControls";
 

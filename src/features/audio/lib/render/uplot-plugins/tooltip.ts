@@ -6,7 +6,7 @@ import { formatTimeValue, timeDecimalsForScale } from "../uplot-option";
  * 라이브 오버레이)를 툴팁에 포함시키기 위한 값 조회 훅. seriesIdx는 표시 여부(show)를
  * 빌려올 u.series 인덱스, resolve는 커서의 x값(초)을 받아 그 시각의 값을 돌려준다.
  */
-export interface TooltipVirtualSeries {
+interface TooltipVirtualSeries {
   label: string;
   seriesIdx: number;
   resolve: (timeSec: number) => number | null;
@@ -58,7 +58,7 @@ export function tooltipPlugin(opts: TooltipOptions): uPlot.Plugin {
         // 시각은 **커서 픽셀을 그대로 환산한 값**을 쓴다. 예전엔 u.data[0][idx]를 썼는데,
         // 그건 uPlot이 커서에서 가장 가까운 데이터 점으로 스냅한 시각이라 점 간격이 픽셀보다
         // 넓어지는 확대 상태에서 x축 눈금이 가리키는 시각과 눈에 띄게 어긋난다 — 파형
-        // 엔벨로프는 점이 버킷 격자 위에만 있어(readRange가 버킷 시작/중앙 두 점을 낸다)
+        // 엔벨로프는 점이 버킷 격자 위에만 있어(readAligned가 버킷 시작/중앙 두 점을 낸다)
         // 특히 그렇다. 값은 스냅된 점에서 오지만(배열 인덱스로만 얻을 수 있다), "커서가
         // 가리키는 시각"은 축과 언제나 일치해야 한다. 축도 같은 포맷터를 쓰므로 눈금선 위에
         // 커서를 올리면 그 눈금의 라벨이 그대로 나온다.

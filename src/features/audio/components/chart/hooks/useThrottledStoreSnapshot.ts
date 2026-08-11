@@ -9,6 +9,9 @@ interface SnapshotStore<TSnapshot extends VersionedSnapshot> {
   subscribe: (callback: () => void) => () => void;
 }
 
+/** 스토어 readout을 React 상태로 가져오는 기본 갱신 주기(ms). */
+export const DEFAULT_STORE_READOUT_INTERVAL_MS = 100;
+
 export function useThrottledStoreSnapshot<TSnapshot extends VersionedSnapshot, TSelected>(
   store: SnapshotStore<TSnapshot>,
   selector: (snapshot: TSnapshot) => TSelected,

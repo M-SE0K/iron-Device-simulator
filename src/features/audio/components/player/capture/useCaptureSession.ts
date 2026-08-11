@@ -19,7 +19,6 @@ export type {
   CaptureSnapshot,
   CaptureStreamEvent,
   CaptureStreamListener,
-  PlaybackMode,
   UseCaptureSessionDeps,
 } from "./types";
 

@@ -3,7 +3,7 @@ import {
   DEFAULT_ENGINE_CONFIG, DEFAULT_AMBIENT_TEMP, frameBytes,
   type AnalysisSession, type EngineRuntimeConfig,
 } from "../core";
-import type { EngineParams } from "../../../types";
+import type { EngineParams } from "@/features/audio/types";
 import {
   parseEngineParams, parseSampleRate, parseSamplesPerCh,
   createReadyMessage, createErrorMessage,

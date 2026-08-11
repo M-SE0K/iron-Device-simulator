@@ -32,7 +32,7 @@ export const COMMANDS = {
   localFolderReadFile: "local_folder_read_file",
 
   // Tauri 네이티브 웹뷰(특히 macOS WKWebView)에서 blob + `<a download>` 앵커 다운로드가
-  // 저장 다이얼로그를 띄우지 못해 Tauri 전용으로 추가됨(shared/lib/utils.ts의 downloadBlob()
+  // 저장 다이얼로그를 띄우지 못해 Tauri 전용으로 추가됨(shared/lib/download.ts의 downloadBlob()
   // 참조). 두 커맨드로 나뉘어 있다 — write_temp(sync,
   // raw body)로 바이트를 임시 파일에 쓰고, save(**async fn**)가 저장 다이얼로그를 열어 그
   // 임시 파일을 최종 위치로 옮긴다. save가 async여야 하는 이유는 file_export.rs 참고

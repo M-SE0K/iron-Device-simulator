@@ -14,7 +14,7 @@ import type { TempThresholds } from "@/features/audio/lib/render/detect-events";
 import TemperatureChart from "@/features/audio/components/chart/TemperatureChart";
 import ExcursionChart from "@/features/audio/components/chart/ExcursionChart";
 import { ProtectedComparePanel } from "@/features/audio/components/channel/ProtectedComparePanel";
-import type { ChannelStreamHeader } from "@/features/audio/components/channel/useChannelWaveStreams";
+import type { ChannelStreamHeader } from "@/features/audio/components/channel/hooks/useChannelWaveStreams";
 import ChannelChartCard from "./ChannelChartCard";
 import {
   VIEW_PROTECTED,

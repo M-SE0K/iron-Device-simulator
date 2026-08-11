@@ -743,17 +743,18 @@ bool startCapture(const CaptureConfig& cfg, CaptureInfo& out, std::string& error
   // 링은 1초분. 측정 레이턴시(88/168 프레임)의 1000배 이상이라 stdout이 잠깐 막혀도
   // 흡수된다. RingBuffer가 2의 거듭제곱으로 올림한다.
   const size_t bytesPerSecond =
-      static_cast<size_t>(actualRate > 0 ? actualRate : 48000) *
+      static_cast<size_t>(actualRate > 0 ? actualRate : kFallbackSampleRateHz) *
       static_cast<size_t>(s->outChannels) * sizeof(int16_t);
   s->ring.reset(new RingBuffer(bytesPerSecond));
 
   // 재생 종료 후 감쇠 테일 0.25초 (macOS 헬퍼와 동일).
-  s->tailTarget = static_cast<size_t>((actualRate > 0 ? actualRate : 48000) * 0.25);
+  s->tailTarget = static_cast<size_t>(
+      (actualRate > 0 ? actualRate : kFallbackSampleRateHz) * 0.25);
 
   // ── --stream: 재생 링 + RT 스크래치 ──
   if (s->streamPlayback) {
-    const double fs = actualRate > 0 ? actualRate : 48000;
-    const double ms = cfg.prefillMs > 0 ? cfg.prefillMs : 40.0;
+    const double fs = actualRate > 0 ? actualRate : kFallbackSampleRateHz;
+    const double ms = cfg.prefillMs > 0 ? cfg.prefillMs : kDefaultStreamPrefillMs;
     s->prefillFrames = static_cast<long>(ms / 1000.0 * fs);
     if (s->prefillFrames < 1) s->prefillFrames = 1;
 

@@ -1,4 +1,4 @@
-import type { EngineParams } from "../../types";
+import type { EngineParams } from "@/features/audio/types";
 
 export const SAMPLE_RATE      = 48000;
 export const CHANNELS         = 2;
@@ -56,4 +56,3 @@ export interface AnalysisSession {
   analyze(pcm: Buffer | Uint8Array, params: EngineParams, sensing?: RealSensingPair): FrameResult;
   close(): void;
 }
-

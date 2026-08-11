@@ -368,8 +368,8 @@ func createIOProcOrExit(_ device: AudioDeviceID, _ ioBlock: @escaping AudioDevic
     return p
 }
 
-// 종료 코드 3 = 장치 연결 해제(disconnect) 감지로 인한 자기 종료. 부모(audio-capture.js/
-// audio-playcapture.js)는 이 코드를 그대로 "ended" 이벤트에 실어 렌더러로 넘기고, 렌더러는
+// 종료 코드 3 = 장치 연결 해제(disconnect) 감지로 인한 자기 종료. 부모(Tauri
+// src-tauri/src/streaming.rs)는 이 코드를 그대로 "ended" 이벤트에 실어 렌더러로 넘기고, 렌더러는
 // 일반 크래시와 다른 안내 문구를 보여준다(useNativeCapture.ts의 offEnded 참고).
 let EXIT_CODE_DEVICE_DISCONNECTED: Int32 = 3
 
@@ -594,8 +594,8 @@ func runCapture(device: AudioDeviceID, sampleRate reqRate: Double, bufferFrames 
 // "stop"(즉시 종료). 게이트는 렌더러가 담당하므로 pause 중에도 캡처는 흘러야 한다 — WASM
 // 온도 상태를 유지한 채 차트만 얼리는 기존 pauseRecording 의미론과 합을 맞춘 설계.
 // 종료: 재생 끝(playPos ≥ refLen + 감쇠 테일 0.25 s) 도달 시 exit 0 — "재생 완료" 신호.
-// SIGTERM/stdin EOF 종료도 exit 0이지만, 부모(audio-playcapture.js)가 사용자 stop 시에는
-// child 참조를 먼저 지워 ended 이벤트 자체를 억제하므로 렌더러에는 재생 완료만 code 0으로 온다.
+// SIGTERM/stdin EOF 종료도 exit 0이지만, 부모(Tauri src-tauri/src/streaming.rs)가 사용자 stop 시에는
+// 세대를 먼저 올려 ended 이벤트 자체를 억제하므로 렌더러에는 재생 완료만 code 0으로 온다.
 
 // --ref 파일(raw little-endian Float32, [-1,1] 정규화)을 읽어 배열로 반환. 실패 시 nil.
 // refChannels==1이면 모노 플랫, 2면 인터리브 스테레오([L0,R0,L1,R1,...]) — 해석은 호출부(runPlayCapture)가 한다.

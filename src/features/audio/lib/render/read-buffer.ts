@@ -17,7 +17,7 @@ export interface SeriesReadBuffer {
  * 4K(3840 CSS px) 전폭을 100% 배율로 띄워도 남는다. 버퍼 한 쌍의 비용은
  * 8192 × 8 B × 2 = 128 KB로, 차트마다 하나씩 들고 있어도 부담이 없다.
  */
-export const MAX_READ_POINTS = 8192;
+const MAX_READ_POINTS = 8192;
 
 export function createReadBuffer(points: number = MAX_READ_POINTS): SeriesReadBuffer {
   return { xs: new Float64Array(points), ys: new Float64Array(points) };

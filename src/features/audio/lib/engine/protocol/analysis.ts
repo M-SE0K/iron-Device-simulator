@@ -1,4 +1,4 @@
-import type { EngineParams, WsServerMessage } from "../../../types";
+import type { EngineParams, WsServerMessage } from "@/features/audio/types";
 import { SAMPLE_RATE, SAMPLES_PER_CH, DEFAULT_AMBIENT_TEMP, CHANNELS, BYTES_PER_SAMPLE } from "../core";
 import type { FrameResult } from "../core";
 

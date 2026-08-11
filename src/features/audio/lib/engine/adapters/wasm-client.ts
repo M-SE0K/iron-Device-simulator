@@ -1,4 +1,4 @@
-import type { EngineParams } from "../../../types";
+import type { EngineParams } from "@/features/audio/types";
 import {
   CHANNELS, BYTES_PER_SAMPLE, frameBytes, DEFAULT_ENGINE_CONFIG,
   type FrameResult, type AnalysisSession, type MemoryLayout, type EngineRuntimeConfig, type RealSensingPair,

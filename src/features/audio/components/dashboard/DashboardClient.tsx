@@ -7,7 +7,7 @@ import SelectedFilePanel from "@/features/audio/components/dashboard/SelectedFil
 import DuplexFilePlayer from "@/features/audio/components/player/DuplexFilePlayer";
 import type { CaptureStreamListener, WaveformPlayerHandle } from "@/features/audio/components/player/capture/types";
 import type { DrawerEntry } from "@/features/audio/components/channel/ChannelSelectDrawer";
-import { useChannelWaveStreams } from "@/features/audio/components/channel/useChannelWaveStreams";
+import { useChannelWaveStreams } from "@/features/audio/components/channel/hooks/useChannelWaveStreams";
 import WorkspaceDrawer from "@/features/audio/components/workspace/WorkspaceDrawer";
 import RecordsDrawer from "@/features/audio/components/workspace/RecordsDrawer";
 import CalibrationDrawer from "@/features/audio/components/calibration/CalibrationDrawer";
@@ -30,7 +30,7 @@ import {
   COLOR_INPUT_R,
   COLOR_PROTECTED_L,
   COLOR_PROTECTED_R,
-} from "@/features/audio/components/channel/ProtectedComparePanel";
+} from "@/features/audio/lib/render/protected-series";
 import { AppStatus, AnalysisFrame, InputParameterValues } from "@/features/audio/types";
 import { channelLabel, channelColor } from "@/features/audio/lib/render/channel-meta";
 import { AnnotationStore } from "@/features/audio/lib/render/annotation-store";

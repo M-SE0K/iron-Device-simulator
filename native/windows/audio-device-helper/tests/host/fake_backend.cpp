@@ -169,7 +169,7 @@ bool startCapture(const CaptureConfig& cfg, CaptureInfo& out, std::string& error
                                static_cast<size_t>(s->channels) * sizeof(int16_t)));
 
   if (s->streamPlayback) {
-    const double ms = cfg.prefillMs > 0 ? cfg.prefillMs : 40.0;
+    const double ms = cfg.prefillMs > 0 ? cfg.prefillMs : kDefaultStreamPrefillMs;
     s->prefillFrames = static_cast<long>(ms / 1000.0 * s->rate);
     if (s->prefillFrames < 1) s->prefillFrames = 1;
     const size_t wanted = static_cast<size_t>(s->prefillFrames) * 8;

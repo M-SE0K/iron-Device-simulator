@@ -6,7 +6,7 @@
 import { useLayoutEffect, useRef } from "react";
 import uPlot from "uplot";
 import "uplot/dist/uPlot.min.css";
-import { attachYZoom } from "./uplot-y-zoom";
+import { attachYZoom } from "@/shared/lib/uplot-y-zoom";
 
 export type UPlotOptions = Omit<uPlot.Options, "width" | "height">;
 
@@ -19,7 +19,7 @@ export type UPlotOptions = Omit<uPlot.Options, "width" | "height">;
  * read()에 전달되는 현재 표시 상태 — "지금 화면에 보이는 x 구간을, 이 픽셀 폭에 맞춰"
  * 읽어 오라는 요청이다. 세션 전체를 매번 커밋하는 대신 뷰포트만 커밋하려는 소스가 쓴다.
  */
-export interface UPlotReadView {
+interface UPlotReadView {
   /** 현재 x 스케일의 최소/최대(데이터 좌표). */
   xMin: number;
   xMax: number;
@@ -241,8 +241,8 @@ export default function UPlotChart({ options, data, source, yRange, xRange, onUs
           // 되돌려버려 xRange가 있는 차트(채널 파형/보호 감쇠 비교)의 줌 자체가 항상
           // 무효화됐다 — "확대해도 안 먹힌다" 버그의 원인. 대신 "줌 안 된 상태에서 xRange로
           // 되돌리기"는 아래 setData 커밋 시점(줌이 아닐 때만)에 명시적으로 한 번 더
-          // setScale해서 처리하고, 더블클릭 리셋 보정은 uplot-plugins.ts의 zoomPlugin이
-          // getFullXRange로 맡는다.
+          // setScale해서 처리하고, 더블클릭 리셋 보정은 features/audio/lib/render/uplot-plugins/zoom.ts의
+          // zoomPlugin이 getFullXRange로 맡는다.
         },
         y: {
           ...options.scales?.y,

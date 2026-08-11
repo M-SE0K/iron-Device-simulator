@@ -1,4 +1,4 @@
-import type { EngineParams } from "../../types";
+import type { EngineParams } from "@/features/audio/types";
 import { round3 } from "@/shared/lib/utils";
 import {
   CHANNELS, BYTES_PER_SAMPLE, INT16_MAX, INT16_MIN, frameBytes,

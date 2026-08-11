@@ -1,6 +1,6 @@
 //! helper.rs — 네이티브 오디오 헬퍼 바이너리 실행/경로 해석 공용 로직.
 //!
-//! audio_capture.rs/audio_playcapture.rs도 여기 helper_path()/SUPPORTED/with_device를
+//! audio_capture.rs/audio_playcapture.rs도 여기 helper_path()/is_supported_platform()/with_device를
 //! 재사용한다 — 같은 헬퍼 바이너리와 지원 플랫폼 판정을 공유해야 하기 때문이다.
 
 use std::path::{Path, PathBuf};

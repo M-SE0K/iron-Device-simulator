@@ -20,6 +20,13 @@ import type {
 
 const streamChannels = createStreamChannelPair();
 
+function toExactBytes(view: Uint8Array | Int16Array): Uint8Array {
+  const bytes = view instanceof Uint8Array
+    ? view
+    : new Uint8Array(view.buffer, view.byteOffset, view.byteLength);
+  return view.byteOffset !== 0 || view.byteLength !== view.buffer.byteLength ? bytes.slice() : bytes;
+}
+
 export function createAudioPlayCaptureBridge(): NonNullable<Window["audioPlayCapture"]> {
   return {
     startWrite: (opts) =>
@@ -32,8 +39,7 @@ export function createAudioPlayCaptureBridge(): NonNullable<Window["audioPlayCap
       // uploadPlaybackRef가 4MB씩 잘라 넘김) — raw body invoke는 버퍼 전체가 아니라 뷰가
       // 가리키는 바이트만 보내야 하므로, 뷰가 버퍼 전체를 덮지 않으면 slice()로 복사해
       // 정확한 바이트 범위만 전송한다.
-      const raw =
-        chunk.byteOffset !== 0 || chunk.byteLength !== chunk.buffer.byteLength ? chunk.slice() : chunk;
+      const raw = toExactBytes(chunk);
       return safeInvoke<PlayCaptureWriteAckResult>(COMMANDS.audioPlayCaptureWriteChunk, raw, {
         headers: { [HEADERS.writeId]: writeId },
       });
@@ -75,8 +81,7 @@ export function createAudioPlayCaptureBridge(): NonNullable<Window["audioPlayCap
       // pcm은 대개 더 큰 IPC 버퍼를 가리키는 뷰다(analysis.ts의 decodeProcessedPcmMessage가
       // 한 메시지 안의 input/processed 두 구간을 각각 뷰로 돌려준다) — writeChunk와 같은 이유로
       // 뷰가 버퍼 전체를 덮지 않으면 복사해서 정확한 바이트 범위만 보낸다.
-      const bytes = new Uint8Array(pcm.buffer, pcm.byteOffset, pcm.byteLength);
-      const raw = pcm.byteOffset !== 0 || pcm.byteLength !== pcm.buffer.byteLength ? bytes.slice() : bytes;
+      const raw = toExactBytes(pcm);
       return safeInvoke<PlayCaptureWriteAckResult>(COMMANDS.audioPlayCaptureWritePcm, raw);
     },
 

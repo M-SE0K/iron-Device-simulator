@@ -4,9 +4,8 @@
 // peak file(.pkf) 요약을, 확대 뷰에서는 디스크 원본을 seek해 읽는 것과 같은 전략):
 //
 //   - 축소(픽셀당 샘플 ≥ RAW_SAMPLES_PER_PX): ChannelWaveStore의 min/max 엔벨로프를
-//     **지금 보이는 구간만, 화면 폭만큼의 점으로** 읽는다(readRange). 세션이 길어져도
-//     커밋당 점 수가 늘지 않는다 — 예전에는 매 커밋 세션 전체(만석 기준 10만 점)를
-//     복사해 setData했다.
+//     readAligned()로 읽어 세션 전체를 그린다. 반환된 두 배열은 정확한 길이의 복사본이라
+//     이후 스토어 갱신과 독립적으로 uPlot이 안전하게 들고 있을 수 있다.
 //   - 확대(픽셀당 샘플 < RAW_SAMPLES_PER_PX): 엔벨로프는 버킷 폭 아래로 못 내려가므로
 //     캡처 원본 PCM을 직접 슬라이스해 개별 샘플을 그린다(raw-window.ts). 48 kHz에서
 //     1샘플 = 20.83 µs이고, 시간축은 초 단위를 유지한 채 소수점만 그만큼 늘어난다.
@@ -21,9 +20,13 @@ import type { AnnotationStore } from "@/features/audio/lib/render/annotation-sto
 import { createReadBuffer, type SeriesReadBuffer } from "@/features/audio/lib/render/read-buffer";
 import type { ChannelWaveStore } from "@/features/audio/lib/render/wave-store";
 import { readRawWindow } from "@/features/audio/lib/render/raw-window";
+import { computeSymmetricYRange } from "@/features/audio/lib/render/chart-window";
 import type { CaptureSnapshot } from "@/features/audio/components/player/capture/types";
 import { ChannelLevelBadge } from "./ChannelRowHeader";
-import { useThrottledStoreSnapshot } from "@/features/audio/components/chart/hooks/useThrottledStoreSnapshot";
+import {
+  DEFAULT_STORE_READOUT_INTERVAL_MS,
+  useThrottledStoreSnapshot,
+} from "@/features/audio/components/chart/hooks/useThrottledStoreSnapshot";
 
 const Y_SCALE_PADDING = 1.1;
 const Y_MIN_SPAN = 0.01;
@@ -40,11 +43,6 @@ const MIN_VISIBLE_SAMPLES = 16;
 
 /** 인스턴스가 아직 없어 view 없이 시드로 읽힐 때 쓸 기본 픽셀 폭. */
 const SEED_PX_WIDTH = 1024;
-
-function symmetricYRange(peak: number): [number, number] {
-  const yMax = Math.max(peak * Y_SCALE_PADDING, Y_MIN_SPAN);
-  return [-yMax, yMax];
-}
 
 /**
  * 원본 PCM 직독 소스. 라이브 캡처 세션에만 있고(저장본 뷰어에는 없다), getSnapshot은
@@ -78,25 +76,23 @@ function readRawIfZoomedIn(
   return readRawWindow(snap, raw.channel, xMin, xMax, out);
 }
 
-/**
- * 스토어에서 "React 상태로 들고 있어야 하는 값"만 낮은 빈도로 읽어온다 — 파형 자체는
- * source 경로로 React를 거치지 않고 커밋되므로, 리렌더가 필요한 건 헤더 숫자뿐이다.
- * 메인 차트의 useMetricChartRuntime과 같은 주기/이유다.
- */
-const READOUT_INTERVAL_MS = 100;
-
 const selectWaveSnapshot = (snapshot: ReturnType<ChannelWaveStore["snapshot"]>) => snapshot;
 const isSameWaveSnapshot = (
   previous: ReturnType<ChannelWaveStore["snapshot"]>,
   next: ReturnType<ChannelWaveStore["snapshot"]>,
 ) => previous === next;
 
+/**
+ * 스토어에서 "React 상태로 들고 있어야 하는 값"만 낮은 빈도로 읽어온다 — 파형 자체는
+ * source 경로로 React를 거치지 않고 커밋되므로, 리렌더가 필요한 건 헤더 숫자뿐이다.
+ * 메인 차트의 useMetricChartRuntime과 같은 주기/이유다.
+ */
 function useWaveReadout(store: ChannelWaveStore) {
   const [snapshot] = useThrottledStoreSnapshot(
     store,
     selectWaveSnapshot,
     isSameWaveSnapshot,
-    READOUT_INTERVAL_MS,
+    DEFAULT_STORE_READOUT_INTERVAL_MS,
   );
   return snapshot;
 }
@@ -124,10 +120,8 @@ export function ChannelWaveformCanvas({
   const rawRef = useRef<ChannelRawSource | undefined>(raw);
   rawRef.current = raw;
 
-  // 커밋 페이로드를 담을 버퍼 한 쌍 — 이 캔버스만 소유하고 매 커밋 재사용한다. uPlot은
-  // 커밋 사이의 자체 리드로우(커서 이동 등)에서 u.data를 다시 읽지만, 이 버퍼에 쓰는
-  // 주체는 커밋 태스크뿐이라(스토어의 addBlock/compact는 자기 내부 버퍼만 만진다) 반쯤
-  // 갱신된 데이터를 그릴 창이 없다.
+  // 원본 PCM 직독 경로의 커밋 페이로드를 담을 버퍼 한 쌍 — 이 캔버스만 소유하고 매 커밋
+  // 재사용한다. 엔벨로프 폴백은 스토어가 readAligned()에서 만든 독립 복사본을 직접 쓴다.
   const bufRef = useRef<SeriesReadBuffer | null>(null);
 
   const source = useMemo<UPlotDataSource>(() => ({
@@ -141,20 +135,22 @@ export function ChannelWaveformCanvas({
       const columns = Math.max(1, Math.round(view?.pxWidth ?? SEED_PX_WIDTH));
 
       const rawCount = readRawIfZoomedIn(rawRef.current, xMin, xMax, columns, buf);
-      const count = rawCount > 0 ? rawCount : store.readRange(xMin, xMax, columns * 2, buf);
+      const data = rawCount > 0
+        ? [buf.xs.subarray(0, rawCount), buf.ys.subarray(0, rawCount)] as unknown as uPlot.AlignedData
+        : store.readAligned() as unknown as uPlot.AlignedData;
 
       return {
-        data: [buf.xs.subarray(0, count), buf.ys.subarray(0, count)] as unknown as uPlot.AlignedData,
-        yRange: symmetricYRange(snap.peak),
-        // 뷰포트만 커밋하므로 "전체 도메인"은 데이터 extent가 아니라 세션 길이다 —
-        // 이 값이 없으면 줌 판정과 줌아웃 복원이 현재 창으로 수렴해 버린다.
+        data,
+        yRange: computeSymmetricYRange(snap.peak, Y_MIN_SPAN, Y_SCALE_PADDING),
+        // 엔벨로프 폴백은 세션 전체를 싣지만, 원본 PCM 직독 경로는 확대된 구간만 싣는다.
+        // 어느 경로에서도 줌 판정과 줌아웃 복원의 기준이 흔들리지 않게 전체 길이를 명시한다.
         ...(snap.durationSec > 0 ? { xFull: [0, snap.durationSec] as [number, number] } : {}),
       };
     },
   }), [store]);
 
-  // zoomPlugin의 기본 "전체 범위"는 현재 로드된 데이터의 extent인데, 뷰포트만 커밋하는
-  // 지금은 그게 곧 확대된 창이라 휠 줌아웃이 불가능해진다 — 세션 전체를 명시한다.
+  // zoomPlugin의 줌아웃·더블클릭 복원 기준을 현재 커밋 데이터의 extent와 분리해,
+  // 엔벨로프/원본 PCM 어느 경로에서도 항상 스토어의 세션 전체 길이로 되돌아가게 한다.
   const getFullXRange = useCallback((): [number, number] | null => {
     const durationSec = store.snapshot().durationSec;
     return durationSec > 0 ? [0, durationSec] : null;

@@ -16,6 +16,12 @@
 
 namespace audio {
 
+// 지연 재생 시작 전에 재생 링에 미리 채울 기본 시간(ms).
+inline constexpr double kDefaultStreamPrefillMs = 40.0;
+
+// 드라이버가 유효한 샘플 레이트를 보고하지 않을 때 쓸 폴백 값(Hz).
+inline constexpr double kFallbackSampleRateHz = 48000.0;
+
 // list 항목 하나. macOS의 AudioInputDevice(native-bridge.d.ts)와 키가 일치해야 한다.
 struct DeviceInfo {
   std::string uid;          // ASIO는 CLSID 문자열 "{...}" — 이름보다 안정적이라 uid로 쓴다
@@ -109,7 +115,7 @@ struct CaptureConfig {
   // 결과를 밀어 넣으므로 스피커로 나가는 신호가 처음부터 끝까지 보호된 신호가 된다
   // (docs/protected-playback-plan.md). refPath와 streamPlayback은 상호 배타적이다.
   bool streamPlayback = false;
-  double prefillMs = 40.0;   // 재생 시작 전에 링에 채워둘 분량
+  double prefillMs = kDefaultStreamPrefillMs;  // 재생 시작 전에 링에 채워둘 분량
 };
 
 // 헤더 한 줄에 실을 실제 값. requested와 달라질 수 있고, 달라지는 게 정상이다.

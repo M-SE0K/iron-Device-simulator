@@ -22,7 +22,7 @@ const AXIS_FONT = "10px system-ui, -apple-system, sans-serif";
 const MAX_TIME_DECIMALS = 6;
 const MIN_TIME_DECIMALS = 0;
 
-export function timeDecimalsForSpan(spanSec: number): number {
+function timeDecimalsForSpan(spanSec: number): number {
   if (!isFinite(spanSec) || spanSec <= 0) return 3;
   const decimals = Math.ceil(-Math.log10(spanSec)) + 1;
   return Math.min(MAX_TIME_DECIMALS, Math.max(MIN_TIME_DECIMALS, decimals));
