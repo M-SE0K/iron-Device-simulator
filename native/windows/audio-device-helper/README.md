@@ -261,6 +261,8 @@ ASIO를 `src/asio_backend.cpp`에 격리해 둔 이유는, ASIO 드라이버가 
 4. **장치 분리 → `exit 3`.** CoreAudio의 `DeviceIsAlive` 리스너에 대응하는 것은
    `asioMessage`의 `kAsioResetRequest`다. 부모/렌더러가 code 3을 "장치 연결이 끊겼습니다"로
    구분하므로 이 매핑을 반드시 지켜야 한다.
-5. **일회성 명령은 실패해도 exit 0.** 부모가 `execFile`을 쓰기 때문에 종료 코드가 0이 아니면
-   stdout의 `{"success":false,"error":"..."}`를 버리고 "Command failed"로 덮어쓴다.
-   사유는 항상 JSON으로 전달한다. (상주 모드의 `exit 3` 규약은 이와 별개다.)
+5. **일회성 명령의 실패 사유는 항상 stdout JSON으로.** 부모(Tauri `helper::run_audio_helper`)는
+   프로세스 종료 상태를 보지 않고 stdout을 그대로 파싱한다 — 파싱에 실패하면 사유가 무엇이든
+   `invalid-helper-output` 하나로 뭉개진다. 그러니 실패해도 `{"success":false,"error":"..."}`
+   한 줄은 반드시 내보낸다. (상주 모드의 `exit 3` 규약은 이와 별개다 — 그쪽은 Tauri
+   `streaming.rs`가 종료 코드를 읽는다.)

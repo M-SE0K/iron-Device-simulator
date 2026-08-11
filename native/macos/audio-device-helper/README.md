@@ -3,8 +3,9 @@
 Tauri Rust 코어(`src-tauri/src/helper.rs`)가 자식 프로세스로 실행하는 컴파일된
 CLI(패키징 시 `externalBin` 사이드카로 번들됨). Web Audio API/`getUserMedia`는 CoreAudio HAL 프로퍼티(NominalSampleRate,
 BufferFrameSize)에 접근할 방법이 없어서, 이 별도 바이너리가 그 다리 역할을 한다.
-항상 **OS 기본 입력 장치**(사용자가 앱 실행 전 Audio MIDI 설정 등에서 지정해둔 장치,
-예: MCHStreamer AllRate)를 대상으로 동작한다 — 장치 이름을 인자로 받지 않는다.
+대상 장치는 `--device <UID>`로 지정하고, 생략하면 **OS 기본 입력 장치**(사용자가 앱 실행 전
+Audio MIDI 설정 등에서 지정해둔 장치, 예: MCHStreamer AllRate)를 쓴다. 장치 이름이 아니라
+UID로만 받는다 — 자세한 규약은 아래 "명령어" 절에 있다.
 
 ## 명령어
 
