@@ -31,8 +31,8 @@
     ],
     "resources": {
       "resources/ff_prot.wasm.enc": "ff_prot.wasm.enc",
-      "../LICENSE": "LICENSE",
-      "../COPYRIGHT": "COPYRIGHT"
+      "../docs/LICENSE": "LICENSE",
+      "../docs/COPYRIGHT": "COPYRIGHT"
     }
   }
 }

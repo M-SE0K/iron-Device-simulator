@@ -23,6 +23,11 @@ node_modules/
 # v2: 키 상수 대신 seed 재료(.wasm-seed)를 두고 HKDF로 런타임 파생한다.
 /src-tauri/resources/
 /src-tauri/src/wasm_key.rs
+# 라이선스 서명 공개 키(빌드 산출물)와 개발용 키쌍. 공개 키는 릴리스마다 발급 주체가
+# 다를 수 있어 커밋하지 않고, 개발용 개인 키는 절대 커밋하지 않는다.
+/src-tauri/src/license_key.rs
+/scripts/dev/.license-dev-key.json
+/scripts/dev/.license-dev-pub.hex
 /native/wasm-engine/.wasm-key
 /native/wasm-engine/.wasm-seed
 
@@ -80,4 +85,3 @@ _workspace/
 #CLAUDE & iron-device
 CLAUDE.md
 libirontune.so
-/docs

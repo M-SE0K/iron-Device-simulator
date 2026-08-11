@@ -5,6 +5,8 @@
 #   npm run bootstrap                             # 전체 (dev 서버는 응답 확인 후 자동 종료)
 #   BOOTSTRAP_NO_DEV=1 npm run bootstrap          # dev 서버 확인 없이 준비만
 #   BOOTSTRAP_DEV_TIMEOUT=180 npm run bootstrap   # 느린 머신에서 대기 시간 늘리기(기본 90초)
+#   BOOTSTRAP_NO_AUTO_INSTALL=1 npm run bootstrap # 툴체인 자동 설치 없이 안내만 (6-4장)
+#   BOOTSTRAP_APT_INSTALL=1 npm run bootstrap     # sudo 가 필요한 apt 패키지까지 설치 (6-4장)
 #
 # ⚠️ 엔진 C 소스는 이 저장소에 없다 — native/wasm-engine/.gitignore 가 *.c/*.h 를 제외하므로
 #    신규 클론에는 빌드할 소스가 한 개도 없다. 본인 알고리즘을 직접 넣어야 한다:
@@ -30,6 +32,16 @@ case "$UNAME_S" in
 esac
 
 have() { command -v "$1" >/dev/null 2>&1; }
+
+# rustup/cargo 는 보통 ~/.cargo/bin 에 설치되는데 비로그인 셸(CI, 갓 설치한 직후의 세션)에서는
+# PATH 에 잡히지 않는다 — 그대로 두면 "Rust 없음"으로 오탐해 엉뚱한 안내를 낸다.
+# build-tauri.sh 의 preflight 와 같은 보강을 여기서도 먼저 해둔다.
+if [[ -d "$HOME/.cargo/bin" ]]; then
+  case ":$PATH:" in
+    *":$HOME/.cargo/bin:"*) ;;
+    *) export PATH="$HOME/.cargo/bin:$PATH" ;;
+  esac
+fi
 
 # 6장의 점검 결과("지금 막히진 않지만 결국 필요한 것")를 모아두는 버퍼. 항목마다 그때그때
 # 출력하면 npm install 로그에 묻혀 무엇을 해야 할지 파악이 안 되므로 마지막에 한 번에 낸다.
@@ -178,24 +190,80 @@ EOF
 fi
 
 # 6-4. Windows 크로스 패키징(WSL/Linux 호스트에서 build:tauri -- --windows) 전제조건.
-#      실제 차단·자동 설치는 scripts/build/build-tauri.sh 의 preflight 가 빌드 시작 전에
-#      수행한다 — 여기서는 "미리 알기" 목적의 요약이다.
+#      예전에는 여기서 감지만 하고 안내문만 냈고, 실제 설치는 build-tauri.sh 의 preflight 가
+#      "빌드를 시작한 뒤"에 했다. 그래서 온보딩을 다 끝낸 사람이 첫 --windows 빌드에서 다시
+#      수 분짜리 cargo install 을 기다리는 흐름이 됐다. 이제 bootstrap 단계에서 미리 끝낸다.
+#
+#      자동 설치 대상은 sudo 가 필요 없는 rustup/cargo 계열뿐이다(build-tauri.sh 와 동일 정책).
+#      apt 계열은 sudo 를 조용히 부르지 않기 위해 기본은 안내만 하고, BOOTSTRAP_APT_INSTALL=1
+#      일 때만 실제로 설치한다.
+#        BOOTSTRAP_NO_AUTO_INSTALL=1 (또는 TAURI_NO_AUTO_INSTALL=1) → 전부 안내만
 if [[ "$HOST_OS" == "linux" ]] && (have rustup || have cargo); then
+  WIN_AUTO_INSTALL=true
+  if [[ -n "${BOOTSTRAP_NO_AUTO_INSTALL:-}" || "${TAURI_NO_AUTO_INSTALL:-}" == "1" ]]; then
+    WIN_AUTO_INSTALL=false
+  fi
+
+  # ① rustup 계열 — Windows MSVC 타깃과 cargo-xwin 러너. 자동 설치 가능.
   WIN_CROSS_MISSING=()
   if have rustup; then
-    rustup target list --installed 2>/dev/null | grep -qx "x86_64-pc-windows-msvc" \
-      || WIN_CROSS_MISSING+=("rustup target add x86_64-pc-windows-msvc")
+    if ! rustup show active-toolchain >/dev/null 2>&1; then
+      if $WIN_AUTO_INSTALL; then
+        echo "→ [Windows 크로스] 기본 Rust 툴체인 설치 (rustup install stable — 수 분 소요)"
+        rustup install stable && rustup default stable \
+          || WIN_CROSS_MISSING+=("rustup install stable && rustup default stable")
+      else
+        WIN_CROSS_MISSING+=("rustup install stable && rustup default stable")
+      fi
+    fi
+    if ! rustup target list --installed 2>/dev/null | grep -qx "x86_64-pc-windows-msvc"; then
+      if $WIN_AUTO_INSTALL; then
+        echo "→ [Windows 크로스] rustup target add x86_64-pc-windows-msvc"
+        rustup target add x86_64-pc-windows-msvc \
+          || WIN_CROSS_MISSING+=("rustup target add x86_64-pc-windows-msvc")
+      else
+        WIN_CROSS_MISSING+=("rustup target add x86_64-pc-windows-msvc")
+      fi
+    fi
   fi
-  have cargo-xwin || WIN_CROSS_MISSING+=("cargo install cargo-xwin")
-  have makensis   || WIN_CROSS_MISSING+=("sudo apt install nsis")
-  { have clang && have lld; } || WIN_CROSS_MISSING+=("sudo apt install clang lld llvm")
-  have x86_64-w64-mingw32-g++ \
-    || WIN_CROSS_MISSING+=("sudo apt install g++-mingw-w64-x86-64      # ASIO 헬퍼(exe) 컴파일용")
+  if ! have cargo-xwin; then
+    if $WIN_AUTO_INSTALL && have cargo; then
+      echo "→ [Windows 크로스] cargo install cargo-xwin (컴파일에 수 분 소요)"
+      # 실패해도 온보딩 전체를 죽이지 않는다 — 6장은 비차단이 원칙이고, 여기서 못 깔면
+      # build-tauri.sh 의 preflight 가 빌드 시작 전에 다시 시도한다.
+      # 설치 성공 여부와 PATH 노출 여부를 한 번에 판정해야 안내가 중복되지 않는다.
+      if ! { cargo install cargo-xwin && have cargo-xwin; }; then
+        WIN_CROSS_MISSING+=("cargo install cargo-xwin")
+      fi
+    else
+      WIN_CROSS_MISSING+=("cargo install cargo-xwin")
+    fi
+  fi
+
+  # ② apt 계열(sudo 필요) — 링커/코드젠 도구, NSIS 인스톨러, ASIO 헬퍼용 mingw 크로스 컴파일러.
+  WIN_APT_MISSING=()
+  { have clang && have lld; } || WIN_APT_MISSING+=("clang" "lld" "llvm")
+  have makensis              || WIN_APT_MISSING+=("nsis")
+  have x86_64-w64-mingw32-g++ || WIN_APT_MISSING+=("g++-mingw-w64-x86-64")
+  if [ ${#WIN_APT_MISSING[@]} -gt 0 ]; then
+    if [[ -n "${BOOTSTRAP_APT_INSTALL:-}" ]] && have apt-get; then
+      echo "→ [Windows 크로스] sudo apt install ${WIN_APT_MISSING[*]}"
+      if sudo apt-get install -y "${WIN_APT_MISSING[@]}"; then
+        WIN_APT_MISSING=()
+      else
+        echo "  ⚠ apt 설치가 실패했습니다 — 아래 명령을 직접 실행하세요." >&2
+      fi
+    fi
+    if [ ${#WIN_APT_MISSING[@]} -gt 0 ]; then
+      WIN_CROSS_MISSING+=("sudo apt install ${WIN_APT_MISSING[*]}")
+    fi
+  fi
+
   if [ ${#WIN_CROSS_MISSING[@]} -gt 0 ]; then
     advise "$(printf '%s\n' \
       "  [Windows 크로스] WSL/Linux 에서 build:tauri -- --windows 를 돌리려면 아래가 더 필요합니다" \
-      "    (실험적 경로 — README 참고. build-tauri.sh 가 빌드 시작 전에 cargo/rustup 계열은" \
-      "     자동 설치를 시도하고, apt 계열은 명령을 안내합니다):" \
+      "    (실험적 경로 — README 참고. sudo 가 필요한 apt 항목은 BOOTSTRAP_APT_INSTALL=1 을" \
+      "     붙이면 bootstrap 이 직접 설치합니다):" \
       "${WIN_CROSS_MISSING[@]/#/        }")"
   fi
 fi
