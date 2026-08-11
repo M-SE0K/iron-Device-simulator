@@ -6,6 +6,15 @@
  * 표시 점이 감량돼도 실제 피크 기준의 범위가 유지된다.
  */
 
+export function computeSymmetricYRange(
+  peak: number,
+  minSpan: number,
+  padding: number,
+): [number, number] {
+  const yMax = Math.max(peak * padding, minSpan);
+  return [-yMax, yMax];
+}
+
 export function computeExcursionYRange(
   rawMin: number,
   rawMax: number,

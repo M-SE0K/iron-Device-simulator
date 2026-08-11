@@ -8,6 +8,27 @@ export type CaptureStreamEvent =
 export type CaptureStreamListener = (ev: CaptureStreamEvent) => void;
 
 /**
+ * 스피커로 무엇을 내보낼지.
+ * - `protected`: 재생 PCM을 ff_prot에 먼저 통과시킨 뒤 그 결과만 내보낸다(기본).
+ *   실측 V/I가 아직 없는 시작 구간은 V/I=0으로 처리한다 — docs/protected-playback-plan.md.
+ * - `original`: 업로드한 원본을 그대로 내보낸다. 보호 유/무를 같은 리그에서 비교하는 A/B용.
+ */
+export type PlaybackMode = "protected" | "original";
+
+/**
+ * 보호 스트리밍 재생에서 `useCaptureSession`(엔진 메시지를 받는 쪽)과
+ * `useNativeCapture`(재생 원본과 크레딧을 들고 있는 쪽)를 잇는 얇은 접점.
+ * 루프가 두 훅에 걸쳐 있어 어느 한쪽만으로는 닫히지 않는다 — 엔진 소켓은 세션 훅이 소유하고,
+ * "다음에 어느 프레임을 넣을지"는 캡처 훅만 알기 때문이다.
+ */
+export interface PlaybackStreamPump {
+  /** 엔진 준비 완료 — 프리필(리드 프레임)을 즉시 처리·전송한다. */
+  onEngineReady: () => void;
+  /** 엔진이 보호 감쇠 PCM을 돌려줄 때마다 — 헬퍼 재생 링으로 밀어 넣는다. */
+  pushProtected: (processed: Int16Array) => void;
+}
+
+/**
  * 세션 시작~현재까지 캡처된 전 채널 원본 PCM을 복사 없이 들여다보는 스냅샷.
  * getRecordedBlob()(WAV 인코딩, Workspace 저장 전용)과 달리 이건 O(1)이다 — `frames`가
  * rawCaptureRef가 들고 있는 배열 참조 그대로라, 세션이 길어져도 호출 비용이 늘지 않는다.
@@ -30,6 +51,8 @@ export interface UseCaptureSessionDeps {
   onFrameReceived: (frame: AnalysisFrame) => void;
   onStreamStart: () => void;
   inputParams: InputParameterValues | undefined;
+  /** 세션 시작 시점에만 반영된다 — 재생 중 전환은 엔진 상태·클록 정합이 깨진다. */
+  playbackMode?: PlaybackMode;
 }
 
 export interface WaveformPlayerHandle {

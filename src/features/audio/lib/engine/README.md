@@ -19,12 +19,12 @@
 | `protocol/frame-core.ts` | `processAnalysisFrame()` — 메인/워커 양쪽이 공유하는 로직. 실측 V/I 센싱 프레임 선택, 분석 호출, 응답 메시지 조립까지 |
 | `protocol/socket-types.ts` | `SocketLike`(WebSocket 부분집합) 인터페이스 |
 | `protocol/local-socket.ts` | 메인 스레드 in-process 소켓 `LocalWasmSocket`과 진입점 `createAnalysisSocket()` |
-| `protocol/worker-socket.ts` | 워커를 대신 말해주는 프록시 소켓 `WorkerAnalysisSocket` — N3/N4/N7 E2E 지연 계측 포함 |
+| `protocol/worker-socket.ts` | 워커를 대신 말해주는 프록시 소켓 `WorkerAnalysisSocket` |
 | `worker/dsp-worker.ts` | 실제 Web Worker 스레드 안에서 도는 엔진 루프 |
 
 ## 4. 의존성 및 흐름
 
-- **가져오는 것**: `features/audio/types`의 `EngineParams`/`WsServerMessage`, `@/shared/lib/utils`의 `round3`. `worker-socket.ts`는 `@/features/audio/lib/perf-e2e/collector`의 `e2e`도 씁니다.
+- **가져오는 것**: `features/audio/types`의 `EngineParams`/`WsServerMessage`, `@/shared/lib/utils`의 `round3`.
 - **Tauri 암호화 배포와의 접점**: `adapters/wasm-client.ts`는 `window.wasmAsset`(Tauri 셸에서 `shared/lib/tauri-bridge`가 제공)이 있으면 Rust가 복호화한 바이트를 `Module.wasmBinary`로 직접 주입합니다. 일반 브라우저/`build:desktop` 경로에는 이 전역이 없으니 기존처럼 `locateFile`로 평문 `.wasm`을 fetch합니다.
 - **외부에서 들어오는 유일한 진입점**: `player/`의 `useCaptureSession.ts`가 `createAnalysisSocket()` 하나만 호출합니다. `SocketLike` 계약이 메인/워커 스레드 차이를 완전히 가립니다.
 
@@ -45,7 +45,7 @@ useCaptureSession.ts → createAnalysisSocket()
 - **`processAnalysisFrame(session, data, engineParams, config, frameIndex): FrameOutput | null`** — wire 프레임을 받아 `session.analyze()` 호출과 응답 메시지 조립까지 감싼 공유 로직. 버퍼 프레임 뒤에 센싱 프레임을 이어붙인 2배 길이 메시지도 받습니다. 프레임 길이가 부족하면 `null`.
 - **`deinterleave(src, samplesPerCh): Int16Array`** / **`encodeToInt16(ch0, ch1): Int16Array`** — wire(인터리브) ↔ planar 변환.
 - **`frameBytes(config: EngineRuntimeConfig): number`** — 세션 하나의 wire 프레임 바이트 크기(`samplesPerCh × CHANNELS × BYTES_PER_SAMPLE`).
-- **`FrameResult`** — `{ temperature, excursion, processingMs, execMs?, processedPcm? }`. `execMs`는 `ff_prot_start_exec` 호출 구간만 떼어 낸 값이고, E2E 지연 실험(N5/N6)에서만 씁니다.
+- **`FrameResult`** — `{ temperature, excursion, processingMs, processedPcm? }`.
 
 ## 6. 변경 이력(요약)
 

@@ -2,8 +2,6 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { AnalysisFrame } from "@/features/audio/types";
-import { perf } from "@/features/audio/lib/perf/collector";
-import { e2e } from "@/features/audio/lib/perf-e2e/collector";
 import { createAnalysisSocket } from "@/features/audio/lib/engine/protocol/local-socket";
 import type { SocketLike } from "@/features/audio/lib/engine/protocol/socket-types";
 import { useCalibration } from "@/features/audio/components/calibration/CalibrationContext";
@@ -13,7 +11,9 @@ import { CHANNELS, SAMPLE_RATE, SAMPLES_PER_CH, BYTES_PER_SAMPLE } from "@/featu
 import { decodeProcessedPcmMessage } from "@/features/audio/lib/engine/protocol/analysis";
 import { useNativeCapture, type NativeRawCapture } from "./useNativeCapture";
 import { buildInitMessage } from "./build-init-message";
-import type { CaptureSnapshot, CaptureStreamEvent, CaptureStreamListener, UseCaptureSessionDeps } from "./types";
+import type {
+  CaptureSnapshot, CaptureStreamEvent, CaptureStreamListener, PlaybackStreamPump, UseCaptureSessionDeps,
+} from "./types";
 
 export type {
   CaptureSnapshot,
@@ -29,7 +29,7 @@ function blobFromCapture(entry: NativeRawCapture | null): Blob | null {
 
 export function useCaptureSession(deps: UseCaptureSessionDeps) {
   const {
-    status, onStatusChange, onFrameReceived, onStreamStart, inputParams,
+    status, onStatusChange, onFrameReceived, onStreamStart, inputParams, playbackMode = "protected",
   } = deps;
   const { values: calibration } = useCalibration();
   const { showError } = useErrorPopup();
@@ -58,6 +58,9 @@ export function useCaptureSession(deps: UseCaptureSessionDeps) {
   const isActiveRef    = useRef(false);
   const frameCountRef  = useRef(0);
   const framesRcvdRef  = useRef(0);
+  // 보호 스트리밍 재생 루프의 접점 — useNativeCapture가 세션 시작 때 채우고, 아래 onmessage가
+  // 엔진 준비/보호 PCM 도착 시점에 호출한다(types.ts의 PlaybackStreamPump 참고).
+  const streamPumpRef  = useRef<PlaybackStreamPump | null>(null);
   const streamListenersRef = useRef<Set<CaptureStreamListener>>(new Set());
   const emitStreamEvent = useCallback((ev: CaptureStreamEvent) => {
     streamListenersRef.current.forEach((fn) => fn(ev));
@@ -71,8 +74,7 @@ export function useCaptureSession(deps: UseCaptureSessionDeps) {
 
   const cleanup = useCallback(() => {
     isActiveRef.current = false;
-    perf.endSession();
-    e2e.endSession();
+    streamPumpRef.current = null;
 
     nativeOffsRef.current.forEach((off) => off());
     nativeOffsRef.current = [];
@@ -133,6 +135,9 @@ export function useCaptureSession(deps: UseCaptureSessionDeps) {
             }
             buf.frames.push(decoded.processed.slice().buffer);
           }
+          // 보호 스트리밍 재생: 이 PCM이 곧 스피커로 나갈 신호다. 프레임 순서가 곧 재생
+          // 순서라 여기서 바로(그리고 이 순서 그대로) 헬퍼에 넘긴다.
+          streamPumpRef.current?.pushProtected(decoded.processed);
           emitStreamEvent({
             type: "protected",
             frameIndex: decoded.frameIndex,
@@ -144,7 +149,6 @@ export function useCaptureSession(deps: UseCaptureSessionDeps) {
         return;
       }
       if (typeof e.data !== "string") return;
-      const recvAt = performance.now();
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const msg: Record<string, any> = JSON.parse(e.data);
 
@@ -153,7 +157,7 @@ export function useCaptureSession(deps: UseCaptureSessionDeps) {
         // 분석할 세션이 없어 버려지므로, 이 값이 곧 "측정 결과가 비어 있는 앞구간"의 길이다.
         // 플랫폼 비교용 — Windows 패키지 빌드에서는 IRON_REMOTE_DEBUG_PORT를 띄우고 CDP로
         // 붙으면 이 줄을 볼 수 있다. 단 배포 빌드는 DevTools/원격 디버깅이 차단돼 있어
-        // `npm run build:tauri:windows -- --devtools` 로 뽑은 측정용 빌드여야 한다
+        // `npm run build:tauri -- --windows --devtools` 로 뽑은 측정용 빌드여야 한다
         // (src-tauri/src/main.rs의 configure_devtools_access).
         const dropped = typeof msg.warmupDroppedFrames === "number" ? msg.warmupDroppedFrames : 0;
         console.info(
@@ -167,6 +171,10 @@ export function useCaptureSession(deps: UseCaptureSessionDeps) {
         framesRcvdRef.current = 0;
         onStatusChange("playing");
         onStreamStart();
+        // 보호 스트리밍 재생의 출발점 — 여기서 프리필을 밀어 넣어야 헬퍼가 재생을 시작한다.
+        // 반드시 위 카운터 리셋 뒤에 불러야 한다(produceFrames가 frameCountRef를 올린다).
+        // 엔진이 준비된 뒤에야 프레임을 만들기 때문에, 이 모드에는 워밍업 드롭 구간이 없다.
+        streamPumpRef.current?.onEngineReady();
 
       } else if (msg.type === "frame") {
         framesRcvdRef.current++;
@@ -175,12 +183,6 @@ export function useCaptureSession(deps: UseCaptureSessionDeps) {
           temperature: msg.temperature as number,
           excursion:   msg.excursion   as number,
         };
-        perf.recordFrame(frame.time, msg.processingMs as number, performance.now() - recvAt);
-        e2e.sample("N8", performance.now() - recvAt);
-        if (typeof msg.engineExecMs === "number" && typeof msg.processingMs === "number") {
-          e2e.sample("N5", msg.engineExecMs);
-          e2e.sample("N6", Math.max(0, msg.processingMs - msg.engineExecMs));
-        }
         onFrameReceived(frame);
 
       } else if (msg.type === "error") {
@@ -208,7 +210,7 @@ export function useCaptureSession(deps: UseCaptureSessionDeps) {
 
   const { start: startNativeCapture } = useNativeCapture({
     nativeOffsRef, nativeActiveRef, playCaptureActiveRef, rawCaptureRef, recordingActiveRef, analysisActiveRef,
-    isActiveRef, frameCountRef,
+    isActiveRef, frameCountRef, streamPumpRef,
     onStatusChange, setMicError, setSampleRate, setDeviceName,
     setActualBufferSize, openAnalysisSocket, cleanup, emitStreamEvent,
   });
@@ -238,6 +240,7 @@ export function useCaptureSession(deps: UseCaptureSessionDeps) {
                 // R용 셀렉터 UI는 두지 않는다(Output Channel 필드 자체가 UX상 의도적으로 없음) —
                 // 인접 채널(L+1)로 고정 배관. 장치에 그 채널이 없으면 네이티브 헬퍼가 조용히 모노로 폴백한다.
                 outputChannelR: outputChannel + 1,
+                mode: playbackMode,
               };
             })()
           : undefined,
@@ -248,7 +251,7 @@ export function useCaptureSession(deps: UseCaptureSessionDeps) {
       setMicError(msg);
       cleanup();
     }
-  }, [calibration, startNativeCapture, cleanup, setMicError]);
+  }, [calibration, playbackMode, startNativeCapture, cleanup, setMicError]);
 
   const getRecordedBlob = useCallback(
     (): Blob | null => blobFromCapture(rawCaptureRef.current),

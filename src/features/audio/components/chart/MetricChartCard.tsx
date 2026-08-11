@@ -20,7 +20,6 @@ interface Props {
   streaming: boolean;
   options: UPlotOptions;
   source: UPlotDataSource;
-  onRender: (ms: number) => void;
   /** 있으면 헤더에 연필(그리기 모드)·지우개(전체 지우기) 버튼을 노출한다. */
   draw?: DrawControl;
 }
@@ -38,7 +37,6 @@ export default function MetricChartCard({
   streaming,
   options,
   source,
-  onRender,
   draw,
 }: Props) {
   return (
@@ -66,7 +64,7 @@ export default function MetricChartCard({
             options={options}
             source={source}
             streamFollow={streaming}
-            onRender={onRender}
+            yZoom
           />
         ) : (
           <div className="chart-empty-state h-full flex items-center justify-center text-xs text-iron-300">

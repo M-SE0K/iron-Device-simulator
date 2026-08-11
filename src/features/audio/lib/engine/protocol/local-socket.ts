@@ -1,4 +1,4 @@
-import type { EngineParams } from "../../../types";
+import type { EngineParams } from "@/features/audio/types";
 import { openClientWasmSession } from "../adapters/wasm-client";
 import {
   DEFAULT_ENGINE_CONFIG, DEFAULT_AMBIENT_TEMP, frameBytes,

@@ -1,8 +1,9 @@
 "use client";
 
 import type { ReactNode } from "react";
-import { Play, Pause, Square, Save, X, Loader2 } from "lucide-react";
+import { Play, Pause, Square, Save, X, Loader2, ShieldCheck, ShieldOff } from "lucide-react";
 import { cn, formatTime } from "@/shared/lib/utils";
+import type { PlaybackMode } from "./capture/types";
 
 interface Props {
   isReady: boolean;
@@ -17,6 +18,11 @@ interface Props {
   onSave?: () => void;
   canSave?: boolean;
   onReset?: () => void;
+  /** 스피커로 내보낼 신호 — 보호 통과본(기본) 또는 원본. 생략하면 토글 자체를 렌더하지 않는다. */
+  playbackMode?: PlaybackMode;
+  onPlaybackModeChange?: (mode: PlaybackMode) => void;
+  /** 세션이 살아 있는 동안 true — 재생 중 전환은 엔진 상태·클록 정합이 깨져 막는다. */
+  playbackModeLocked?: boolean;
   /** 가운데 슬롯 — DuplexFilePlayer의 진행바. */
   children: ReactNode;
 }
@@ -34,8 +40,12 @@ export default function PlayerBar({
   onSave,
   canSave = false,
   onReset,
+  playbackMode,
+  onPlaybackModeChange,
+  playbackModeLocked = false,
   children,
 }: Props) {
+  const isProtected = playbackMode !== "original";
   return (
     <div
       id="waveform-player"
@@ -79,6 +89,31 @@ export default function PlayerBar({
       </span>
 
       <div className="hidden sm:block w-px h-5 bg-iron-200 shrink-0" />
+
+      {playbackMode && onPlaybackModeChange && (
+        <button
+          onClick={() => onPlaybackModeChange(isProtected ? "original" : "protected")}
+          disabled={playbackModeLocked}
+          title={
+            isProtected
+              ? "Speaker output runs through the protection algorithm. Click to play the original instead."
+              : "Speaker output is the unprocessed original. Click to play the protected signal instead."
+          }
+          aria-label={isProtected ? "Playing protected signal" : "Playing original signal"}
+          className={cn(
+            "hidden md:flex shrink-0 items-center gap-1 pl-1.5 pr-2 py-1 rounded-full text-[11px] font-semibold transition-colors",
+            isProtected ? "bg-brand-blue/10 text-brand-blue" : "bg-iron-100 text-iron-500",
+            playbackModeLocked
+              ? "opacity-50 cursor-not-allowed"
+              : isProtected
+                ? "hover:bg-brand-blue/20"
+                : "hover:bg-iron-200"
+          )}
+        >
+          {isProtected ? <ShieldCheck size={12} /> : <ShieldOff size={12} />}
+          {isProtected ? "Protected" : "Original"}
+        </button>
+      )}
 
       <span className="hidden md:inline shrink-0 max-w-[150px] truncate text-[13px] text-iron-500">
         {fileName ?? "—"}

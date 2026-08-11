@@ -1,8 +1,8 @@
 //! file_export.rs — Records의 export(JSON/CSV/V-I 오디오/Protected WAV)가 렌더러의
 //! `URL.createObjectURL` + `<a download>` 클릭만으로는 Tauri 네이티브 웹뷰(특히 macOS
-//! WKWebView)에서 저장 다이얼로그를 띄우지 못해 새로 추가한 커맨드. Electron에는 대응
-//! IPC가 없다 — Electron/브라우저는 그대로 기존 앵커 다운로드를 쓰고, Tauri에서만
-//! `shared/lib/utils.ts`의 `downloadBlob()`이 이 커맨드로 우회한다.
+//! WKWebView)에서 저장 다이얼로그를 띄우지 못해 새로 추가한 커맨드 — 일반 브라우저는 그대로
+//! 기존 앵커 다운로드를 쓰고, Tauri에서만 `shared/lib/utils.ts`의 `downloadBlob()`이 이
+//! 커맨드로 우회한다.
 //!
 //! 두 단계로 나뉘어 있다(`audio_playcapture`의 start_write/write_chunk 핸드셰이크와 같은
 //! 이유로 raw body를 쓴다 — JSON/base64로는 큰 WAV export가 느리다):

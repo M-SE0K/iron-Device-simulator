@@ -1,4 +1,4 @@
-import type { EngineParams } from "../../../types";
+import type { EngineParams } from "@/features/audio/types";
 import {
   CHANNELS, BYTES_PER_SAMPLE, frameBytes, DEFAULT_ENGINE_CONFIG,
   type FrameResult, type AnalysisSession, type MemoryLayout, type EngineRuntimeConfig, type RealSensingPair,
@@ -93,10 +93,7 @@ class ClientWasmMemoryLayout implements MemoryLayout {
 type FfProtInstance = any;
 type FfProtFactory = (moduleArg?: Record<string, unknown>) => Promise<FfProtInstance>;
 
-// 기본은 클린 WASM(public/wasm/, 프로덕션·측정 공용). 실험(debug) 빌드(npm run wasm:build:debug →
-// public/wasm-debug/, V/I 값 printf 덤프 포함)를 쓰려면 빌드/dev 서버 기동 시
-// NEXT_PUBLIC_WASM_DIR=/wasm-debug 를 설정한다 — scripts/build/build-static-local.sh의
-// WASM_MODE=debug 가 이 값을 자동으로 맞춰준다.
+// WASM 산출물 경로. 기본은 public/wasm/ — 정적 export가 그대로 out/wasm/으로 복사한다.
 const WASM_DIR = process.env.NEXT_PUBLIC_WASM_DIR || "/wasm";
 
 let factoryPromise: Promise<FfProtFactory> | null = null;
@@ -160,7 +157,7 @@ export async function openClientWasmSession(
   const factory = await loadFactory();
 
   // WASM 알고리즘 암호화 배포(방법 5): Tauri 런타임에서는 평문 .wasm이 out/에 없다
-  // (scripts/build/stage-encrypted-wasm.sh가 패키징 전에 지운다) — 호출자(메인 스레드의
+  // (scripts/build/wasm-encryption/stage-encrypted-wasm.sh가 패키징 전에 지운다) — 호출자(메인 스레드의
   // LocalWasmSocket/WorkerAnalysisSocket)가 window.wasmAsset.loadEngineBinary()로 미리 복호화한
   // bytes를 여기 wasmBinary로 넘겨주면 그걸로 직접 인스턴스화해 글루의 자체 fetch를 우회한다.
   // 이 함수는 메인 스레드뿐 아니라 Web Worker(dsp-worker.ts) 안에서도 실행되는데, Worker

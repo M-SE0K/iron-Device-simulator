@@ -3,8 +3,9 @@
 Tauri Rust 코어(`src-tauri/src/helper.rs`)가 자식 프로세스로 실행하는 컴파일된
 CLI(패키징 시 `externalBin` 사이드카로 번들됨). Web Audio API/`getUserMedia`는 CoreAudio HAL 프로퍼티(NominalSampleRate,
 BufferFrameSize)에 접근할 방법이 없어서, 이 별도 바이너리가 그 다리 역할을 한다.
-항상 **OS 기본 입력 장치**(사용자가 앱 실행 전 Audio MIDI 설정 등에서 지정해둔 장치,
-예: MCHStreamer AllRate)를 대상으로 동작한다 — 장치 이름을 인자로 받지 않는다.
+대상 장치는 `--device <UID>`로 지정하고, 생략하면 **OS 기본 입력 장치**(사용자가 앱 실행 전
+Audio MIDI 설정 등에서 지정해둔 장치, 예: MCHStreamer AllRate)를 쓴다. 장치 이름이 아니라
+UID로만 받는다 — 자세한 규약은 아래 "명령어" 절에 있다.
 
 ## 명령어
 
@@ -26,8 +27,11 @@ native/macos/audio-device-helper/dist/audio-device-helper set [--device <UID>] <
 # 상주 캡처 (sampleRate/bufferSize 적용 + 캡처 스트리밍) — bufferSize가 실제 적용되는 유일한 모드
 native/macos/audio-device-helper/dist/audio-device-helper capture [--device <UID>] <sampleRate> <bufferSize> [channels=2]
 
-# 파일 재생 + 캡처 (연속 재생, 단일 IOProc) — 파일 모드의 재생/분석 경로
+# 파일 재생 + 캡처 (연속 재생, 단일 IOProc) — 원본 재생(A/B 비교용) 경로
 native/macos/audio-device-helper/dist/audio-device-helper play-capture [--device <UID>] --ref <path> [--ref-channels <1|2>] [--out-ch <n>] [--out-ch-r <n>] <sampleRate> <bufferSize> [channels=2]
+
+# 스트리밍 재생 + 캡처 (재생 PCM을 stdin으로 계속 받음) — 보호 재생의 기본 경로
+native/macos/audio-device-helper/dist/audio-device-helper play-capture --stream [--device <UID>] [--prefill-ms <n>] [--prefill-timeout-s <n>] [--out-ch <n>] [--out-ch-r <n>] <sampleRate> <bufferSize> [channels=2]
 # 예
 native/macos/audio-device-helper/dist/audio-device-helper capture 48000 480 2
 native/macos/audio-device-helper/dist/audio-device-helper query --device BuiltInMicrophoneDevice
@@ -173,6 +177,40 @@ IOProc 실행 중 USB 분리 등으로 장치가 죽으면 이 프로퍼티가 0
   exit 이벤트의 code 0을 "재생 완료"로 해석한다(사용자 stop은 부모가 child 참조를 먼저 지워
   ended 이벤트 자체를 억제). 장치 연결 해제 시에는 capture와 동일하게 **exit 3**(위 "장치
   연결 해제 감지" 참고).
+
+### play-capture --stream 프로토콜 (보호 PCM 스트리밍 재생)
+
+`--ref`가 "재생할 신호 전체를 미리 받는" 모드라면, `--stream`은 **재생 중에 stdin으로 계속
+받는** 모드다. 렌더러가 ff_prot(WASM)을 통과시킨 PCM을 프레임마다 밀어 넣으므로 스피커에
+닿는 신호가 처음부터 끝까지 보호된 신호가 된다(`docs/protected-playback-plan.md`).
+`--ref`와의 구조적 차이는 재생 소스가 고정 배열이냐 링버퍼냐뿐이고, 단일 IOProc·단일 클록·
+`--out-ch`/`--out-ch-r` 라우팅·pause 의미론·입력 캡처 경로·종료 코드는 전부 같다.
+
+- **stdin 프레이밍**: 라인 명령과 바이너리 페이로드가 한 파이프에 섞인다. `pcm` 헤더 뒤의
+  선언된 바이트 수만큼은 라인으로 해석하지 않으므로 페이로드에 `0x0A`가 들어 있어도 안전하다.
+  ```
+  pcm <바이트수>\n<바이트수 바이트>   재생 PCM 한 덩이 — int16 인터리브 **스테레오** LE
+  end\n                              더 보낼 PCM 없음 → 링 소진 + 테일 후 exit 0
+  pause\n / resume\n / stop\n         --ref 모드와 동일 (pause는 링 소비도 함께 멈춘다)
+  ```
+  부모(`audio_playcapture.rs`의 `audio_playcapture_write_pcm`)가 헤더와 페이로드를 한 번의
+  `write_all`로 보내므로 그 사이에 제어 라인이 끼어들지 않는다.
+- **`--prefill-ms <n>`** (선택, 기본 40): 재생을 시작하기 전에 링에 채워둘 분량. 이만큼 차기
+  전까지는 `AudioDeviceStart`를 부르지 않는다 — 재생과 캡처가 같은 IOProc이라 **캡처도 함께**
+  늦게 시작하고, 따라서 "수신 캡처 프레임 수 = 재생 프레임 수" 등식은 그대로 유지된다.
+  `end`가 먼저 오면(파일이 프리필보다 짧은 경우) 프리필을 채우지 않고 바로 시작한다.
+  ⚠️ 렌더러는 이 값보다 **한 프레임 이상 많이** 만들어 보내야 한다(`useNativeCapture.ts`의
+  `leadFrames`가 `+1`을 두는 이유) — 모자라면 링이 프리필에 영영 도달하지 못한다.
+- **`--prefill-timeout-s <n>`** (선택, 기본 15): 이 시간 안에 프리필이 차지 않으면 **exit 4**.
+  보호 PCM이 오지 않았다는 뜻이라(엔진 로드 실패 등) 소리는 한 번도 나가지 않은 상태다.
+  렌더러는 이 코드를 재생 시작 실패 안내로 구분해 보여준다.
+- **언더런(링이 빈 채로 IOProc이 도는 경우)**: 무음을 내보내되 **링의 읽기 위치는 소비하지
+  않는다** — 샘플을 버리는 게 아니라 뒤로 미루는 것이라 "입력 PCM을 드롭하지 않는다"는 규약이
+  지켜진다. 대신 그만큼 재생이 캡처 카운터보다 뒤처져 진행바에 스큐가 남는다(v1 수용).
+- **stdout 첫 줄**: capture 헤더 + `"mode":"play-capture-stream"`, `"prefillFrames"`(채널당
+  샘플로 환산된 프리필), `"playbackChannel"`/`"playbackChannelR"`. `--ref` 모드와 달리
+  `refLen`은 없다(끝을 미리 모른다). 헤더는 IOProc 시작 **전에** 나간다 — 렌더러가 이 헤더의
+  `actual` 값으로 엔진을 열고 프리필을 밀어 넣어야 재생이 시작되기 때문이다.
 
 ### 마이크 권한 (TCC)
 

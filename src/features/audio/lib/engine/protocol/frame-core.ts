@@ -1,4 +1,4 @@
-import type { EngineParams, WsServerMessage } from "../../../types";
+import type { EngineParams, WsServerMessage } from "@/features/audio/types";
 import {
   frameBytes,
   type AnalysisSession, type EngineRuntimeConfig, type RealSensingPair,

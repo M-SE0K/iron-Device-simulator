@@ -12,14 +12,9 @@
 # 종속되지 않는다 — 산출물(public/wasm/ff_prot.{js,wasm})은 웹 전용 빌드(build:desktop)에도
 # 그대로 쓰인다.
 #
-# 실험(debug) 빌드 — ff_prot.c의 FF_PROT_DEBUG_VI 가드 블록(V/I 값 printf 덤프)을 켠다.
-# 이 덤프는 프레임마다 대량 console 출력을 일으켜 N1(네이티브 IPC 릴레이) 등 E2E 지연
-# 측정을 오염시키므로, 클린 빌드(public/wasm/, 기본)와 물리적으로 분리된 출력 경로에 둔다:
-#   npm run wasm:build:debug   # FF_PROT_DEBUG_VI=1 WASM_OUT_DIR=../../public/wasm-debug
-#
 # 알고리즘 개발 중 빠른 반복(하드닝 없이): 이 스크립트는 FF_PROT_HARDEN을 직접 켜지
-# 않는다 — build-static-local.sh(전체 앱 빌드 경로)만 명시적으로 켠다. 그래서
-# `npm run wasm:build`를 단독으로 실행하면 기본적으로 하드닝/난독화 없이 빠르게
+# 않는다 — build-desktop.sh(전체 앱 빌드 경로)만 명시적으로 켠다. 그래서
+# `npm run build:wasm`를 단독으로 실행하면 기본적으로 하드닝/난독화 없이 빠르게
 # 컴파일된다. 그렇게 나온 public/wasm/ff_prot.wasm을 원하는 위치(예: --dev로 패키징한
 # Windows 산출물의 .exe 옆 ff_prot.wasm)에 직접 덮어쓰면 된다.
 set -euo pipefail
@@ -55,6 +50,41 @@ fi
 if [[ "${FF_PROT_DUMMY_ATTENUATION:-}" == "1" ]]; then
   EMCC_DEFINES+=("-DFF_PROT_DUMMY_ATTENUATION=1")
   echo "→ 더미 감쇠 빌드: FF_PROT_DUMMY_ATTENUATION=1 (pass B 감쇠 항상 미개입, 출력: $WASM_OUT_DIR)"
+fi
+# 검증 전용(기본 비활성) — 무음(0) 소스로도 보호 개입을 눈으로 보려는 훅. buf 를 프레임마다
+# STEP 만큼 커지는 DC 램프로 덮어써서, 진폭이 EXC 한계를 넘는 지점부터 감쇠가 걸리는 걸
+# Protected 트레이스에서 확인한다(custom/ff_prot.c 의 FF_PROT_TEST_INJECT 블록 참고).
+#   FF_PROT_TEST_INJECT=1 npm run build:wasm
+#   FF_PROT_TEST_INJECT=1 FF_PROT_TEST_INJECT_STEP=50 FF_PROT_TEST_INJECT_MAX=12000 npm run build:wasm
+# ⚠️ Protected 재생 모드에선 이 DC 램프가 그대로 스피커로 나간다 — 하드웨어 물린 채로는
+#   앰프를 내리거나 MAX 를 낮출 것. 확인 후 반드시 플래그 없이 재빌드해 public/wasm/ 복구.
+if [[ "${FF_PROT_TEST_INJECT:-}" == "1" ]]; then
+  EMCC_DEFINES+=("-DFF_PROT_TEST_INJECT=1")
+  if [[ -n "${FF_PROT_TEST_INJECT_STEP:-}" ]]; then
+    EMCC_DEFINES+=("-DFF_PROT_TEST_INJECT_STEP=${FF_PROT_TEST_INJECT_STEP}")
+  fi
+  if [[ -n "${FF_PROT_TEST_INJECT_MAX:-}" ]]; then
+    EMCC_DEFINES+=("-DFF_PROT_TEST_INJECT_MAX=${FF_PROT_TEST_INJECT_MAX}")
+  fi
+  echo "⚠ 검증 전용 빌드: FF_PROT_TEST_INJECT=1 (buf 를 DC 램프로 덮어씀 — step=${FF_PROT_TEST_INJECT_STEP:-10}, max=${FF_PROT_TEST_INJECT_MAX:-32767}). 배포 금지."
+fi
+# 재현 전용(기본 비활성) — "차트는 멈추는데 오디오는 계속 나온다" 증상을 격리 재현하기
+# 위한 훅. 절대 기본 빌드에 섞이지 않는다: 명시적으로 env var를 켜야만 정의된다.
+#   FF_PROT_DEBUG_HANG=1 npm run wasm:build   # ff_prot_start_exec 진입 시 무한 루프 → 절대 반환 안 함
+#   FF_PROT_DEBUG_TRAP=1 npm run wasm:build   # 0-division으로 WASM 트랩(미처리 예외) 강제 발생
+#   FF_PROT_DEBUG_PRINTF=1 npm run wasm:build # printf가 --devtools 콘솔까지 실제로 찍히는지 확인
+# 테스트 후에는 반드시 플래그 없이 npm run wasm:build 를 다시 돌려 public/wasm/를 정상 상태로 되돌릴 것.
+if [[ "${FF_PROT_DEBUG_HANG:-}" == "1" ]]; then
+  EMCC_DEFINES+=("-DFF_PROT_DEBUG_HANG=1")
+  echo "⚠ 재현 전용 빌드: FF_PROT_DEBUG_HANG=1 — 이 wasm은 ff_prot_start_exec를 호출하면 절대 반환하지 않습니다. 배포 금지."
+fi
+if [[ "${FF_PROT_DEBUG_TRAP:-}" == "1" ]]; then
+  EMCC_DEFINES+=("-DFF_PROT_DEBUG_TRAP=1")
+  echo "⚠ 재현 전용 빌드: FF_PROT_DEBUG_TRAP=1 — 이 wasm은 ff_prot_start_exec 호출 시 트랩을 일으킵니다. 배포 금지."
+fi
+if [[ "${FF_PROT_DEBUG_PRINTF:-}" == "1" ]]; then
+  EMCC_DEFINES+=("-DFF_PROT_DEBUG_PRINTF=1")
+  echo "→ 재현 전용 빌드: FF_PROT_DEBUG_PRINTF=1 (printf → devtools 콘솔 출력 확인용, 출력: $WASM_OUT_DIR)"
 fi
 
 # ── 컴파일 대상 소스 결정 ────────────────────────────────────────────────────
@@ -93,8 +123,8 @@ fi
 echo "→ 컴파일 대상: ${SRCS[*]}"
 
 # ── 하드닝(FF_PROT_HARDEN=1) — 방법 2(빌드 플래그) ────────────────────────────────
-# 배포용 빌드(scripts/build/build-static-local.sh)는 기본으로 이 플래그를 켠다.
-# npm run wasm:build 단독 실행(custom/*.c 반복 수정 중)은 기본 꺼짐 — 디버깅 편의 유지.
+# 배포용 빌드(scripts/build/build-desktop.sh)는 기본으로 이 플래그를 켠다.
+# npm run build:wasm 단독 실행(custom/*.c 반복 수정 중)은 기본 꺼짐 — 디버깅 편의 유지.
 #
 # ※ 방법 1(C 소스 레벨 난독화, 옛 obfuscate-source.sh/Tigress)은 폐기했다 — Tigress는
 #   상용 라이선스 협의가 필요하고, PATH에 없으면 어차피 no-op이라 실효도 낮았다. 그 역할은

@@ -1,12 +1,14 @@
-// ring_and_convert_test.cpp — src/ring_buffer.h / src/sample_convert.h 단위 테스트.
+// ring_and_convert_test.cpp — src/ring_buffer.h / src/playback_ring.h / src/sample_convert.h 단위 테스트.
 //
 // 두 헤더 모두 Windows/ASIO 의존이 없어 WSL/macOS에서 g++로 그대로 돌아간다. 실시간 스레드와
 // 포맷 변환은 실기에서 디버깅하기 가장 어려운 부분이라, 하드웨어를 붙이기 전에 여기서 잡는다.
 //
 //   ./tests/run-tests.sh
+#include "../src/playback_ring.h"
 #include "../src/ring_buffer.h"
 #include "../src/sample_convert.h"
 
+#include <algorithm>
 #include <atomic>
 #include <cstdio>
 #include <thread>
@@ -353,14 +355,164 @@ static void testFromFloatRoundTrip() {
   ok("Int24LSB 3바이트 패킹");
 }
 
+
+// ─────────────────────────────────────────────────────────────────────────
+// PlaybackRing (play-capture --stream 재생 링)
+//
+// 캡처 링과 정반대의 두 성질이 이 링의 핵심이라 그것부터 못 박는다:
+// 부분 쓰기를 **허용**하고(샘플을 버리지 않는다), 언더런에 읽기 위치를 **소비하지 않는다**.
+// ─────────────────────────────────────────────────────────────────────────
+
+// n 프레임짜리 인터리브 스테레오 int16. L은 +i, R은 -i 라 L/R 뒤바뀜을 바로 잡아낸다.
+static std::vector<int16_t> stereoRamp(int n, int base = 0) {
+  std::vector<int16_t> v(static_cast<size_t>(n) * 2);
+  for (int i = 0; i < n; ++i) {
+    v[static_cast<size_t>(i) * 2] = static_cast<int16_t>(base + i);
+    v[static_cast<size_t>(i) * 2 + 1] = static_cast<int16_t>(-(base + i));
+  }
+  return v;
+}
+
+static void testPlaybackRingBasic() {
+  section("PlaybackRing 기본");
+
+  PlaybackRing r(1000);
+  CHECK(r.capacityFrames() == 1024, "1000 → 1024로 올림되어야 함, got %zu", r.capacityFrames());
+  CHECK(r.available() == 0, "빈 상태여야 함");
+  CHECK(!r.endOfStream(), "아직 end가 아님");
+  CHECK(!r.isDrained(), "end 전에는 drained가 아니다 — 링이 비었어도");
+  ok("capacity 올림 / 초기 상태");
+
+  const auto src = stereoRamp(10);
+  CHECK(r.write(src.data(), 0, 10) == 10, "10프레임 적재");
+  CHECK(r.available() == 10, "available=%zu", r.available());
+
+  float l[10] = {}, rr[10] = {};
+  CHECK(r.read(l, rr, 10) == 10, "10프레임 회수");
+  CHECK(r.available() == 0, "다 읽으면 비어야 함");
+  // int16 → float는 32768로 나눈다.
+  CHECK(l[3] == 3.0f / 32768.0f, "L[3]=%.9f", l[3]);
+  CHECK(rr[3] == -3.0f / 32768.0f, "R[3]=%.9f", rr[3]);
+  ok("L/R 분리 + int16→float 스케일");
+}
+
+static void testPlaybackRingPartialWrite() {
+  section("PlaybackRing 부분 쓰기(백프레셔)");
+
+  PlaybackRing r(16);
+  const auto src = stereoRamp(40);
+
+  // 캡처 링과 달리 통째로 버리지 않는다 — 들어가는 만큼 넣고 실제 적재량을 돌려준다.
+  const size_t first = r.write(src.data(), 0, 40);
+  CHECK(first == 16, "용량만큼만 적재되어야 함, got %zu", first);
+  CHECK(r.write(src.data(), first, 40 - first) == 0, "가득 찬 링은 0을 돌려준다");
+
+  float l[16] = {}, rr[16] = {};
+  CHECK(r.read(l, rr, 16) == 16, "비워내기");
+  const size_t second = r.write(src.data(), first, 40 - first);
+  CHECK(second == 16, "다시 용량만큼, got %zu", second);
+
+  // 이어붙였을 때 순서가 유지되는지 — 부분 쓰기가 프레임 경계를 깨지 않아야 한다.
+  float l2[16] = {}, r2[16] = {};
+  CHECK(r.read(l2, r2, 16) == 16, "두 번째 회수");
+  CHECK(l2[0] == 16.0f / 32768.0f, "이어지는 첫 샘플이 16이어야 함, got %.9f", l2[0]);
+  CHECK(r2[0] == -16.0f / 32768.0f, "R도 함께 이어져야 함, got %.9f", r2[0]);
+  ok("부분 쓰기가 L/R 정렬을 깨지 않는다");
+}
+
+static void testPlaybackRingUnderrunDoesNotConsume() {
+  section("PlaybackRing 언더런 — 읽기 위치를 소비하지 않는다");
+
+  PlaybackRing r(64);
+  const auto src = stereoRamp(5);
+  r.write(src.data(), 0, 5);
+
+  // 콜백이 10프레임을 원했지만 5뿐이다. 나머지 5는 무음으로 나가되 **버려지지 않는다**.
+  float l[10] = {}, rr[10] = {};
+  const size_t got = r.read(l, rr, 10);
+  CHECK(got == 5, "있는 만큼만, got %zu", got);
+  r.countUnderrun(10 - got);
+  CHECK(r.underrunFrames() == 5, "언더런 5프레임, got %llu",
+        static_cast<unsigned long long>(r.underrunFrames()));
+
+  // 뒤늦게 도착한 프레임이 앞 것을 건너뛰지 않고 그대로 이어져야 한다.
+  const auto more = stereoRamp(5, 5);
+  r.write(more.data(), 0, 5);
+  CHECK(r.read(l, rr, 10) == 5, "다음 회수");
+  CHECK(l[0] == 5.0f / 32768.0f, "5번 프레임부터 이어져야 함, got %.9f", l[0]);
+  ok("언더런은 재생을 미룰 뿐 샘플을 버리지 않는다");
+}
+
+static void testPlaybackRingDrain() {
+  section("PlaybackRing 드레인(end)");
+
+  PlaybackRing r(64);
+  const auto src = stereoRamp(4);
+  r.write(src.data(), 0, 4);
+  r.markEndOfStream();
+
+  CHECK(r.endOfStream(), "end 표시됨");
+  CHECK(!r.isDrained(), "아직 링에 4프레임 남아 있으므로 drained가 아니다");
+
+  float l[8] = {}, rr[8] = {};
+  CHECK(r.read(l, rr, 8) == 4, "남은 만큼만 나온다");
+  CHECK(r.isDrained(), "end + 빈 링 = drained → 여기서부터 감쇠 테일을 센다");
+  ok("end 이후 링이 비어야 drained");
+}
+
+static void testPlaybackRingThreaded() {
+  section("PlaybackRing SPSC 경합 (TSan 대상)");
+
+  // 실제 배치와 같은 구도: 생산자 = stdin 리더, 소비자 = RT 콜백.
+  PlaybackRing r(512);
+  const int totalFrames = 200000;
+  std::atomic<bool> producerDone{false};
+
+  std::thread producer([&] {
+    const auto batch = stereoRamp(64);
+    int sent = 0;
+    while (sent < totalFrames) {
+      const size_t want = static_cast<size_t>(std::min(64, totalFrames - sent));
+      size_t done = 0;
+      while (done < want) {
+        const size_t n = r.write(batch.data(), done, want - done);
+        if (n == 0) std::this_thread::yield();
+        done += n;
+      }
+      sent += static_cast<int>(want);
+    }
+    r.markEndOfStream();
+    producerDone.store(true);
+  });
+
+  long long consumed = 0;
+  std::vector<float> l(128), rr(128);
+  while (!r.isDrained()) {
+    const size_t got = r.read(l.data(), rr.data(), 128);
+    consumed += static_cast<long long>(got);
+    if (got == 0) std::this_thread::yield();
+  }
+  producer.join();
+
+  CHECK(producerDone.load(), "생산자 완료");
+  CHECK(consumed == totalFrames, "소비 프레임 수 불일치: %lld vs %d", consumed, totalFrames);
+  ok("SPSC 왕복에서 프레임이 새거나 중복되지 않는다");
+}
+
 int main() {
-  printf("단위 테스트 — ring_buffer.h / sample_convert.h\n");
+  printf("단위 테스트 — ring_buffer.h / playback_ring.h / sample_convert.h\n");
 
   testRingBasic();
   testRingWrap();
   testRingFullDropsWholeBlock();
   testRingFrameIntegrityUnderDrops();
   testRingThreaded();
+
+  testPlaybackRingBasic();
+  testPlaybackRingPartialWrite();
+  testPlaybackRingUnderrunDoesNotConsume();
+  testPlaybackRingDrain();
+  testPlaybackRingThreaded();
 
   testSupported();
   testToInt16Int32LSB();

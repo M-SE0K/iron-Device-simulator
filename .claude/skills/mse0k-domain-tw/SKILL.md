@@ -32,9 +32,8 @@ due, but the skill itself never auto-runs.
 ## Step 0 — Establish domain boundaries (ask when ambiguous)
 
 1. Read the project's `CLAUDE.md` / repository layout and list candidate domain
-   folders (e.g. `components/dashboard`, `components/player`, `lib/engine`,
-   `electron/`, …). A "domain" is a folder with a coherent responsibility, not
-   every subfolder.
+   folders (e.g. `components/dashboard`, `components/player`, `lib/engine`, …).
+   A "domain" is a folder with a coherent responsibility, not every subfolder.
 2. Present the proposed domain list (folder → one-line responsibility) to the
    user **before writing anything**.
 3. **If any boundary is even slightly ambiguous** (folder could belong to two

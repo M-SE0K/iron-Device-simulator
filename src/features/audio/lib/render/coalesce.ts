@@ -1,4 +1,4 @@
-import type { AnalysisFrame } from "../../types";
+import type { AnalysisFrame } from "@/features/audio/types";
 import type { QueuedFrame } from "./types";
 
 export function coalesceFrames(bucket: QueuedFrame[]): AnalysisFrame {

@@ -1,4 +1,4 @@
-import type { EngineParams } from "../../types";
+import type { EngineParams } from "@/features/audio/types";
 
 export const SAMPLE_RATE      = 48000;
 export const CHANNELS         = 2;
@@ -34,9 +34,6 @@ export interface FrameResult {
   temperature:  number;
   excursion:    number;
   processingMs: number;
-  // processingMs 중 execAnalysis(엔진 호출) 구간만 분리한 값 — E2E 지연 실험(N5/N6) 전용,
-  // src/features/audio/lib/perf-e2e/ 참고.
-  execMs?: number;
   processedPcm?: Int16Array;
 }
 
@@ -59,4 +56,3 @@ export interface AnalysisSession {
   analyze(pcm: Buffer | Uint8Array, params: EngineParams, sensing?: RealSensingPair): FrameResult;
   close(): void;
 }
-

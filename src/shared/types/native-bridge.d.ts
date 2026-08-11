@@ -46,12 +46,6 @@ export interface AudioDeviceQueryResult {
   error?: string;
 }
 
-// E2E 지연 실험(N1, src/features/audio/lib/perf-e2e/) 전용 — Tauri Rust core가 stdout 청크마다 별도
-// 채널로 보내는 Date.now() 타임스탬프.
-export interface AudioE2EMark {
-  sentAt: number;
-}
-
 export interface AudioCaptureStartResult {
   success: boolean;
   device?: string;
@@ -62,17 +56,22 @@ export interface AudioCaptureStartResult {
   error?: string;
 }
 
-// audio-playcapture:start 옵션 — 파일 재생 + 캡처 (mac.swift runPlayCapture 참조)
+// audio-playcapture:start 옵션 — 파일 재생 + 캡처 (mac.swift runPlayCapture/runPlayCaptureStream 참조)
 interface PlayCaptureStartOpts {
   sampleRate: number;
   bufferSize: number;
   channels?: number;
   deviceUID?: string; // 생략 시 OS 기본 입력 — 단, play-capture는 입출력 겸용 장치 필요
-  refWriteId: string; // finalizeWrite로 완성해둔 ref 파일의 writeId
+  refWriteId?: string; // finalizeWrite로 완성해둔 ref 파일의 writeId — stream 모드에서는 불필요
   refChannels?: 1 | 2; // ref 파일의 채널 수 — 2면 인터리브 스테레오([L0,R0,L1,R1,...] Float32). 생략 시 1(모노).
   outputChannel?: number; // ref(L)를 내보낼 출력 채널 인덱스 — 생략/0이면 ch0(기본). 장치 outputChannels 범위 밖이면 헬퍼가 에러.
   outputChannelR?: number; // ref(R)를 내보낼 출력 채널 — refChannels 2와 함께 씀. 범위 밖/outputChannel과 중복이면 헬퍼가 에러 없이 모노로 폴백.
-  e2e?: boolean; // true면 stdout 청크마다 onE2EMark로 타임스탬프도 보낸다 — E2E 지연 실험(N1) 전용
+  // true면 ref 파일 대신 writePcm으로 들어오는 PCM을 재생하는 스트리밍 모드(--stream).
+  // 렌더러가 ff_prot을 통과시킨 PCM을 밀어 넣으므로 스피커로는 보호된 신호만 나간다
+  // (docs/protected-playback-plan.md). 이때 refWriteId/refChannels는 무시된다.
+  stream?: boolean;
+  // stream 전용: 재생을 시작하기 전에 헬퍼가 링에 채워둘 분량(ms). 생략 시 헬퍼 기본값(40).
+  prefillMs?: number;
 }
 
 // 청크 핸드셰이크 — 재생할 파일 PCM을 한 번의 구조화 복제로 넘기지 않고 작은 조각으로
@@ -99,8 +98,9 @@ export interface PlayCaptureWriteAckResult {
 
 // play-capture 헤더 = capture 헤더 + 재생 메타 (mode/refLen/playbackChannel)
 export interface PlayCaptureStartResult extends AudioCaptureStartResult {
-  mode?: "play-capture";
-  refLen?: number; // 재생 총 프레임 수 (테일 제외)
+  mode?: "play-capture" | "play-capture-stream";
+  refLen?: number; // 재생 총 프레임 수 (테일 제외) — ref 모드에만 있다
+  prefillFrames?: number; // stream 모드: 재생 시작 전 링에 채워야 하는 채널당 샘플 수
   playbackChannel?: number; // ref(L)가 실제로 나간 출력 채널 — start opts의 outputChannel 요청값을 헬퍼가 그대로 echo
   playbackChannelR?: number | null; // ref(R)가 실제로 나간 출력 채널 — 모노로 폴백됐으면 null
 }
@@ -141,12 +141,10 @@ declare global {
         bufferSize: number;
         channels?: number;
         deviceUID?: string; // 생략 시 OS 기본 입력 장치
-        e2e?: boolean; // true면 stdout 청크마다 onE2EMark로 타임스탬프도 보낸다 — E2E 지연 실험(N1) 전용
       }) => Promise<AudioCaptureStartResult>;
       stop: () => Promise<{ success: boolean }>;
       onData: (callback: (chunk: Uint8Array) => void) => () => void;
       onEnded: (callback: (info: { code: number | null }) => void) => () => void;
-      onE2EMark: (callback: (info: AudioE2EMark) => void) => () => void;
     };
     audioPlayCapture?: {
       // 재생할 파일 PCM 청크 핸드셰이크 — startWrite → writeChunk(반복) → finalizeWrite 순으로
@@ -160,13 +158,17 @@ declare global {
       // 지정 가능)로 연속 재생하며 캡처를 onData로 스트리밍 (단일 IOProc, 단일 클록).
       // refChannels:2 + outputChannelR을 같이 주면 스테레오 재생을 시도한다(장치가 안 되면 모노 폴백).
       start: (opts: PlayCaptureStartOpts) => Promise<PlayCaptureStartResult>;
-      // 재생 위치 동결/재개 — 캡처 스트림은 계속 흐른다 (게이트는 렌더러 몫)
-      control: (action: "pause" | "resume") => Promise<{ success: boolean; error?: string }>;
+      // stream 모드 전용 — 재생할 PCM(int16 인터리브 스테레오) 한 덩이를 헬퍼에 밀어 넣는다.
+      // 보호 알고리즘을 통과한 프레임을 그대로 넘기는 경로라, 호출 순서가 곧 재생 순서다.
+      writePcm: (pcm: Int16Array) => Promise<PlayCaptureWriteAckResult>;
+      // 재생 위치 동결/재개 — 캡처 스트림은 계속 흐른다 (게이트는 렌더러 몫).
+      // "end"는 stream 모드에서 "재생할 PCM은 여기까지"를 알린다 — 헬퍼가 링을 비우고
+      // 감쇠 테일까지 캡처한 뒤 exit 0(재생 완료)으로 끝낸다.
+      control: (action: "pause" | "resume" | "end") => Promise<{ success: boolean; error?: string }>;
       stop: () => Promise<{ success: boolean }>;
       onData: (callback: (chunk: Uint8Array) => void) => () => void;
       // code 0 = 재생 완료(자기 종료), 그 외 = 비정상 종료. 사용자 stop 시에는 오지 않는다.
       onEnded: (callback: (info: { code: number | null }) => void) => () => void;
-      onE2EMark: (callback: (info: AudioE2EMark) => void) => () => void;
     };
     localFolder?: {
       select: () => Promise<LocalFolderSelectResult>;

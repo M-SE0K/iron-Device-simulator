@@ -22,12 +22,13 @@
 2. **시그니처 유지** — `ff_prot_init` / `ff_prot_set_param` / `ff_prot_start_exec`(9-인자) / `ff_prot_stop_exec` 4개를 `ff_prot.h` 선언 그대로 export해야 한다(아래 표 참고). 함수명이 다른 기존 알고리즘이라면 이 4개 이름으로 위임하는 얇은 래퍼 `.c` 하나를 같이 넣으면 된다. 함수를 **추가로** export하려면 `build-wasm.sh`의 `-sEXPORTED_FUNCTIONS` 목록에 `_함수명`을 등록한다(호출부는 `wasm-client.ts`).
 3. **빌드 + 실행** — 리포 루트에서:
    ```bash
-   npm run bootstrap    # 클론 직후 원커맨드: 환경 확인 → npm install → wasm:build → dev 서버
-   # 또는 개별 실행: npm run wasm:build && npm run dev
+   npm run bootstrap    # 클론 직후 원커맨드: 환경 확인 → npm install → build:wasm --dev → dev 서버
+   # 또는 개별 실행: npm run build:wasm -- --dev && npm run dev
+   # (build:wasm 기본값은 Tauri 암호화 스테이징까지 수행 — 엔진 반복 개발 중엔 --dev로 컴파일만)
    ```
    `emcc`가 없어도 **Docker만 있으면 된다** — `build-wasm.sh`가 emscripten/emsdk 이미지로 자동 폴백한다. → http://localhost:3000 에서 마이크/파일 입력으로 바로 확인.
 4. **지켜야 할 버퍼 규약** (아래 "함수 시그니처" 절의 상세 참고) — `buf`는 **planar** int16 PCM(In/Out, 감쇠 결과를 in-place로 되씀), `samples_per_ch`는 세션마다 바뀌는 런타임 값(기본 480), `sample_rate_hz` 인자는 **없음**, 출력 단위는 `spk_temp` °C / `spk_exc` µm(int32).
-5. **값 확인** — `npm run wasm:build:debug`(`FF_PROT_DEBUG_VI=1`)로 빌드하면 프레임마다 V/I 입력이 콘솔에 덤프된다(대량 출력 — 지연 측정과 병행 금지). 순수 C 수준 검증은 `selftest.c`를 본인 구현에 맞게 고쳐 `make selftest`(Linux x86-64)로 돌릴 수 있다.
+5. **값 확인** — 순수 C 수준 검증은 `selftest.c`를 본인 구현에 맞게 고쳐 `make selftest`(Linux x86-64)로 돌릴 수 있다.
 
 ## 함수 시그니처 (adapters/wasm-client.ts 와 1:1)
 
@@ -86,7 +87,7 @@ make selftest        # 순수 C 셀프테스트(온도 상승 + ch0(V)/ch1(I) �
 
 `make`(→ `libirontune.so`)는 참고용으로 남아 있지만 앱은 이 `.so`를 로드하지 않는다 —
 실제로 시뮬레이터에 물리는 방법은 리포 루트에서 `npm run bootstrap`(또는 `npm run
-wasm:build && npm run dev`). `emcc`가 없으면 `build-wasm.sh`가 Docker(emscripten/emsdk)로
+build:wasm -- --dev && npm run dev`). `emcc`가 없으면 `build-wasm.sh`가 Docker(emscripten/emsdk)로
 자동 폴백한다.
 
 ## ⚠️ 단위 주의 (engine/utils.ts 후처리와의 관계)

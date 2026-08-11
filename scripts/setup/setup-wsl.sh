@@ -4,7 +4,7 @@
 #   wsl bash scripts/setup-wsl.sh     # Windows PowerShell에서 WSL2로 위임할 때
 #   bash scripts/setup-wsl.sh         # WSL2/Linux 셸 안에서 직접 실행할 때
 #
-# 이 리포의 빌드 스크립트(wasm:build, build:tauri 등)는 전부 bash라 WSL2/Linux에서는
+# 이 리포의 빌드 스크립트(build:wasm, build:tauri 등)는 전부 bash라 WSL2/Linux에서는
 # 별도 변환 없이 그대로 동작한다 — 이 스크립트는 그 전제조건(Node/emcc/빌드 도구)만 갖춘다.
 set -euo pipefail
 cd "$(dirname "$0")/../.."
@@ -112,7 +112,7 @@ ok "의존성 설치 완료"
 
 # ---------------------------------------------------------------------------
 log "5/5 WASM 엔진 빌드 (public/wasm/ff_prot.{js,wasm})"
-npm run wasm:build
+npm run build:wasm -- --dev
 ok "WASM 빌드 완료"
 
 # ---------------------------------------------------------------------------
@@ -146,11 +146,11 @@ else
 fi
 
 # (선택, 비차단) Windows 크로스 빌드 도구 안내 — 이 WSL/Linux 머신에서
-# `npm run build:tauri:windows`를 실기 Windows 없이 바로 돌리고 싶을 때만 필요하다
+# `npm run build:tauri -- --windows`를 실기 Windows 없이 바로 돌리고 싶을 때만 필요하다
 # (cargo-xwin + NSIS를 쓰는 Tauri의 실험적 크로스 컴파일 경로, README 참고). 없어도
 # 다른 워크플로에는 전혀 영향이 없다 — 그 명령을 실제로 실행할 때 각 도구의 부재를
 # 에러로 알려주므로, 여기서는 미리 안내만 한다.
-echo "      (선택) Windows 크로스 빌드(build:tauri:windows, cargo-xwin 경로, 실험적)까지 쓰려면:"
+echo "      (선택) Windows 크로스 빌드(build:tauri -- --windows, cargo-xwin 경로, 실험적)까지 쓰려면:"
 echo "          rustup target add x86_64-pc-windows-msvc"
 echo "          cargo install cargo-xwin"
 echo "          sudo apt install nsis clang lld llvm"
@@ -162,7 +162,7 @@ cat <<EOF
 
 다음 단계:
   npm run dev              # http://localhost:3000 (UI 확인 전용 — 오디오 캡처/재생은 Tauri 브리지가 없어 동작하지 않음)
-  npm run build:tauri:linux # Tauri 패키징 (dist-tauri/linux/) — WSL2에서는 GUI 실행에 WSLg(Win11) 필요
+  npm run build:tauri -- --linux # Tauri 패키징 (dist-tauri/linux/) — WSL2에서는 GUI 실행에 WSLg(Win11) 필요
 
 참고:
   - Tauri 창을 WSL2 안에서 직접 띄우려면(tauri:preview 등) Windows 11 + WSLg가 필요합니다.

@@ -1,6 +1,5 @@
 // index.ts — installTauriBridge(): Tauri 데스크톱 런타임에서만 window.audioDevice/
-// audioCapture/audioPlayCapture/localFolder/wasmAsset 5개 전역을 채운다(과거 Electron IPC
-// 시절 electron/preload.js가 contextBridge로 하던 일의 TS 등가물 — 그 파일은 현재 제거됨).
+// audioCapture/audioPlayCapture/localFolder/wasmAsset 5개 전역을 채운다.
 //
 // 각 기능은 자신이 사용하는 브리지 전역의 존재 여부로 가용성을 판단하고(userAgent 스니핑 없음),
 // UI 가용성 감지 일부는 hydration 이후 useEffect에서 하고, 실제 캡처·WASM·파일 호출 경로도

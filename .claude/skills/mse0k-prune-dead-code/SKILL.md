@@ -115,7 +115,6 @@ Classify every candidate into one of three buckets. **When uncertain, downgrade 
     interceptors — wired by DI, often look unused to knip.
   - **TypeORM**: entities and migrations loaded by glob in the data-source config
     (`migrations: ['dist/**/migrations/*.js']`) appear unused but are essential.
-  - **Electron**: `main`/`preload`/`renderer` entry points.
   - Config files: `*.config.{ts,js,mjs}`, `swagger`, codegen inputs.
   - Test fixtures / factories referenced only by test globs.
 

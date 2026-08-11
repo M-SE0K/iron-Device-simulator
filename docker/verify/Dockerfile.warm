@@ -1,0 +1,84 @@
+# Dockerfile.warm — 툴체인을 미리 구워둔 "빠른 반복" 검증 이미지.
+#
+# L3~L7(드롭인 빌드 / 하드닝 / 정적 번들 / Tauri Linux / Windows 크로스)을 매번
+# 몇 분 안에 돌리기 위한 이미지다. 무거운 것(emsdk, Rust, cargo install)은 전부
+# 레이어로 굳혀두고, 검증할 코드 스냅샷만 실행 시점에 볼륨으로 주입한다.
+#
+# ⚠️ 여기 설치하는 도구 목록은 scripts/setup/setup-wsl.sh 및 README.md 의
+#    "Extra prerequisites" 와 **동기화되어야 한다**. 다만 손으로 맞추는 동기화는
+#    반드시 어긋나므로, 그 드리프트를 잡는 책임은 이 파일이 아니라 **L1**이 진다 —
+#    L1 은 Dockerfile.bare 위에서 setup-wsl.sh 를 실제로 완주시키는 시나리오다.
+#    이 파일이 낡아도 L1 이 초록이면 문서/스크립트는 여전히 옳다는 뜻이고,
+#    L1 이 빨간데 여기가 초록이면 "우리 이미지만 운 좋게 돌던 것"이 드러난다.
+FROM ubuntu:22.04
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+# ── 기본 빌드 도구 + Tauri v2 Linux 의존(WebKitGTK 4.1) ──────────────────────
+# setup-wsl.sh 1/5 단계 + README "Extra prerequisites" 의 합집합.
+# AppImage 번들링(linuxdeploy)이 컨테이너 안에서 돌기 위한 보조 도구
+# (file/desktop-file-utils/squashfs-tools/fakeroot/zsync)도 함께 넣는다.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        ca-certificates curl git sudo bash xz-utils tar \
+        build-essential python3 pkg-config \
+        default-jre \
+        libwebkit2gtk-4.1-dev libssl-dev librsvg2-dev libxdo-dev \
+        libayatana-appindicator3-dev libgtk-3-dev \
+        file desktop-file-utils squashfs-tools fakeroot zsync \
+        g++-mingw-w64-x86-64 \
+        nsis clang lld llvm \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN useradd -m -u 1000 -s /bin/bash dev \
+    && echo 'dev ALL=(ALL) NOPASSWD:ALL' > /etc/sudoers.d/dev \
+    && chmod 0440 /etc/sudoers.d/dev
+
+# ── Node.js 20 ───────────────────────────────────────────────────────────────
+# setup-wsl.sh 는 nvm 으로 --lts 를 깐다(= 시간이 지나면 버전이 움직인다). 검증
+# 이미지는 재현성이 우선이라 nodesource 20.x 로 고정한다. "nvm 경로가 실제로 도는가"
+# 는 L1(bare)이 검증하므로 여기서 nvm 을 흉내 낼 이유가 없다.
+RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
+    && apt-get install -y --no-install-recommends nodejs \
+    && rm -rf /var/lib/apt/lists/*
+
+# ── Emscripten SDK ───────────────────────────────────────────────────────────
+# build-wasm.sh 는 emcc 가 없으면 docker(emscripten/emsdk) 로 폴백하는데, 컨테이너
+# 안에서는 그 폴백을 탈 수 없다(DinD). 그래서 emcc 를 이미지에 직접 넣는다.
+# → 그 결과 "emcc 없음 → Docker 폴백" 경로는 이 검증 환경이 덮지 못한다.
+#   docker/verify/README.md 의 "Docker 가 덮지 못하는 것" 절 참고.
+ENV EMSDK=/opt/emsdk
+RUN git clone --depth 1 https://github.com/emscripten-core/emsdk.git "$EMSDK" \
+    && "$EMSDK/emsdk" install latest \
+    && "$EMSDK/emsdk" activate latest \
+    && chown -R dev:dev "$EMSDK"
+
+# ── Rust + Windows 크로스 타깃 ───────────────────────────────────────────────
+USER dev
+ENV HOME=/home/dev
+ENV RUSTUP_HOME=/home/dev/.rustup
+ENV CARGO_HOME=/home/dev/.cargo
+ENV PATH=/home/dev/.cargo/bin:$PATH
+
+RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
+      | sh -s -- -y --default-toolchain stable --profile minimal \
+    && rustup target add x86_64-pc-windows-msvc
+
+# wasm-tools: WASM 하드닝의 구조 변형(wasm-mutate) 단계. 없으면 build-wasm.sh 가
+# 조용히 건너뛰므로, 이미지에 넣어야 그 단계까지 실제로 검증된다.
+# cargo-xwin: L7(Windows 크로스 패키징) 경로.
+RUN cargo install wasm-tools cargo-xwin \
+    && rm -rf /home/dev/.cargo/registry/cache
+
+# emcc 를 로그인 셸 없이도 잡히게 한다(시나리오 스크립트는 비로그인 bash 로 돈다).
+ENV PATH=/opt/emsdk:/opt/emsdk/upstream/emscripten:$PATH
+ENV EM_CONFIG=/opt/emsdk/.emscripten
+
+# 반복 실행 시 재사용할 캐시 경로 — run.sh 가 named volume 을 여기 마운트한다.
+# CARGO_TARGET_DIR 을 스냅샷 바깥으로 빼는 게 핵심이다. 스냅샷은 매번 새로 풀리므로
+# src-tauri/target 을 그대로 두면 Tauri 빌드가 매 실행 full rebuild 가 된다.
+ENV CARGO_TARGET_DIR=/cache/cargo-target
+ENV XWIN_CACHE_DIR=/cache/xwin
+RUN mkdir -p /cache/cargo-target /cache/xwin /cache/npm
+
+WORKDIR /home/dev
+SHELL ["/bin/bash", "-c"]

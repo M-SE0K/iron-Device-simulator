@@ -16,6 +16,12 @@
 
 namespace audio {
 
+// 지연 재생 시작 전에 재생 링에 미리 채울 기본 시간(ms).
+inline constexpr double kDefaultStreamPrefillMs = 40.0;
+
+// 드라이버가 유효한 샘플 레이트를 보고하지 않을 때 쓸 폴백 값(Hz).
+inline constexpr double kFallbackSampleRateHz = 48000.0;
+
 // list 항목 하나. macOS의 AudioInputDevice(native-bridge.d.ts)와 키가 일치해야 한다.
 struct DeviceInfo {
   std::string uid;          // ASIO는 CLSID 문자열 "{...}" — 이름보다 안정적이라 uid로 쓴다
@@ -102,6 +108,14 @@ struct CaptureConfig {
   long outputChannel = 0;
   long refChannels = 1;      // --ref 파일의 채널 수 — 2면 인터리브 스테레오([L0,R0,L1,R1,...])로 해석해 L/R 분리
   long outputChannelR = -1;  // R을 내보낼 출력 채널 — -1이면 스테레오 미요청(모노만 재생)
+
+  // ── play-capture --stream 전용 (보호 재생) ──
+  //
+  // refPath 대신 stdin으로 계속 흘러들어오는 PCM을 재생한다. 렌더러가 ff_prot을 통과시킨
+  // 결과를 밀어 넣으므로 스피커로 나가는 신호가 처음부터 끝까지 보호된 신호가 된다
+  // (docs/protected-playback-plan.md). refPath와 streamPlayback은 상호 배타적이다.
+  bool streamPlayback = false;
+  double prefillMs = kDefaultStreamPrefillMs;  // 재생 시작 전에 링에 채워둘 분량
 };
 
 // 헤더 한 줄에 실을 실제 값. requested와 달라질 수 있고, 달라지는 게 정상이다.
@@ -113,13 +127,21 @@ struct CaptureInfo {
   long channels = 0;     // 장치 입력 수로 클램프된 실제 인터리브 채널 수
 
   bool playCapture = false;
-  long refFrames = 0;        // ref 총 프레임 수 — 렌더러가 재생 길이를 안다
+  long refFrames = 0;        // ref 총 프레임 수 — 렌더러가 재생 길이를 안다 (--stream에서는 0/미상)
   long playbackChannel = 0;  // 실제 사용된 L 출력 채널 (--out-ch echo)
   long playbackChannelR = -1; // 실제 사용된 R 출력 채널 — 범위 밖/L과 중복으로 모노 폴백되면 -1
+
+  bool streamPlayback = false;
+  long prefillFrames = 0;    // --stream: 재생을 시작하기 전에 링에 채워야 하는 채널당 샘플 수
 };
 
 // 드라이버를 열고 ASIOStart까지 마친다. 성공 시 콜백이 이미 링을 채우고 있다.
 // 실패 시 열린 자원을 전부 되돌리므로 호출 측은 정리할 게 없다.
+//
+// ⚠️ --stream 모드는 예외다 — ASIOStart를 **부르지 않고** 반환한다. 재생과 캡처가 같은
+// 순간에 시작해야 "수신 캡처 프레임 수 = 재생 프레임 수" 등식이 성립하는데, 링이 비어
+// 있는 채로 시작하면 앞머리가 통째로 무음이 되기 때문이다. 프리필이 찬 뒤 호출 측이
+// startDeferredPlayback()을 부른다(macOS 헬퍼가 AudioDeviceStart를 미루는 것과 같은 구조).
 bool startCapture(const CaptureConfig& cfg, CaptureInfo& out, std::string& error);
 
 // writer 스레드 전용. 링에 있는 만큼만 꺼내 실제 바이트 수를 돌려준다(0이면 빔).
@@ -141,6 +163,26 @@ bool playbackFinished();
 
 // 링이 가득 차 **버려진** 누적 바이트. 종료 시 stderr에 남겨 드롭아웃을 진단한다.
 uint64_t captureDroppedBytes();
+
+// ── play-capture --stream 전용 ───────────────────────────────────────────────
+
+// 렌더러가 보낸 보호 PCM 한 덩이(인터리브 스테레오 int16)를 재생 링에 적재한다.
+// 공간이 모자라면 들어가는 만큼만 넣고 실제 적재한 프레임 수를 돌려준다 — 호출 측이
+// 남은 만큼 재시도하는 것이 곧 렌더러까지 닿는 백프레셔다(main.cpp의 stdin 리더 전용).
+size_t writePlaybackPcm(const int16_t* interleavedStereo, size_t fromFrame, size_t maxFrames);
+
+// stdin "end" — 더 보낼 프레임이 없다. 링을 마저 비운 뒤 감쇠 테일을 거쳐 playbackFinished().
+void markPlaybackEndOfStream();
+
+// 재생 링에 프리필이 찼는가(또는 end가 먼저 왔는가). main 스레드가 폴링해 시작을 결정한다.
+bool playbackPrefillReady();
+
+// 미뤄둔 ASIOStart. 프리필이 찬 뒤 정확히 한 번 부른다. 실패 시 false.
+bool startDeferredPlayback();
+
+// 링이 비어 무음을 내보낸 누적 프레임 수. 샘플을 버린 게 아니라 재생이 그만큼 늘어난
+// 것이므로 "유실"이 아니다 — 진단용으로만 stderr에 남긴다.
+uint64_t playbackUnderrunFrames();
 
 // ASIOStop → ASIODisposeBuffers → ASIOExit → removeCurrentDriver. main 스레드 전용(COM).
 void stopCapture();

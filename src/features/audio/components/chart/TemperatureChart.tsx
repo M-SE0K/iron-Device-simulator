@@ -9,6 +9,7 @@ import { buildMetricChartOptions } from "@/features/audio/lib/render/metric-char
 import { annotatePlugin, thresholdsPlugin } from "@/features/audio/lib/render/uplot-plugins";
 import { useMetricChartRuntime } from "./hooks/useMetricChartRuntime";
 import { useMetricChartSource } from "./hooks/useMetricChartSource";
+import { useChartFullXRange } from "./hooks/useChartFullXRange";
 import { useDrawMode } from "./hooks/useDrawMode";
 import MetricChartCard from "./MetricChartCard";
 
@@ -18,7 +19,6 @@ interface Props {
   /** 재생 중일 때만 true — x축을 시계에 맞춰 균일하게 스크롤(60 Hz 버벅임 방지)하는 데 쓴다. */
   streaming?: boolean;
   audioDuration?: number | null;
-  perfTrack?: boolean;
   warnThreshold?: number;
   dangerThreshold?: number;
   /** 점 잇기 주석 스토어 — 넘기면 정지 상태(canAnnotate)에서 헤더 연필 토글이 나타난다. */
@@ -34,7 +34,6 @@ export default function TemperatureChart({
   isActive,
   streaming = false,
   audioDuration,
-  perfTrack = false,
   warnThreshold = DEFAULT_TEMP_WARN,
   dangerThreshold = DEFAULT_TEMP_DANGER,
   annotations,
@@ -43,15 +42,12 @@ export default function TemperatureChart({
   const { isEnabled, draw } = useDrawMode(annotations, canAnnotate);
   const {
     current: currentTemp,
-    timeDecimals,
-    onRender,
     showChart,
   } = useMetricChartRuntime({
     metric: "temperature",
     store,
     isActive,
     audioDuration,
-    perfTrack,
   });
 
   const tempColor =
@@ -66,6 +62,8 @@ export default function TemperatureChart({
     (snap) => computeTemperatureYRange(snap.tempMin, snap.tempMax),
   );
 
+  const getFullXRange = useChartFullXRange(store);
+
   const options = useMemo(() => buildMetricChartOptions({
     series: {
       label: "Temperature",
@@ -74,10 +72,10 @@ export default function TemperatureChart({
       spline: true,
       fill: ["rgba(11,65,113,0.18)", "rgba(11,65,113,0)"],
     },
-    timeDecimals,
     axisSize: 52,
     tooltipUnit: "°C",
     tooltipDecimals: 1,
+    getFullXRange,
     extraPlugins: [
       thresholdsPlugin([
         { y: warnThreshold,   color: "#F59E0B", label: "WARN" },
@@ -85,7 +83,7 @@ export default function TemperatureChart({
       ]),
       ...(annotations ? [annotatePlugin({ store: annotations, isEnabled })] : []),
     ],
-  }), [timeDecimals, warnThreshold, dangerThreshold, annotations, isEnabled]);
+  }), [warnThreshold, dangerThreshold, getFullXRange, annotations, isEnabled]);
 
   return (
     <MetricChartCard
@@ -100,7 +98,6 @@ export default function TemperatureChart({
       streaming={streaming}
       options={options}
       source={source}
-      onRender={onRender}
       draw={draw}
     />
   );

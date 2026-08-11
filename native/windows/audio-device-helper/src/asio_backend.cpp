@@ -22,6 +22,7 @@
 #include "asio.h"
 #include "asiodrivers.h"
 
+#include "playback_ring.h"
 #include "ring_buffer.h"
 #include "sample_convert.h"
 
@@ -236,6 +237,15 @@ struct CaptureStream {
   std::atomic<bool> paused{false};
   std::atomic<bool> playbackDone{false};
 
+  // ── play-capture --stream ──
+  // ref(고정 배열) 대신 링버퍼가 재생 소스가 된다. 나머지(단일 콜백·pause 의미론·
+  // 캡처 경로·감쇠 테일)는 전부 --ref 모드와 같다.
+  bool streamPlayback = false;
+  std::unique_ptr<PlaybackRing> playRing;
+  std::vector<float> playL;        // RT 전용 스크래치 — 콜백 안에서 할당하지 않기 위해 미리 잡는다
+  std::vector<float> playR;
+  long prefillFrames = 0;
+
   std::atomic<bool> resetRequested{false};
   bool started = false;
   bool buffersCreated = false;
@@ -291,6 +301,40 @@ void bufferSwitch(long index, ASIOBool /*directProcess*/) {
   // pause는 출력만 죽이고 재생 위치를 동결한다 — 캡처는 위에서 이미 흘려보냈다.
   // (버퍼는 이미 0으로 지웠으므로 아래를 건너뛰면 그대로 무음이 나간다.)
   const bool paused = s->paused.load(std::memory_order_acquire);
+
+  if (s->streamPlayback) {
+    // pause는 --ref 모드와 같은 의미다 — 출력 무음 + 위치 동결. 링을 소비하지 않으므로
+    // resume하면 멈춘 자리에서 그대로 이어진다.
+    if (!paused) {
+      const size_t got = s->playRing->read(s->playL.data(), s->playR.data(), frames);
+      if (got > 0) {
+        convert::fromFloat(s->outputTypes[static_cast<size_t>(s->playbackChannel)],
+                           s->playL.data(),
+                           s->infos[outBase + static_cast<size_t>(s->playbackChannel)].buffers[index],
+                           got);
+        if (s->playbackChannelR >= 0) {
+          convert::fromFloat(s->outputTypes[static_cast<size_t>(s->playbackChannelR)],
+                             s->playR.data(),
+                             s->infos[outBase + static_cast<size_t>(s->playbackChannelR)].buffers[index],
+                             got);
+        }
+      }
+      // 못 채운 만큼은 위 memset이 남긴 0이라 무음이 나가지만, 링의 읽기 위치는 그만큼
+      // 소비되지 않는다 — 샘플을 버리는 게 아니라 뒤로 미루는 것이라 "프레임을 드롭하지
+      // 않는다"는 규약이 지켜진다(docs/protected-playback-plan.md D5).
+      if (got < frames && !s->playRing->endOfStream()) {
+        s->playRing->countUnderrun(frames - got);
+      }
+      if (s->playRing->isDrained()) {
+        s->tailFrames += frames;
+        if (s->tailFrames >= s->tailTarget) {
+          s->playbackDone.store(true, std::memory_order_release);
+        }
+      }
+    }
+    ASIOOutputReady();
+    return;
+  }
 
   const size_t refLen = s->ref.size();
   if (paused) {
@@ -545,7 +589,9 @@ bool startCapture(const CaptureConfig& cfg, CaptureInfo& out, std::string& error
   s->outChannels = (deviceIn == 1 && requested >= 2) ? 2 : s->srcChannels;
 
   // ── play-capture: ref 로딩 + 출력 채널 검증 ──
-  s->playCapture = !cfg.refPath.empty();
+  // --stream은 재생 소스만 다르다(파일 대신 stdin 링). 출력 채널 검증은 완전히 같다.
+  s->streamPlayback = cfg.streamPlayback;
+  s->playCapture = !cfg.refPath.empty() || cfg.streamPlayback;
   if (s->playCapture) {
     if (deviceOut <= 0) {
       error = "device-has-no-output(" + s->session.name() + ")";
@@ -565,42 +611,46 @@ bool startCapture(const CaptureConfig& cfg, CaptureInfo& out, std::string& error
       s->playbackChannelR = cfg.outputChannelR;
     }
 
-    // 전체를 미리 메모리에 올린다 — RT 스레드에서 파일을 읽으면 그대로 드롭아웃이다.
-    FILE* f = fopen(cfg.refPath.c_str(), "rb");
-    if (!f) {
-      error = "ref-open-failed(" + cfg.refPath + ")";
-      return false;
-    }
-    fseek(f, 0, SEEK_END);
-    const long bytes = ftell(f);
-    fseek(f, 0, SEEK_SET);
-    if (bytes < 0 || bytes % static_cast<long>(sizeof(float)) != 0) {
-      fclose(f);
-      error = "ref-bad-size(" + std::to_string(bytes) + ")";
-      return false;
-    }
-    std::vector<float> flat(static_cast<size_t>(bytes) / sizeof(float));
-    if (!flat.empty() && fread(flat.data(), 1, static_cast<size_t>(bytes), f) != static_cast<size_t>(bytes)) {
-      fclose(f);
-      error = "ref-read-failed(" + cfg.refPath + ")";
-      return false;
-    }
-    fclose(f);
-
-    // refChannels==2면 인터리브 스테레오([L0,R0,L1,R1,...])를 프레임 단위로 L/R 분리한다.
-    // 그 외(모노)면 flat을 그대로 L로 쓰고 refR은 비워둔다(위에서 playbackChannelR이 -1이 아니어도
-    // refR이 비어 있으면 bufferSwitch가 R 출력을 건너뛴다 — 자연히 모노로 재생됨).
-    if (cfg.refChannels == 2 && flat.size() >= 2) {
-      const size_t frameCount = flat.size() / 2;
-      s->ref.resize(frameCount);
-      s->refR.resize(frameCount);
-      for (size_t i = 0; i < frameCount; ++i) {
-        s->ref[i] = flat[i * 2];
-        s->refR[i] = flat[i * 2 + 1];
+    // --stream은 읽을 파일이 없다 — 재생 소스가 링버퍼이고, 링은 버퍼 크기가 정해진
+    // 뒤(ASIOCreateBuffers 이후) 아래에서 잡는다. ref 로딩 전체를 건너뛴다.
+    if (!s->streamPlayback) {
+      // 전체를 미리 메모리에 올린다 — RT 스레드에서 파일을 읽으면 그대로 드롭아웃이다.
+      FILE* f = fopen(cfg.refPath.c_str(), "rb");
+      if (!f) {
+        error = "ref-open-failed(" + cfg.refPath + ")";
+        return false;
       }
-    } else {
-      s->ref = std::move(flat);
-    }
+      fseek(f, 0, SEEK_END);
+      const long bytes = ftell(f);
+      fseek(f, 0, SEEK_SET);
+      if (bytes < 0 || bytes % static_cast<long>(sizeof(float)) != 0) {
+        fclose(f);
+        error = "ref-bad-size(" + std::to_string(bytes) + ")";
+        return false;
+      }
+      std::vector<float> flat(static_cast<size_t>(bytes) / sizeof(float));
+      if (!flat.empty() && fread(flat.data(), 1, static_cast<size_t>(bytes), f) != static_cast<size_t>(bytes)) {
+        fclose(f);
+        error = "ref-read-failed(" + cfg.refPath + ")";
+        return false;
+      }
+      fclose(f);
+
+      // refChannels==2면 인터리브 스테레오([L0,R0,L1,R1,...])를 프레임 단위로 L/R 분리한다.
+      // 그 외(모노)면 flat을 그대로 L로 쓰고 refR은 비워둔다(위에서 playbackChannelR이 -1이 아니어도
+      // refR이 비어 있으면 bufferSwitch가 R 출력을 건너뛴다 — 자연히 모노로 재생됨).
+      if (cfg.refChannels == 2 && flat.size() >= 2) {
+        const size_t frameCount = flat.size() / 2;
+        s->ref.resize(frameCount);
+        s->refR.resize(frameCount);
+        for (size_t i = 0; i < frameCount; ++i) {
+          s->ref[i] = flat[i * 2];
+          s->refR[i] = flat[i * 2 + 1];
+        }
+      } else {
+        s->ref = std::move(flat);
+      }
+    }  // ← ref 로딩 끝(--stream은 통째로 건너뜀)
   }
 
   long minSize = 0, maxSize = 0, preferred = 0, granularity = 0;
@@ -693,12 +743,31 @@ bool startCapture(const CaptureConfig& cfg, CaptureInfo& out, std::string& error
   // 링은 1초분. 측정 레이턴시(88/168 프레임)의 1000배 이상이라 stdout이 잠깐 막혀도
   // 흡수된다. RingBuffer가 2의 거듭제곱으로 올림한다.
   const size_t bytesPerSecond =
-      static_cast<size_t>(actualRate > 0 ? actualRate : 48000) *
+      static_cast<size_t>(actualRate > 0 ? actualRate : kFallbackSampleRateHz) *
       static_cast<size_t>(s->outChannels) * sizeof(int16_t);
   s->ring.reset(new RingBuffer(bytesPerSecond));
 
   // 재생 종료 후 감쇠 테일 0.25초 (macOS 헬퍼와 동일).
-  s->tailTarget = static_cast<size_t>((actualRate > 0 ? actualRate : 48000) * 0.25);
+  s->tailTarget = static_cast<size_t>(
+      (actualRate > 0 ? actualRate : kFallbackSampleRateHz) * 0.25);
+
+  // ── --stream: 재생 링 + RT 스크래치 ──
+  if (s->streamPlayback) {
+    const double fs = actualRate > 0 ? actualRate : kFallbackSampleRateHz;
+    const double ms = cfg.prefillMs > 0 ? cfg.prefillMs : kDefaultStreamPrefillMs;
+    s->prefillFrames = static_cast<long>(ms / 1000.0 * fs);
+    if (s->prefillFrames < 1) s->prefillFrames = 1;
+
+    // 링은 프리필의 몇 배는 되어야 렌더러 지터(GC·메인 스레드 정체)를 흡수한다 — 최소 1초.
+    // (PlaybackRing이 2의 거듭제곱으로 올림하므로 실제 용량은 이보다 크다.)
+    const size_t wanted = static_cast<size_t>(s->prefillFrames) * 8;
+    const size_t oneSecond = static_cast<size_t>(fs);
+    s->playRing.reset(new PlaybackRing(wanted > oneSecond ? wanted : oneSecond));
+
+    // 콜백 한 번이 요청하는 최대 프레임 수만큼. RT 스레드에서 새로 할당하지 않기 위함이다.
+    s->playL.assign(static_cast<size_t>(size), 0.0f);
+    s->playR.assign(static_cast<size_t>(size), 0.0f);
+  }
 
   out.name = s->session.name();
   out.uid = s->session.uid();
@@ -708,16 +777,28 @@ bool startCapture(const CaptureConfig& cfg, CaptureInfo& out, std::string& error
   out.playCapture = s->playCapture;
   out.refFrames = static_cast<long>(s->ref.size());
   out.playbackChannel = s->playbackChannel;
-  out.playbackChannelR = (s->playbackChannelR >= 0 && !s->refR.empty()) ? s->playbackChannelR : -1;
+  // --ref 모드는 refR이 비어 있으면(모노 파일) R이 실제로 나가지 않으므로 null로 보고한다.
+  // --stream은 페이로드가 항상 인터리브 스테레오라 그런 폴백 조건이 없다.
+  out.playbackChannelR = s->streamPlayback
+                             ? s->playbackChannelR
+                             : ((s->playbackChannelR >= 0 && !s->refR.empty()) ? s->playbackChannelR : -1);
+  out.streamPlayback = s->streamPlayback;
+  out.prefillFrames = s->prefillFrames;
 
   // ASIOStart 직후 콜백이 돌기 시작하므로 포인터를 **먼저** 공개해야 한다.
   g_stream.store(s.get(), std::memory_order_release);
-  if (ASIOStart() != ASE_OK) {
-    g_stream.store(nullptr, std::memory_order_release);
-    error = "asio-start-failed";
-    return false;
+
+  // --stream은 여기서 시작하지 않는다 — 링이 빈 채로 시작하면 앞머리가 통째로 무음이
+  // 되고, 캡처는 그 무음 구간까지 세므로 "수신 캡처 프레임 수 = 재생 프레임 수" 등식이
+  // 깨진다. 프리필이 찬 뒤 main이 startDeferredPlayback()을 부른다.
+  if (!s->streamPlayback) {
+    if (ASIOStart() != ASE_OK) {
+      g_stream.store(nullptr, std::memory_order_release);
+      error = "asio-start-failed";
+      return false;
+    }
+    s->started = true;
   }
-  s->started = true;
   s.release();  // 이후 수명은 stopCapture()가 진다
   return true;
 }
@@ -741,6 +822,38 @@ void setPlaybackPaused(bool paused) {
 bool playbackFinished() {
   CaptureStream* s = g_stream.load(std::memory_order_acquire);
   return s && s->playbackDone.load(std::memory_order_acquire);
+}
+
+size_t writePlaybackPcm(const int16_t* interleavedStereo, size_t fromFrame, size_t maxFrames) {
+  CaptureStream* s = g_stream.load(std::memory_order_acquire);
+  if (!s || !s->playRing) return 0;
+  return s->playRing->write(interleavedStereo, fromFrame, maxFrames);
+}
+
+void markPlaybackEndOfStream() {
+  CaptureStream* s = g_stream.load(std::memory_order_acquire);
+  if (s && s->playRing) s->playRing->markEndOfStream();
+}
+
+bool playbackPrefillReady() {
+  CaptureStream* s = g_stream.load(std::memory_order_acquire);
+  if (!s || !s->playRing) return false;
+  // end가 먼저 오면(재생 길이가 프리필보다 짧은 경우) 그대로 시작한다 — 안 그러면 영영 못 찬다.
+  return s->playRing->available() >= static_cast<size_t>(s->prefillFrames) ||
+         s->playRing->endOfStream();
+}
+
+bool startDeferredPlayback() {
+  CaptureStream* s = g_stream.load(std::memory_order_acquire);
+  if (!s || s->started) return false;
+  if (ASIOStart() != ASE_OK) return false;
+  s->started = true;
+  return true;
+}
+
+uint64_t playbackUnderrunFrames() {
+  CaptureStream* s = g_stream.load(std::memory_order_acquire);
+  return (s && s->playRing) ? s->playRing->underrunFrames() : 0;
 }
 
 uint64_t captureDroppedBytes() {

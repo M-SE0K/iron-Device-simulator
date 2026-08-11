@@ -1,11 +1,6 @@
-//! local_folder.rs — 과거 Electron IPC 모듈(`electron/ipc/local-folder.js`, 현재는 제거됨)에서
-//! 1:1 포팅 (워크스페이스 "로컬 폴더" 기능).
-//!
-//! Electron 채널 → Tauri 커맨드/이벤트 매핑:
-//!   `local-folder:select`    → `local_folder_select`
-//!   `local-folder:unwatch`   → `local_folder_unwatch`
-//!   `local-folder:read-file` → `local_folder_read_file` (raw 응답 — `tauri::ipc::Response`)
-//!   `local-folder:changed`   → `app.emit("local-folder:changed", files)`
+//! local_folder.rs — 워크스페이스 "로컬 폴더" 기능. 커맨드/이벤트: `local_folder_select`,
+//! `local_folder_unwatch`, `local_folder_read_file`(raw 응답 — `tauri::ipc::Response`),
+//! `app.emit("local-folder:changed", files)`.
 //!
 //! 사용자가 고른 폴더 안의 오디오 파일만 나열하고, `notify`(+250ms 디바운스)로 변경을 감시해
 //! 렌더러에 목록을 다시 밀어준다. 파일 읽기는 마지막으로 select()된 폴더(allowed_folder)

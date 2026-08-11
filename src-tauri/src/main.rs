@@ -1,6 +1,6 @@
-// main.rs — Tauri 앱 합성 루트 (과거 Electron의 `electron/main.js`가 하던 역할, 현재는 제거됨).
+// main.rs — Tauri 앱 합성 루트.
 //
-// out/(scripts/build/build-static-local.sh 공용 코어 산출물)을 내장 asset 프로토콜
+// out/(scripts/build/build-desktop.sh 공용 코어 산출물)을 내장 asset 프로토콜
 // (`frontendDist: "../out"`)로 그대로 띄운다. 오디오 장치/캡처/로컬 폴더 커맨드는 각
 // 모듈(audio_device/audio_capture/audio_playcapture/local_folder)에 있고, 이 파일은
 // 플러그인·상태 등록, 앱 라이프사이클(종료 시 자식 프로세스 정리), 그리고 배포 빌드의
@@ -15,9 +15,9 @@ mod helper;
 mod local_folder;
 mod streaming;
 mod wasm_asset;
-// wasm_key.rs는 scripts/build/stage-encrypted-wasm.sh 가 빌드 시점에 생성하는 산출물이다
+// wasm_key.rs는 scripts/build/wasm-encryption/stage-encrypted-wasm.sh 가 빌드 시점에 생성하는 산출물이다
 // (git 제외) — 없으면 이 mod 선언에서 cargo build가 실패한다(externalBin 오디오 헬퍼 바이너리를
-// build-tauri.sh가 미리 배치해야 하는 것과 같은 패턴). wasm_asset.rs가 WASM_KEY를 참조한다.
+// build-tauri.sh가 미리 배치해야 하는 것과 같은 패턴). wasm_asset.rs가 WASM_SEED_A/WASM_SEED_B/WASM_SALT를 참조한다.
 mod wasm_key;
 
 use std::sync::Arc;
@@ -133,6 +133,7 @@ fn main() {
             audio_playcapture::audio_playcapture_finalize_write,
             audio_playcapture::audio_playcapture_cancel_write,
             audio_playcapture::audio_playcapture_start,
+            audio_playcapture::audio_playcapture_write_pcm,
             audio_playcapture::audio_playcapture_control,
             audio_playcapture::audio_playcapture_stop,
             local_folder::local_folder_select,
@@ -145,8 +146,8 @@ fn main() {
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
         .run(|app_handle, event| {
-            // 앱 종료 시(과거 Electron의 window-all-closed/before-quit 대응) 상주 헬퍼 자식
-            // 프로세스와 폴더 감시자를 정리한다. 단일 창 앱이라 창 닫힘=앱 종료로 단순화(Tauri 기본 동작
+            // 앱 종료 시 상주 헬퍼 자식 프로세스와 폴더 감시자를 정리한다.
+            // 단일 창 앱이라 창 닫힘=앱 종료로 단순화(Tauri 기본 동작
             // 그대로 — macOS activate 재생성 로직은 두지 않는다. 계획서 5.6 "단순화 채택" 참고).
             if let RunEvent::ExitRequested { .. } | RunEvent::Exit = event {
                 cleanup(app_handle);

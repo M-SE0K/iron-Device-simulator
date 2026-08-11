@@ -7,7 +7,7 @@ import SelectedFilePanel from "@/features/audio/components/dashboard/SelectedFil
 import DuplexFilePlayer from "@/features/audio/components/player/DuplexFilePlayer";
 import type { CaptureStreamListener, WaveformPlayerHandle } from "@/features/audio/components/player/capture/types";
 import type { DrawerEntry } from "@/features/audio/components/channel/ChannelSelectDrawer";
-import { useChannelWaveStreams } from "@/features/audio/components/channel/useChannelWaveStreams";
+import { useChannelWaveStreams } from "@/features/audio/components/channel/hooks/useChannelWaveStreams";
 import WorkspaceDrawer from "@/features/audio/components/workspace/WorkspaceDrawer";
 import RecordsDrawer from "@/features/audio/components/workspace/RecordsDrawer";
 import CalibrationDrawer from "@/features/audio/components/calibration/CalibrationDrawer";
@@ -30,7 +30,7 @@ import {
   COLOR_INPUT_R,
   COLOR_PROTECTED_L,
   COLOR_PROTECTED_R,
-} from "@/features/audio/components/channel/ProtectedComparePanel";
+} from "@/features/audio/lib/render/protected-series";
 import { AppStatus, AnalysisFrame, InputParameterValues } from "@/features/audio/types";
 import { channelLabel, channelColor } from "@/features/audio/lib/render/channel-meta";
 import { AnnotationStore } from "@/features/audio/lib/render/annotation-store";
@@ -41,7 +41,6 @@ import { formatTime, splitFileName } from "@/shared/lib/utils";
 import { putAudio, clearAudio } from "@/features/audio/lib/cache/audio-blob";
 import { coalesceFrames } from "@/features/audio/lib/render/coalesce";
 import { ChartStore } from "@/features/audio/lib/render/chart-store";
-import { e2e } from "@/features/audio/lib/perf-e2e/collector";
 import { detectEvents, DEFAULT_TEMP_WARN, DEFAULT_TEMP_DANGER, type TempThresholds } from "@/features/audio/lib/render/detect-events";
 import type { QueuedFrame } from "@/features/audio/lib/render/types";
 import { useFrameCachePersistence } from "@/features/audio/components/dashboard/hooks/useFrameCachePersistence";
@@ -263,9 +262,8 @@ export default function DashboardPage({ useQueue }: DashboardPageProps) {
   const handleFrameReceived = useCallback((frame: AnalysisFrame) => {
     allFramesRef.current.push(frame);
     if (useQueue) {
-      outputQueueRef.current.push({ frame, recvAt: performance.now() });
+      outputQueueRef.current.push({ frame });
     } else {
-      e2e.markCommit();
       chartStore.push(frame);
       chartStore.flush();
       markHasFrames();
@@ -285,15 +283,8 @@ export default function DashboardPage({ useQueue }: DashboardPageProps) {
 
       if (bucket.length === 0) return;
 
-      if (e2e.isActive()) {
-        const now = performance.now();
-        for (const q of bucket) e2e.sample("N9", now - q.recvAt);
-      }
-
-      const { eventFrames, renderFrame } = e2e.time("N10", () => ({
-        eventFrames: detectEvents(bucket, prevTempRef.current, thresholdsRef.current),
-        renderFrame: coalesceFrames(bucket),
-      }));
+      const eventFrames = detectEvents(bucket, prevTempRef.current, thresholdsRef.current);
+      const renderFrame = coalesceFrames(bucket);
       const latest = bucket[bucket.length - 1];
 
       prevTempRef.current = latest.frame.temperature;
@@ -306,7 +297,6 @@ export default function DashboardPage({ useQueue }: DashboardPageProps) {
       }
       renderFrames.push(renderFrame);
 
-      e2e.markCommit();
       for (const f of renderFrames) chartStore.push(f);
       chartStore.flush();
       markHasFrames();
@@ -400,6 +390,7 @@ export default function DashboardPage({ useQueue }: DashboardPageProps) {
               tempThresholds={tempThresholds}
               audioFile={audioFile}
               subscribeChannelStream={subscribeChannelStream}
+              getChannelsSnapshot={getChannelsSnapshot}
               getProtectedBlob={getProtectedBlob}
               channelHeader={channelHeader}
               getWaveStore={getWaveStore}

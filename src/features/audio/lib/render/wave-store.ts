@@ -15,8 +15,8 @@
  * 다시 가져오지 않고 이 스토어의 세션 전체 min/max 엔벨로프를 readAligned()로 읽는다.
  */
 
-/** 채널 파형 하나가 화면에 유지하는 최대 버킷 수. 버킷당 min/max 2점 = 최대 2000점. */
-const MAX_WAVE_BUCKETS = 1000;
+/** 채널 파형 하나가 화면에 유지하는 최대 버킷 수. 버킷당 min/max 2점 = 최대 50000점. */
+const MAX_WAVE_BUCKETS = 50000;
 
 /**
  * 압축 전 초기 버킷 폭(초). 48 kHz 기준 버킷당 240 샘플이고, 첫 압축은
@@ -26,11 +26,8 @@ const INITIAL_BUCKET_SEC = 0.005;
 
 export interface WaveSnapshot {
   version: number;
-  /** 현재 채워진 버킷 수 — 0이면 그릴 게 없다. */
   bucketCount: number;
-  /** 지금까지 들어온 마지막 샘플의 시각(초) = x축 전체 도메인의 오른쪽 끝. */
   durationSec: number;
-  /** 버킷 하나가 대표하는 시간 폭(초) — 시간축 소수점 자리수 결정용. */
   bucketSec: number;
   /**
    * 세션 누적 절대 피크. 버킷이 합쳐져도 y축이 실제 피크를 잘라먹지 않도록 압축과 무관하게
@@ -59,8 +56,15 @@ export class ChannelWaveStore {
   private seen = new Uint8Array(MAX_WAVE_BUCKETS);
   private count = 0;
 
-  private bucketSec = INITIAL_BUCKET_SEC;
+  /** 압축 전 초기 버킷 폭(초). 생성자로 넘기지 않으면 기존 기본값(5ms)을 쓴다. */
+  private readonly initialBucketSec: number;
+  private bucketSec: number;
   private durationSec = 0;
+
+  constructor(initialBucketSec: number = INITIAL_BUCKET_SEC) {
+    this.initialBucketSec = initialBucketSec;
+    this.bucketSec = initialBucketSec;
+  }
 
   private peakAbs = 0;
   private sumSq = 0;
@@ -139,7 +143,7 @@ export class ChannelWaveStore {
   reset(): void {
     this.seen.fill(0);
     this.count = 0;
-    this.bucketSec = INITIAL_BUCKET_SEC;
+    this.bucketSec = this.initialBucketSec;
     this.durationSec = 0;
     this.peakAbs = 0;
     this.sumSq = 0;
@@ -198,6 +202,18 @@ export class ChannelWaveStore {
       ys[b * 2 + 1] = lastMax;
     }
     return [xs, ys];
+  }
+
+  /**
+   * 주어진 시각(초)이 속한 버킷의 대표값(min/max 중점)을 돌려준다. 없으면 null.
+   * 커서 툴팁처럼 "지금 이 시각의 값 하나"가 필요한 저빈도 조회용 — readAligned()처럼
+   * 매 프레임 쓰는 경로가 아니라 배열 복사 없이 즉시 계산한다.
+   */
+  valueAt(timeSec: number): number | null {
+    if (!(timeSec >= 0) || this.count === 0) return null;
+    const b = Math.floor(timeSec / this.bucketSec);
+    if (b < 0 || b >= this.count || this.seen[b] === 0) return null;
+    return (this.mins[b] + this.maxs[b]) / 2;
   }
 
   /** 주어진 시각이 버킷 상한 안에 들어올 때까지 압축한다. */

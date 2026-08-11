@@ -11,11 +11,6 @@ node_modules/
 # Production build
 /build
 
-# Electron 패키징 산출물 (scripts/build/build-electron.sh 로 재생성)
-/dist-electron/
-# Electron 메인 프로세스 웹팩 번들 (npm run build:electron:main 으로 재생성)
-/electron-dist/
-
 # Tauri 빌드 산출물 (src-tauri 본 구현 단계에서 채워짐)
 /src-tauri/target/
 /src-tauri/binaries/
@@ -28,13 +23,16 @@ node_modules/
 # v2: 키 상수 대신 seed 재료(.wasm-seed)를 두고 HKDF로 런타임 파생한다.
 /src-tauri/resources/
 /src-tauri/src/wasm_key.rs
+# 라이선스 서명 공개 키(빌드 산출물)와 개발용 키쌍. 공개 키는 릴리스마다 발급 주체가
+# 다를 수 있어 커밋하지 않고, 개발용 개인 키는 절대 커밋하지 않는다.
+/src-tauri/src/license_key.rs
+/scripts/dev/.license-dev-key.json
+/scripts/dev/.license-dev-pub.hex
 /native/wasm-engine/.wasm-key
 /native/wasm-engine/.wasm-seed
 
 # WASM 빌드 산출물 — npm run wasm:build 로 재생성 (public/의 소스 파일(mic-processor.js)은 커밋 대상)
 /public/wasm/
-/public/wasm-debug/
-/public/wasm-dummy/
 
 # 로컬 전용 소스 — 원격 레포에는 올리지 않음 (각자 로컬에서만 보관/빌드)
 /resources/
@@ -87,4 +85,3 @@ _workspace/
 #CLAUDE & iron-device
 CLAUDE.md
 libirontune.so
-/docs

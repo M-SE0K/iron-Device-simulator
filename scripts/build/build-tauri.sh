@@ -1,20 +1,19 @@
 #!/usr/bin/env bash
 # build-tauri.sh — 데스크톱 Tauri v2 앱 패키징 (유일한 데스크톱 셸)
 #
-# build-static-local.sh(공용 코어)로 만든 out/을 Tauri 번들러(tauri-bundler)로 패키징한다.
-# 이 패키징 모델에는 electron-builder와 근본적으로 다른 제약이 하나 있다:
+# build-desktop.sh(공용 코어)로 만든 out/을 Tauri 번들러(tauri-bundler)로 패키징한다.
+# 이 패키징 모델에는 근본적인 제약이 하나 있다:
 #
-#   ⚠️ Tauri는 electron-builder와 달리 **호스트 OS = 타깃 OS**가 원칙이다. 이 스크립트는
-#      "정직하게 되는 것만 만든다"는 원칙을 유지한다 — **이 스크립트는 실행당 최대 하나의
-#      타깃만 만든다.**
+#   ⚠️ **호스트 OS = 타깃 OS**가 원칙이다. 이 스크립트는 "정직하게 되는 것만 만든다"는
+#      원칙을 유지한다 — **이 스크립트는 실행당 최대 하나의 타깃만 만든다.**
 #
 #      단, Windows 타깃 하나만은 예외로 WSL/Linux 호스트에서도 cargo-xwin(+ NSIS)를 쓰는
 #      **크로스 경로**를 제공한다 — 이는 Tauri가 공식 문서에 실험적(experimental)이라고
 #      명시한 경로다. 편의 기능이니 실제 배포 전에는 반드시 실기 Windows에서 한 번 더
-#      검증하는 것을 권장한다(아래 --windows-only 항목 참고).
+#      검증하는 것을 권장한다(아래 --windows 항목 참고).
 #
-# 그래서 옵션 없이 실행해도 electron-builder처럼 "전부 빌드"가 아니라 **호스트 OS에 맞는
-# 타깃 하나를 자동 선택**해서 빌드한다 — 나머지는 애초에 이 머신에서 만들 수 없다.
+# 그래서 옵션 없이 실행해도 "전부 빌드"가 아니라 **호스트 OS에 맞는 타깃 하나를 자동
+# 선택**해서 빌드한다 — 나머지는 애초에 이 머신에서 만들 수 없다.
 
 set -euo pipefail
 cd "$(dirname "$0")/../.."
@@ -121,7 +120,7 @@ preflight_windows_cross() {
 }
 
 # --dev (알고리즘 개발 전용 빌드) ────────────────────────────────────────────
-#   npm run build:tauri:windows -- --dev
+#   npm run build:tauri -- --windows --dev
 DEV_WASM=false
 TAURI_CONFIG_ARGS=()
 TAURI_FEATURES=()
@@ -146,14 +145,14 @@ WINDOWS_ONLY=false
 LINUX_ONLY=false
 WINDOWS_CROSS=false
 case "${1:-}" in
-  --mac-only)
+  --mac)
     MAC_ONLY=true
     if [[ "$HOST_OS" != "mac" ]]; then
-      echo "✗ --mac-only 는 macOS(Darwin) 호스트에서만 가능합니다 (CoreAudio 헬퍼 컴파일에 swiftc 필요 + Tauri 호스트 OS = 타깃 OS 원칙)." >&2
+      echo "✗ --mac 는 macOS(Darwin) 호스트에서만 가능합니다 (CoreAudio 헬퍼 컴파일에 swiftc 필요 + Tauri 호스트 OS = 타깃 OS 원칙)." >&2
       exit 1
     fi
     ;;
-  --windows-only)
+  --windows)
     WINDOWS_ONLY=true
     case "$HOST_OS" in
       windows)
@@ -161,25 +160,25 @@ case "${1:-}" in
         ;;
       linux)
         WINDOWS_CROSS=true
-        echo "▶ WSL/Linux 호스트에서 --windows-only 감지 → cargo-xwin 크로스 경로로 전환합니다 (실험적)." >&2
+        echo "▶ WSL/Linux 호스트에서 --windows 감지 → cargo-xwin 크로스 경로로 전환합니다 (실험적)." >&2
         echo "  실제 배포 전에는 실기 Windows에서 한 번 더 검증하는 것을 권장합니다." >&2
         preflight_windows_cross
         ;;
       *)
-        echo "✗ --windows-only 는 Windows 호스트 또는 WSL/Linux(cargo-xwin 크로스, 실험적)에서만 가능합니다." >&2
+        echo "✗ --windows 는 Windows 호스트 또는 WSL/Linux(cargo-xwin 크로스, 실험적)에서만 가능합니다." >&2
         echo "  이 호스트($HOST_UNAME)는 둘 다 아닙니다 — macOS에는 xwin 크로스 툴체인이 셋업되어 있지" >&2
         echo "  않아 지원 대상에서 제외했습니다(docs/TAURI_MIGRATION_PLAN.md 7.4 참고)." >&2
         echo "  ASIO 헬퍼 exe만 미리 만들어두려면 native/windows/audio-device-helper/build-win.sh를" >&2
         echo "  직접 실행하고, 실제 tauri build(패키징)는 Windows 또는 WSL/Linux 머신에서" >&2
-        echo "  SKIP_WIN_HELPER_BUILD=1 npm run build:tauri:windows 로 그 exe를 그대로 써서 실행하세요." >&2
+        echo "  SKIP_WIN_HELPER_BUILD=1 npm run build:tauri -- --windows 로 그 exe를 그대로 써서 실행하세요." >&2
         exit 1
         ;;
     esac
     ;;
-  --linux-only)
+  --linux)
     LINUX_ONLY=true
     if [[ "$HOST_OS" != "linux" ]]; then
-      echo "✗ --linux-only 는 Linux 호스트에서만 가능합니다 (Tauri 호스트 OS = 타깃 OS 원칙)." >&2
+      echo "✗ --linux 는 Linux 호스트에서만 가능합니다 (Tauri 호스트 OS = 타깃 OS 원칙)." >&2
       exit 1
     fi
     ;;
@@ -190,32 +189,32 @@ case "${1:-}" in
     ;;
 esac
 
-# 옵션이 없으면 호스트 OS에 맞는 타깃 하나를 자동 선택한다 — electron-builder처럼 "전부"가
-# 원천적으로 불가능하므로, 여기서 침묵하고 아무것도 안 만드는 대신 명시적으로 알린다.
+# 옵션이 없으면 호스트 OS에 맞는 타깃 하나를 자동 선택한다 — "전부"가 원천적으로
+# 불가능하므로, 여기서 침묵하고 아무것도 안 만드는 대신 명시적으로 알린다.
 if [[ "$MAC_ONLY" != "true" && "$WINDOWS_ONLY" != "true" && "$LINUX_ONLY" != "true" ]]; then
   case "$HOST_OS" in
     mac) MAC_ONLY=true ;;
     windows) WINDOWS_ONLY=true ;;
     linux) LINUX_ONLY=true ;;
     *)
-      echo "✗ 인식할 수 없는 호스트 OS(uname: $HOST_UNAME) — --mac-only/--windows-only/--linux-only 중 하나를 명시하세요." >&2
+      echo "✗ 인식할 수 없는 호스트 OS(uname: $HOST_UNAME) — --mac/--windows/--linux 중 하나를 명시하세요." >&2
       exit 1
       ;;
   esac
   echo "▶ 옵션 없음 → 호스트 OS 기준 자동 선택: $HOST_OS (Tauri는 크로스 패키징 불가 — 위 헤더 주석 참고)"
 fi
 
-./scripts/build/build-static-local.sh
+./scripts/build/build-desktop.sh
 
 # WASM 알고리즘 배포 — mac/windows/linux 등 아래 OS별 분기보다 먼저, 한 번만 실행하면
 # 모든 타깃에 적용된다.
 if [[ "$DEV_WASM" == "true" ]]; then
   # --dev: 암호화 없이 평문 .wasm을 리소스로 그대로 둔다(알고리즘 개발 전용).
-  ./scripts/build/stage-dev-wasm.sh
+  ./scripts/build/wasm-encryption/stage-dev-wasm.sh
 else
   # 기본(배포) 경로 — out/의 평문 ff_prot.wasm을 지우고 암호화된 사본을
   # src-tauri/resources/(bundle.resources, tauri.conf.json)로 옮긴다.
-  ./scripts/build/stage-encrypted-wasm.sh
+  ./scripts/build/wasm-encryption/stage-encrypted-wasm.sh
 fi
 
 # ===== 헬퍼 빌드 =====
@@ -375,7 +374,7 @@ if [[ "$WINDOWS_ONLY" == "true" ]]; then
   if [[ "$WINDOWS_CROSS" == "true" ]]; then
     # cargo-xwin 크로스 경로 (실험적 — 위 헤더 주석 참고).
     # 툴체인(rustup 기본 툴체인 · x86_64-pc-windows-msvc 타깃 · cargo-xwin) 확인과 자동 설치는
-    # 스크립트 앞부분의 preflight_windows_cross()가 --windows-only 를 파싱한 직후에 이미 끝냈다.
+    # 스크립트 앞부분의 preflight_windows_cross()가 --windows 를 파싱한 직후에 이미 끝냈다.
     # 여기서는 PATH 보강만 한 번 더 해둔다(preflight 이후 서브셸/환경이 바뀌는 경우 대비).
     if ! command -v cargo-xwin >/dev/null 2>&1; then
       export PATH="$HOME/.cargo/bin:$PATH"

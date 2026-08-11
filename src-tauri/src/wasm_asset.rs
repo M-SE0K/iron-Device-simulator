@@ -4,7 +4,7 @@
 //! 이미 처리했고, 여기서는 그 결과물(.wasm)의 배포 형태만 암호화한다).
 //!
 //! Tauri는 frontendDist(out/) 를 통째로 패키지에 넣는다 — JS가 fetch를 안 한다고 평문 .wasm이
-//! 패키지 안에 안 남는 게 아니다. scripts/build/stage-encrypted-wasm.sh가 패키징 전에
+//! 패키지 안에 안 남는 게 아니다. scripts/build/wasm-encryption/stage-encrypted-wasm.sh가 패키징 전에
 //! out/wasm/ff_prot.wasm(평문)을 지우고 암호화된 사본을 `bundle.resources`
 //! (src-tauri/tauri.conf.json)로 번들에 넣는다. 앱 기동 시 이 커맨드가 그걸 메모리에서
 //! 복호화해 IPC로 넘기면, 프런트(wasm-client.ts)가 emcc 글루의 `Module.wasmBinary`로 바로
@@ -58,7 +58,7 @@ fn derive_key() -> [u8; 32] {
 
 #[tauri::command]
 pub async fn wasm_asset_load(app: AppHandle) -> Result<Response, String> {
-    // --dev 빌드(scripts/build/stage-dev-wasm.sh)는 암호화 없이 평문 리소스를 번들에
+    // --dev 빌드(scripts/build/wasm-encryption/stage-dev-wasm.sh)는 암호화 없이 평문 리소스를 번들에
     // 넣는다. 배포 빌드는 이 리소스를 아예 만들지 않으므로 여기서 평문을 먼저 찾고, 없으면
     // 기존 암호화 경로로 넘어간다 — 두 빌드 변형이 같은 바이너리/커맨드를 공유한다.
     if let Ok(plain_path) = app

@@ -1,4 +1,5 @@
 import type { AnalysisFrame } from "@/features/audio/types";
+import type { SeriesReadBuffer } from "./read-buffer";
 
 /**
  * 메인 차트(Temperature/Excursion)의 표시 데이터를 React 상태 밖에서 들고 있는 스토어.
@@ -39,8 +40,14 @@ export interface ChartSnapshot {
   excMax: number;
   /** 감량 전 실제 누적 프레임 수. */
   sourceCount: number;
-  /** 현재 점 하나가 대표하는 시간 간격(초) — 시간축 소수점 자리수 결정용. */
+  /** 현재 점 하나가 대표하는 시간 간격(초). */
   pointInterval: number;
+  /**
+   * 전체(줌 아웃) x 도메인의 양 끝 — 점이 없으면 null. 뷰포트만 커밋하면 u.data의 extent가
+   * "지금 보는 창"이 돼 버려서, 줌 판정과 줌아웃 복원의 기준을 이 값으로 따로 알려줘야 한다.
+   */
+  firstX: number | null;
+  lastX: number | null;
 }
 
 const EMPTY_SNAPSHOT: ChartSnapshot = {
@@ -54,7 +61,33 @@ const EMPTY_SNAPSHOT: ChartSnapshot = {
   excMax: -Infinity,
   sourceCount: 0,
   pointInterval: 0,
+  firstX: null,
+  lastX: null,
 };
+
+/** arr[0..n) 오름차순에서 value 이상이 처음 나오는 인덱스. */
+function lowerBound(arr: Float64Array, n: number, value: number): number {
+  let lo = 0;
+  let hi = n;
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    if (arr[mid] < value) lo = mid + 1;
+    else hi = mid;
+  }
+  return lo;
+}
+
+/** arr[0..n) 오름차순에서 value 초과가 처음 나오는 인덱스. */
+function upperBound(arr: Float64Array, n: number, value: number): number {
+  let lo = 0;
+  let hi = n;
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    if (arr[mid] <= value) lo = mid + 1;
+    else hi = mid;
+  }
+  return lo;
+}
 
 export class ChartStore {
   private xs = new Float64Array(MAX_CHART_POINTS);
@@ -177,25 +210,95 @@ export class ChartStore {
       pointInterval: this.bucketSec > 0
         ? this.bucketSec
         : (Number.isFinite(this.minDelta) ? this.minDelta : 0),
+      firstX: this.count > 0 ? this.xs[0] : null,
+      lastX: last >= 0 ? this.xs[last] : null,
     };
     return this.cachedSnapshot;
   }
 
   /**
-   * uPlot에 그대로 넘길 [x, y] 컬럼. 내부 버퍼의 뷰가 아니라 **복사본**을 돌려준다 —
-   * 뷰를 넘기면 다음 push/compact가 uPlot이 들고 있는 배열을 그 자리에서 바꿔버려,
-   * 커서 이동 같은 자체 리드로우가 반쯤 갱신된 데이터를 그리게 된다. 길이가 상한
-   * (MAX_CHART_POINTS)으로 묶여 있어 복사 비용은 세션 길이와 무관하게 일정하다.
+   * [minSec, maxSec] 구간을 최대 maxPoints개 (x, y) 점으로 `out`에 채우고 채운 개수를 돌려준다.
+   *
+   * 감량 방식이 파형(ChannelWaveStore.readAligned)과 다르다. 파형은 진폭 포락선이라 버킷 시작·중앙에
+   * min/max를 찍어도 되지만, 메트릭 선은 "언제 그 값이었나"가 곧 의미라 **원본 점의 x를
+   * 그대로** 쓴다. 픽셀 열마다 최소·최대인 실제 점 두 개를 골라 **원래 순서대로** 내보내므로,
+   * 피크가 깎이지 않으면서 선의 진행 방향(상승/하강)도 뒤집히지 않는다. x가 실제 데이터 점의
+   * 값이라 툴팁 스냅·점 잇기 주석도 여전히 진짜 측정 시각에 붙는다.
+   *
+   * 양 끝점을 따로 챙겨 내는 이유는 둘이다 — 선이 화면 경계에서 끊겨 보이지 않게 하고,
+   * 마지막 점이 항상 포함돼야 streamFollow의 시계 앵커(마지막 커밋 x)가 실제 최신 프레임과
+   * 어긋나지 않는다.
+   *
+   * ⚠️ `transform`은 단조 증가 함수여야 한다(현재 쓰임은 toMm의 상수배뿐) — 극값은 원본 값으로
+   * 찾고 변환은 내보낼 두 점에만 적용하기 때문이다.
    */
-  readAligned(metric: ChartMetric, transform?: (v: number) => number): [Float64Array, Float64Array] {
+  readRange(
+    metric: ChartMetric,
+    minSec: number,
+    maxSec: number,
+    maxPoints: number,
+    out: SeriesReadBuffer,
+    transform?: (v: number) => number,
+  ): number {
     const n = this.count;
-    const xs = this.xs.slice(0, n);
+    if (n === 0) return 0;
+
+    const capacity = Math.min(out.xs.length, out.ys.length);
+    if (capacity < 2) return 0;
+    const budget = Math.min(maxPoints, capacity);
+    if (budget < 2) return 0;
+
+    const xs = this.xs;
     const src = metric === "temperature" ? this.temps : this.excs;
-    const ys = src.slice(0, n);
-    if (transform) {
-      for (let i = 0; i < n; i++) ys[i] = transform(ys[i]);
+
+    // xs는 항상 오름차순이라 가시 인덱스 범위를 이분 탐색으로 O(log n)에 잡는다.
+    let i0 = Number.isFinite(minSec) ? lowerBound(xs, n, minSec) : 0;
+    let i1 = (Number.isFinite(maxSec) ? upperBound(xs, n, maxSec) : n) - 1;
+    // 바깥으로 한 점씩 더 물어 선이 화면 경계에서 끊기지 않게 한다. 오른쪽을 조금 더 넉넉히
+    // 잡는 건 스트리밍 때문이다 — 스케일을 읽은 시점과 커밋 시점 사이(한 프레임)에 도착한
+    // 최신 점이 잘려 나가면 선 끝이 창 오른쪽 끝에서 뒤처져 보인다.
+    if (i0 > 0) i0--;
+    i1 = i1 < n - 1 ? Math.min(n - 1, i1 + 2) : n - 1;
+    if (i1 < i0) return 0;
+
+    let w = 0;
+    const push = (i: number): void => {
+      out.xs[w] = xs[i];
+      out.ys[w] = transform ? transform(src[i]) : src[i];
+      w++;
+    };
+
+    const visible = i1 - i0 + 1;
+    if (visible <= budget) {
+      for (let i = i0; i <= i1 && w < capacity; i++) push(i);
+      return w;
     }
-    return [xs, ys];
+
+    // 열마다 2점 + 양 끝점 2점.
+    const columns = Math.max(1, (budget - 2) >> 1);
+    let lastIdx = -1;
+    for (let c = 0; c < columns && w + 2 <= capacity; c++) {
+      const s = i0 + Math.floor((c * visible) / columns);
+      let e = i0 + Math.floor(((c + 1) * visible) / columns);
+      if (e <= s) e = s + 1;
+      if (e > i1 + 1) e = i1 + 1;
+
+      let iMin = s;
+      let iMax = s;
+      for (let i = s + 1; i < e; i++) {
+        if (src[i] < src[iMin]) iMin = i;
+        if (src[i] > src[iMax]) iMax = i;
+      }
+      const a = iMin < iMax ? iMin : iMax;
+      const b = iMin < iMax ? iMax : iMin;
+
+      if (c === 0 && s !== a) push(s);
+      if (a !== lastIdx) push(a);
+      if (b !== a) push(b);
+      lastIdx = b;
+    }
+    if (lastIdx !== i1 && w < capacity) push(i1);
+    return w;
   }
 
   /** sessionStorage 캐시 저장용 — 감량된 표시 점만 나가므로 크기가 상한에 묶인다. */
