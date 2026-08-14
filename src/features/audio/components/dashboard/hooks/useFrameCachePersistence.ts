@@ -23,7 +23,11 @@ export interface FrameCachePersistenceDeps {
   setAudioFile: (file: File | null) => void;
 }
 
-export function useFrameCachePersistence(deps: FrameCachePersistenceDeps) {
+/**
+ * 저장/복원을 **스스로** 처리한다 — 복원은 마운트 시 1회, 저장은 정지 상태 전환·pagehide·
+ * 탭 숨김에 반응하는 이펙트가 맡는다. 호출부가 직접 부를 것이 없어 아무것도 돌려주지 않는다.
+ */
+export function useFrameCachePersistence(deps: FrameCachePersistenceDeps): void {
   const {
     audioFile, realtimeStatus,
     chartStore, audioDurationRef, fileNameRef,
@@ -72,6 +76,4 @@ export function useFrameCachePersistence(deps: FrameCachePersistenceDeps) {
       document.removeEventListener("visibilitychange", onVisibility);
     };
   }, [persistCache]);
-
-  return { persistCache };
 }

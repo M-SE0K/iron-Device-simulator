@@ -1,16 +1,6 @@
 import { useCallback, useEffect, useRef } from "react";
 import type { ChartMetric, ChartStore } from "@/features/audio/lib/render/chart-store";
-import { useThrottledStoreSnapshot } from "./useThrottledStoreSnapshot";
-
-/**
- * 스트리밍 차트가 React 상태로 들고 있어야 하는 값만 갱신하는 주기(ms).
- *
- * 그래프 자체는 ChartStore → UPlotChart의 source 경로로 React를 거치지 않고 커밋되므로,
- * 여기서 리렌더가 필요한 건 헤더의 현재값 숫자뿐이다(축 단위/자리수는 축이 현재 줌 폭을
- * 보고 스스로 정한다 — uplot-option.ts). 프레임 도착 빈도(초당 100회 이상)와 무관하게
- * 이 주기로만 리렌더한다.
- */
-const READOUT_INTERVAL_MS = 100;
+import { READOUT_INTERVAL_MS, useThrottledStoreSnapshot } from "./useThrottledStoreSnapshot";
 
 interface MetricChartRuntimeOptions {
   metric: ChartMetric;

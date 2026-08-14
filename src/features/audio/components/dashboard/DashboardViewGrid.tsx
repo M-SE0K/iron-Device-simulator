@@ -7,6 +7,7 @@
 // 예전 고정 배치(1행 Protection / 2행 Excursion·Temperature)다.
 import { useMemo } from "react";
 import type { CaptureSnapshot, CaptureStreamListener } from "@/features/audio/components/player/capture/types";
+import type { DecodedPlayback } from "@/features/audio/lib/codec/playback-decode";
 import type { ChartStore } from "@/features/audio/lib/render/chart-store";
 import type { ChannelWaveStore } from "@/features/audio/lib/render/wave-store";
 import type { AnnotationStore } from "@/features/audio/lib/render/annotation-store";
@@ -38,6 +39,8 @@ interface Props {
   subscribeChannelStream: (fn: CaptureStreamListener) => () => void;
   /** 채널 파형이 확대 시 원본 PCM을 직접 읽는 데 쓰는 스냅샷 getter(안정된 참조). */
   getChannelsSnapshot: () => CaptureSnapshot | null;
+  /** 재생 경로가 디코딩해 둔 원본 PCM getter — Protection 패널의 Input 엔벨로프용(안정된 참조). */
+  getDecodedPlayback: () => DecodedPlayback | null;
   getProtectedBlob: () => Blob | null;
   channelHeader: ChannelStreamHeader | null;
   getWaveStore: (ch: number) => ChannelWaveStore;
@@ -93,6 +96,7 @@ export default function DashboardViewGrid({
   audioFile,
   subscribeChannelStream,
   getChannelsSnapshot,
+  getDecodedPlayback,
   getProtectedBlob,
   channelHeader,
   getWaveStore,
@@ -121,6 +125,8 @@ export default function DashboardViewGrid({
         <ProtectedComparePanel
           subscribeCaptureStream={subscribeChannelStream}
           sourceFile={audioFile}
+          getDecodedPlayback={getDecodedPlayback}
+          decodeReady={audioDuration !== null}
           getProtectedBlob={getProtectedBlob}
           hiddenSeries={hiddenSeries}
         />

@@ -5,6 +5,7 @@ import { CalibrationProvider } from "@/features/audio/components/calibration/Cal
 import { WorkspaceProvider } from "@/features/audio/components/workspace/WorkspaceContext";
 import { ErrorPopupProvider } from "@/shared/components/error-popup/ErrorPopupContext";
 import TauriBridgeInit from "./TauriBridgeInit";
+import IronPerfInit from "./IronPerfInit";
 
 export const metadata: Metadata = {
   title: "Iron Device — Audio Analysis Dashboard",
@@ -28,6 +29,10 @@ export default function RootLayout({
         {/* Tauri shim 설치 부트스트랩 — 정적 import 시 모듈 스코프에서 installTauriBridge()가
             실행되며, 이 컴포넌트는 아무것도 렌더링하지 않는다. */}
         <TauriBridgeInit />
+        {/* 파이프라인 4개 노드 성능 계측(window.__ironPerf) — NEXT_PUBLIC_IRON_PERF=1 로 빌드한
+            경우에만 실제로 설치되고, 아니면 전체가 dead-code로 제거된다. TauriBridgeInit 뒤에
+            와야 한다: 네이티브 perf 이벤트 구독이 Tauri shim 설치를 전제한다. */}
+        <IronPerfInit />
         {/* 앱 전역 에러 팝업 — 화면 곳곳의 에러 텍스트를 화면 중앙 모달 하나로 통일 (최상위) */}
         <ErrorPopupProvider>
           {/* 우측 드로어(Workspace/측정 기록/Calibration) 배타 전환 상태 — 최상위 단일 소스 */}

@@ -18,14 +18,14 @@ import UPlotChart, { type UPlotDataSource, type UPlotOptions } from "@/shared/co
 import { buildTimeAxis, buildValueAxis } from "@/features/audio/lib/render/uplot-option";
 import { annotatePlugin, tooltipPlugin, zoomPlugin } from "@/features/audio/lib/render/uplot-plugins";
 import type { AnnotationStore } from "@/features/audio/lib/render/annotation-store";
-import { createReadBuffer, type SeriesReadBuffer } from "@/features/audio/lib/render/read-buffer";
+import { createReadBuffer, SEED_PX_WIDTH, type SeriesReadBuffer } from "@/features/audio/lib/render/read-buffer";
 import type { ChannelWaveStore } from "@/features/audio/lib/render/wave-store";
 import { readRawWindow } from "@/features/audio/lib/render/raw-window";
+import { symmetricYRange } from "@/features/audio/lib/render/chart-window";
 import type { CaptureSnapshot } from "@/features/audio/components/player/capture/types";
-import { ChannelLevelBadge } from "./ChannelRowHeader";
-import { useThrottledStoreSnapshot } from "@/features/audio/components/chart/hooks/useThrottledStoreSnapshot";
+import { ChannelLevelBadge } from "./ChannelLevelBadge";
+import { READOUT_INTERVAL_MS, useThrottledStoreSnapshot } from "@/features/audio/components/chart/hooks/useThrottledStoreSnapshot";
 
-const Y_SCALE_PADDING = 1.1;
 const Y_MIN_SPAN = 0.01;
 
 /**
@@ -37,14 +37,6 @@ const RAW_SAMPLES_PER_PX = 2;
 
 /** 확대 하한 — 화면에 최소 이만큼의 샘플은 남긴다(무한 줌인 방지). */
 const MIN_VISIBLE_SAMPLES = 16;
-
-/** 인스턴스가 아직 없어 view 없이 시드로 읽힐 때 쓸 기본 픽셀 폭. */
-const SEED_PX_WIDTH = 1024;
-
-function symmetricYRange(peak: number): [number, number] {
-  const yMax = Math.max(peak * Y_SCALE_PADDING, Y_MIN_SPAN);
-  return [-yMax, yMax];
-}
 
 /**
  * 원본 PCM 직독 소스. 라이브 캡처 세션에만 있고(저장본 뷰어에는 없다), getSnapshot은
@@ -77,13 +69,6 @@ function readRawIfZoomedIn(
   if ((span * snap.sampleRate) / columns >= RAW_SAMPLES_PER_PX) return 0;
   return readRawWindow(snap, raw.channel, xMin, xMax, out);
 }
-
-/**
- * 스토어에서 "React 상태로 들고 있어야 하는 값"만 낮은 빈도로 읽어온다 — 파형 자체는
- * source 경로로 React를 거치지 않고 커밋되므로, 리렌더가 필요한 건 헤더 숫자뿐이다.
- * 메인 차트의 useMetricChartRuntime과 같은 주기/이유다.
- */
-const READOUT_INTERVAL_MS = 100;
 
 const selectWaveSnapshot = (snapshot: ReturnType<ChannelWaveStore["snapshot"]>) => snapshot;
 const isSameWaveSnapshot = (
@@ -145,7 +130,7 @@ export function ChannelWaveformCanvas({
 
       return {
         data: [buf.xs.subarray(0, count), buf.ys.subarray(0, count)] as unknown as uPlot.AlignedData,
-        yRange: symmetricYRange(snap.peak),
+        yRange: symmetricYRange(snap.peak, Y_MIN_SPAN),
         // 뷰포트만 커밋하므로 "전체 도메인"은 데이터 extent가 아니라 세션 길이다 —
         // 이 값이 없으면 줌 판정과 줌아웃 복원이 현재 창으로 수렴해 버린다.
         ...(snap.durationSec > 0 ? { xFull: [0, snap.durationSec] as [number, number] } : {}),
@@ -176,7 +161,7 @@ export function ChannelWaveformCanvas({
     ],
     axes: [
       buildTimeAxis(),
-      buildValueAxis({ size: 42, formatter: (v: number) => v.toFixed(3) }),
+      buildValueAxis({ size: 42 }),
     ],
     plugins: [
       zoomPlugin({

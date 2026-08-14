@@ -1,11 +1,8 @@
 import { useMemo, useRef } from "react";
 import type uPlot from "uplot";
 import type { UPlotDataSource } from "@/shared/components/UPlotChart";
-import { createReadBuffer, type SeriesReadBuffer } from "@/features/audio/lib/render/read-buffer";
+import { createReadBuffer, SEED_PX_WIDTH, type SeriesReadBuffer } from "@/features/audio/lib/render/read-buffer";
 import type { ChartMetric, ChartSnapshot, ChartStore } from "@/features/audio/lib/render/chart-store";
-
-/** 인스턴스가 아직 없어 view 없이 시드로 읽힐 때 쓸 기본 픽셀 폭. */
-const SEED_PX_WIDTH = 1024;
 
 /**
  * Temperature/ExcursionChart가 공유하는 uPlot 데이터 소스 — React 상태를 거치지 않고

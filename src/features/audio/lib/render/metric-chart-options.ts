@@ -23,9 +23,16 @@ interface MetricSeriesStyle {
 export interface MetricChartOptionsConfig {
   series: MetricSeriesStyle;
   axisSize: number;
-  axisFormatter?: (v: number) => string;
+  /** y축 눈금 뒤에 붙일 단위(예: "mm"). 생략하면 숫자만 — 자리수는 줌 폭에 맞춰 자동. */
+  axisUnit?: string;
   tooltipUnit: string;
   tooltipDecimals: number;
+  /**
+   * 커서 시각의 값 getter — 넘기면 툴팁이 u.data(뷰포트 감량 커밋본, 픽셀 열당 min/max
+   * 극점 2개) 인덱스 스냅 대신 이쪽으로 조회한다. 스냅은 커서가 가리키는 선과 무관한
+   * 극점 값을 잡을 수 있다. 반드시 안정된 참조여야 한다(옵션에 박힌다).
+   */
+  tooltipResolve?: (timeSec: number) => number | null;
   /**
    * 세션 전체 x 도메인 getter — 뷰포트만 커밋하므로 zoomPlugin의 기본값(데이터 extent)은
    * "지금 확대한 창"이라 줌아웃·더블클릭 리셋이 제자리를 맴돈다. `useChartFullXRange` 참고.
@@ -37,7 +44,9 @@ export interface MetricChartOptionsConfig {
 }
 
 export function buildMetricChartOptions(config: MetricChartOptionsConfig): UPlotOptions {
-  const { series, axisSize, axisFormatter, tooltipUnit, tooltipDecimals, getFullXRange, extraPlugins } = config;
+  const {
+    series, axisSize, axisUnit, tooltipUnit, tooltipDecimals, tooltipResolve, getFullXRange, extraPlugins,
+  } = config;
   return {
     legend: { show: false },
     cursor: { drag: { x: true, y: false } },
@@ -52,10 +61,16 @@ export function buildMetricChartOptions(config: MetricChartOptionsConfig): UPlot
         points: { size: series.pointSize ?? 5, fill: series.color },
       },
     ],
-    axes: [buildTimeAxis(), buildValueAxis({ size: axisSize, formatter: axisFormatter })],
+    axes: [buildTimeAxis(), buildValueAxis({ size: axisSize, unit: axisUnit })],
     plugins: [
       zoomPlugin({ getFullXRange }),
-      tooltipPlugin({ unit: tooltipUnit, decimals: tooltipDecimals }),
+      tooltipPlugin({
+        unit: tooltipUnit,
+        decimals: tooltipDecimals,
+        ...(tooltipResolve
+          ? { virtualSeries: [{ label: series.label, seriesIdx: 1, resolve: tooltipResolve }] }
+          : {}),
+      }),
       ...(extraPlugins ?? []),
     ],
   };

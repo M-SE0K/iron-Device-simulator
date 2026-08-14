@@ -19,6 +19,9 @@ export interface SeriesReadBuffer {
  */
 export const MAX_READ_POINTS = 8192;
 
+/** 인스턴스가 아직 없어 view 없이 시드로 읽힐 때 소스들이 공통으로 쓰는 기본 픽셀 폭. */
+export const SEED_PX_WIDTH = 1024;
+
 export function createReadBuffer(points: number = MAX_READ_POINTS): SeriesReadBuffer {
   return { xs: new Float64Array(points), ys: new Float64Array(points) };
 }

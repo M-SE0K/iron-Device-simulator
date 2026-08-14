@@ -1,4 +1,5 @@
 import type { SeriesReadBuffer } from "./read-buffer";
+import { VersionedSnapshotStore } from "./store-base";
 
 /**
  * 채널 파형 하나의 표시 데이터를 React 상태 밖에서 들고 있는 스토어 —
@@ -21,8 +22,13 @@ import type { SeriesReadBuffer } from "./read-buffer";
  * 진폭 포락선은 깎이지 않는다. readRange()의 픽셀 열 재결합도 극값의 합집합이라 마찬가지다.
  */
 
-/** 채널 파형 하나가 화면에 유지하는 최대 버킷 수. 버킷당 min/max 2점 = 최대 100000점. */
-const MAX_WAVE_BUCKETS = 50000;
+/**
+ * 채널 파형 하나가 화면에 유지하는 최대 버킷 수. 버킷당 min/max 2점 = 최대 100000점.
+ *
+ * 밖으로 열어 둔 건 `setInitialBucketSec`으로 격자를 직접 정하는 호출부 때문이다 — 그 폭으로
+ * 전체 길이를 담았을 때 이 상한에 **닿지 않아야** ensureCapacity가 압축을 걸지 않는다.
+ */
+export const MAX_WAVE_BUCKETS = 50000;
 
 /**
  * 압축 전 초기 버킷 폭(초). 48 kHz 기준 버킷당 240 샘플이고, 첫 압축은
@@ -57,17 +63,7 @@ export interface WaveSnapshot {
   sampleCount: number;
 }
 
-const EMPTY_SNAPSHOT: WaveSnapshot = {
-  version: 0,
-  bucketCount: 0,
-  durationSec: 0,
-  bucketSec: INITIAL_BUCKET_SEC,
-  peak: 0,
-  rms: 0,
-  sampleCount: 0,
-};
-
-export class ChannelWaveStore {
+export class ChannelWaveStore extends VersionedSnapshotStore<WaveSnapshot> {
   private mins = new Float64Array(MAX_WAVE_BUCKETS);
   private maxs = new Float64Array(MAX_WAVE_BUCKETS);
   private seen = new Uint8Array(MAX_WAVE_BUCKETS);
@@ -79,6 +75,7 @@ export class ChannelWaveStore {
   private durationSec = 0;
 
   constructor(initialBucketSec: number = INITIAL_BUCKET_SEC) {
+    super();
     this.initialBucketSec = initialBucketSec;
     this.bucketSec = initialBucketSec;
   }
@@ -86,21 +83,6 @@ export class ChannelWaveStore {
   private peakAbs = 0;
   private sumSq = 0;
   private sampleCount = 0;
-
-  private ver = 0;
-  private dirty = false;
-  private listeners = new Set<() => void>();
-  private cachedSnapshot: WaveSnapshot = EMPTY_SNAPSHOT;
-
-  /**
-   * 갱신 알림 구독. 인스턴스에 바인딩된 안정된 참조라 이펙트 의존성에 그대로 넣어도
-   * 재구독이 일어나지 않는다. 알림은 flush() 시점에만 발생하고, 실제 그리기 빈도는
-   * 구독자(UPlotChart의 source 경로)가 rAF로 정한다.
-   */
-  subscribe = (fn: () => void): (() => void) => {
-    this.listeners.add(fn);
-    return () => { this.listeners.delete(fn); };
-  };
 
   /**
    * 연속된 샘플 블록 하나를 시간 위치 그대로 반영한다. 알림은 발생하지 않는다 —
@@ -151,15 +133,6 @@ export class ChannelWaveStore {
     this.dirty = true;
   }
 
-  /** 마지막 flush 이후 반영된 게 있으면 버전을 올리고 구독자에게 알린다. */
-  flush(): void {
-    if (!this.dirty) return;
-    this.dirty = false;
-    this.ver++;
-    this.cachedSnapshot = EMPTY_SNAPSHOT; // 다음 snapshot() 호출 때 다시 만든다
-    this.listeners.forEach((fn) => fn());
-  }
-
   /**
    * 이후의 reset()이 되돌아갈 초기 버킷 폭을 바꾼다. 총 길이를 미리 알 수 있는 호출부
    * (예: 원본 파일과 같은 구간을 그리는 Protected 트레이스)가 원본과 동일한 버킷 폭으로
@@ -180,14 +153,11 @@ export class ChannelWaveStore {
     this.sumSq = 0;
     this.sampleCount = 0;
     this.dirty = false;
-    this.ver++;
-    this.cachedSnapshot = EMPTY_SNAPSHOT;
-    this.listeners.forEach((fn) => fn());
+    this.invalidate();
   }
 
-  snapshot(): WaveSnapshot {
-    if (this.cachedSnapshot.version === this.ver && this.ver !== 0) return this.cachedSnapshot;
-    this.cachedSnapshot = {
+  protected buildSnapshot(): WaveSnapshot {
+    return {
       version: this.ver,
       bucketCount: this.count,
       durationSec: this.durationSec,
@@ -196,7 +166,6 @@ export class ChannelWaveStore {
       rms: this.sampleCount > 0 ? Math.sqrt(this.sumSq / this.sampleCount) : 0,
       sampleCount: this.sampleCount,
     };
-    return this.cachedSnapshot;
   }
 
   /**

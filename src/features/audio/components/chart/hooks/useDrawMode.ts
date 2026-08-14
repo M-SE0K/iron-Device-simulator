@@ -38,5 +38,6 @@ export function useDrawMode(annotations: AnnotationStore | undefined, canAnnotat
       }
     : undefined;
 
-  return { isEnabled, draw, drawMode };
+  // drawMode 자체는 내보내지 않는다 — 소비자가 필요한 건 draw.active(같은 값)뿐이다.
+  return { isEnabled, draw };
 }

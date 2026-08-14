@@ -8,6 +8,8 @@
  * 그대로 붙어 있다. 세션이 리셋되면(새 재생) 데이터 자체가 바뀌므로 대시보드가 clear()한다.
  */
 
+import { SubscribableStore } from "./store-base";
+
 export interface AnnotationPoint {
   x: number;
   y: number;
@@ -18,24 +20,12 @@ export interface AnnotationSegment {
   b: AnnotationPoint;
 }
 
-export class AnnotationStore {
+export class AnnotationStore extends SubscribableStore {
   private segments: AnnotationSegment[] = [];
   private draft: AnnotationPoint | null = null;
-  private listeners = new Set<() => void>();
-  private version = 0;
-
-  subscribe = (cb: () => void): (() => void) => {
-    this.listeners.add(cb);
-    return () => this.listeners.delete(cb);
-  };
-
-  private notify() {
-    this.version += 1;
-    this.listeners.forEach((cb) => cb());
-  }
 
   getVersion(): number {
-    return this.version;
+    return this.ver;
   }
 
   getSegments(): readonly AnnotationSegment[] {
@@ -49,18 +39,18 @@ export class AnnotationStore {
   setDraft(point: AnnotationPoint | null) {
     if (this.draft === point) return; // null → null 등 무의미한 알림을 거른다
     this.draft = point;
-    this.notify();
+    this.bump();
   }
 
   addSegment(seg: AnnotationSegment) {
     this.segments.push(seg);
-    this.notify();
+    this.bump();
   }
 
   removeLast() {
     if (this.segments.length === 0) return;
     this.segments.pop();
-    this.notify();
+    this.bump();
   }
 
   get count(): number {
@@ -75,6 +65,6 @@ export class AnnotationStore {
     if (this.isEmpty) return;
     this.segments = [];
     this.draft = null;
-    this.notify();
+    this.bump();
   }
 }

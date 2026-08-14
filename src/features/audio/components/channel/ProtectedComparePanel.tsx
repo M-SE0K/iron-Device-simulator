@@ -4,46 +4,59 @@ import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type uPlot from "uplot";
 import UPlotChart, { type UPlotOptions } from "@/shared/components/UPlotChart";
 import { cn } from "@/shared/lib/utils";
-import { INT16_SCALE, CHANNELS } from "@/features/audio/lib/engine/core";
+import { CHANNELS } from "@/features/audio/lib/engine/core";
+import { copyChannelFloat32, readChannelFloat32 } from "@/features/audio/lib/pcm";
+import type { DecodedPlayback } from "@/features/audio/lib/codec/playback-decode";
 import SegmentedControl from "@/shared/components/ui/SegmentedControl";
 import { buildTimeAxis, buildValueAxis } from "@/features/audio/lib/render/uplot-option";
-import { staticSeriesLayerPlugin, liveEnvelopeOverlayPlugin, tooltipPlugin, zoomPlugin } from "@/features/audio/lib/render/uplot-plugins";
-import {
-  BucketEnvelope,
-  buildBucketXs,
-  emptyEnvelopeColumn,
-  fillEnvelopeColumn,
-  type EnvelopeColumn,
-} from "@/features/audio/lib/render/envelope";
-import { ChannelWaveStore } from "@/features/audio/lib/render/wave-store";
+import { symmetricYRange } from "@/features/audio/lib/render/chart-window";
+import { envelopeOverlayPlugin, tooltipPlugin, zoomPlugin } from "@/features/audio/lib/render/uplot-plugins";
+import { ChannelWaveStore, MAX_WAVE_BUCKETS } from "@/features/audio/lib/render/wave-store";
 import { peekWavHeader, decodeWavRange } from "@/features/audio/lib/codec/wav-incremental";
 import type { CaptureStreamEvent, CaptureStreamListener } from "@/features/audio/components/player/capture/types";
-import { useErrorPopup } from "@/shared/components/error-popup/ErrorPopupContext";
 
-const Y_SCALE_PADDING = 1.1;
 const Y_MIN_SPAN = 0.05;
 
 /**
- * Protected 트레이스도 독립된 growing store(live-envelope-overlay.ts)로 그려지지만, 시작
- * 전에 이미 원본 파일 디코딩이 끝나 전체 길이(original.durationSec)를 알고 있다 — 그래서
- * "길이를 모르는 라이브 스트림"처럼 1ms 고정폭으로 시작해 압축(compact)해 나가는 대신,
- * Input과 똑같이 computeInputBuckets(durationSec)로 버킷 폭을 한 번에 정해 store에 심는다
- * (setInitialBucketSec, original이 확정되는 시점에 호출). 두 트레이스가 같은 시간 격자를
- * 공유해야 겹쳐 볼 때 유의미하므로, 압축 정책 차이로 격자가 어긋나는 일이 없게 한다.
+ * 원본 PCM을 엔벨로프로 소화할 때의 조각 크기(프레임). 전체 길이의 채널 배열을 만드는 대신
+ * 이 크기의 scratch 두 개(채널당 512 KB)로 잘라 addBlock한다 — 5분 파일 기준 채널당 57 MB의
+ * 임시 할당이 사라진다. addBlock은 절대 시각 버킷이라 조각 순서/재사용에 안전하다.
  */
+const EXTRACT_CHUNK_FRAMES = 131072;
 
 /**
- * Input(원본 PCM)은 업로드 시점에 전체 길이가 이미 확정돼 있다 — Protected처럼 "얼마나
- * 길어질지 모르는 스트림"이 아니므로, 라이브용 점진적 압축(ChannelWaveStore) 대신 파일 길이
- * 하나로 버킷 수를 한 번에 계산해 정적으로 채운다(BucketEnvelope). 목표는 1ms/버킷이고,
- * 그러면 버킷 수가 너무 커지는 아주 긴 파일에서만 MAX_INPUT_BUCKETS로 상한을 건다.
+ * 네 트레이스(Input L/R · Protected L/R)가 **모두 같은 종류의 스토어**(ChannelWaveStore)에
+ * 담기고, 그리기는 전부 envelopeOverlayPlugin이 뷰포트 단위로 읽어 처리한다. uPlot의 u.data에는
+ * 실데이터가 한 점도 실리지 않는다.
+ *
+ * 예전에는 Input만 다른 경로였다 — 전체 길이가 이미 확정돼 있으니 파일 전체를 정적 엔벨로프로
+ * 만들어 u.data에 통째로 싣고(1 ms 버킷 × min/max = 최대 10만 점), 오프스크린 캔버스에 캐시하는
+ * 별도 플러그인이 그렸다. 캐시 키에 x/y 스케일이 들어가는 구조라 **줌·팬 한 스텝마다 캐시가
+ * 깨져** 10만 점짜리 경로를 L/R 두 번 다시 만들었고, 그게 이 패널에서만 줌이 눈에 띄게 무겁던
+ * 원인이었다. 지금은 보이는 구간만 화면 폭만큼 읽으므로 줌 비용이 세션 길이를 타지 않는다.
+ *
+ * 격자를 공유시키는 방식도 이 통합으로 단순해졌다. Protected는 "얼마나 길어질지 모르는 스트림"
+ * 이지만 시작 전에 이미 원본 디코딩이 끝나 전체 길이를 알고 있으므로, 두 쌍 모두 같은
+ * bucketSecFor(durationSec)를 setInitialBucketSec으로 심어 압축(compact)이 아예 일어나지 않는
+ * 동일 격자 위에서 자란다 — 겹쳐 볼 때 같은 시각의 두 값이 정확히 같은 x에 놓인다.
  */
-const INPUT_TARGET_BUCKET_SEC = 0.001;
-const MAX_INPUT_BUCKETS = 50000;
+const TARGET_BUCKET_SEC = 0.001;
+/**
+ * 스토어 상한에 **닿지 않게** 1% 여유를 둔다. 딱 맞추면 addBlock의 ensureCapacity가 압축을 걸어
+ * 버킷 폭이 2배가 되는데, Input(전체를 한 번에 넣는다)은 그 압축이 즉시 일어나고 Protected
+ * (점진적으로 자란다)는 세션 끝에서야 일어나 두 격자가 중간 내내 어긋난다.
+ *
+ * 한 칸이 아니라 1%인 것은 Protected가 원본보다 **살짝 길어질 수 있기** 때문이다 — 마지막
+ * 프레임이 통째로 들어오므로 끝이 최대 한 프레임(수 ms)만큼 duration을 넘어선다. 이 여유가
+ * 곧 그 초과분의 허용치이고(전체 길이의 1% ≈ 5분 파일에서 3초), 버킷 폭은 1%만 넓어진다.
+ */
+const MAX_BUCKETS = Math.floor(MAX_WAVE_BUCKETS * 0.99);
 
-function computeInputBuckets(durationSec: number): number {
-  if (!(durationSec > 0)) return 1;
-  return Math.min(MAX_INPUT_BUCKETS, Math.max(1, Math.ceil(durationSec / INPUT_TARGET_BUCKET_SEC)));
+/** 이 길이를 목표 해상도(1 ms/버킷)로 담되, 너무 긴 파일에서만 버킷 수 상한에 걸리게 하는 폭. */
+function bucketSecFor(durationSec: number): number {
+  if (!(durationSec > 0)) return TARGET_BUCKET_SEC;
+  const buckets = Math.min(MAX_BUCKETS, Math.max(1, Math.ceil(durationSec / TARGET_BUCKET_SEC)));
+  return durationSec / buckets;
 }
 
 type ChannelMode = "L" | "R" | "Both";
@@ -60,15 +73,38 @@ export const COLOR_PROTECTED_L = "#2563eb";
 export const COLOR_INPUT_R     = "#94A3B8";
 export const COLOR_PROTECTED_R = "#d97706";
 
+interface PanelStores {
+  inputL: ChannelWaveStore;
+  inputR: ChannelWaveStore;
+  protectedL: ChannelWaveStore;
+  protectedR: ChannelWaveStore;
+}
+
+/** 디코딩이 끝나 차트를 그릴 수 있게 된 원본의 요약 — 스토어 자체는 ref가 들고 있다. */
+interface InputMeta {
+  durationSec: number;
+  peakL: number;
+  peakR: number;
+}
+
 function ProtectedComparePanelImpl({
   subscribeCaptureStream,
   sourceFile,
+  getDecodedPlayback,
+  decodeReady = false,
   getProtectedBlob,
   bare = false,
   hiddenSeries,
 }: {
   subscribeCaptureStream: (fn: CaptureStreamListener) => () => void;
   sourceFile?: File | null;
+  /**
+   * 재생 경로(DuplexFilePlayer)가 이미 디코딩해 둔 원본 PCM getter — 패널이 같은 파일을
+   * decodeAudioData로 한 번 더 통째로 디코딩하지 않고 이걸로 Input 엔벨로프를 만든다.
+   */
+  getDecodedPlayback?: () => DecodedPlayback | null;
+  /** 재생 경로의 디코딩 완료 여부 — true가 되는 시점에 위 getter가 채워져 있다. */
+  decodeReady?: boolean;
   /**
    * 이미 캡처된 보호 감쇠 PCM(WAV)의 스냅샷. 패널이 세션 도중(재생이 이미 진행된 뒤)
    * 마운트돼도 지금까지의 "감쇠 후" 파형을 한 번 백필하기 위함 — 없으면 마운트 이후
@@ -79,29 +115,23 @@ function ProtectedComparePanelImpl({
   /** 시리즈별(0=Input L, 1=Input R, 2=Protected L, 3=Protected R) on/off — View 탭이 소유한다. */
   hiddenSeries: Set<number>;
 }) {
-  const { showError } = useErrorPopup();
   const [channelMode, setChannelMode] = useState<ChannelMode>("Both");
-  const [original, setOriginal] = useState<{ envL: BucketEnvelope; envR: BucketEnvelope; durationSec: number } | null>(null);
-  const [decodeError, setDecodeError] = useState<string | null>(null);
-  const [decoding, setDecoding] = useState(false);
+  const [input, setInput] = useState<InputMeta | null>(null);
 
-  // 초기 버킷 폭은 아직 모르는 원본 길이 대신 임시값(default)으로 시작하고, original이
-  // 확정되는 즉시(아래 backfill 이펙트) Input과 동일한 버킷 폭으로 재설정한다.
-  const protectedStoresRef = useRef<[ChannelWaveStore, ChannelWaveStore]>([
-    new ChannelWaveStore(),
-    new ChannelWaveStore(),
-  ]);
+  // 스토어 하나가 400 KB 남짓의 typed array를 들고 있으므로 반드시 **지연 생성**한다 —
+  // useRef(new ...())로 쓰면 렌더마다 네 개를 새로 만들어 버리고 즉시 버린다.
+  const storesRef = useRef<PanelStores | null>(null);
+  if (storesRef.current === null) {
+    storesRef.current = {
+      inputL: new ChannelWaveStore(),
+      inputR: new ChannelWaveStore(),
+      protectedL: new ChannelWaveStore(),
+      protectedR: new ChannelWaveStore(),
+    };
+  }
+  const stores = storesRef.current;
+
   const sampleRateRef = useRef(0);
-
-  // Input 컬럼만 담는다 — original이 바뀔 때만(파일 선택 시) 다시 만들어지고, 그 뒤로는
-  // 라이브 프레임이 아무리 와도 재생성되지 않는다(라이브 오버레이는 여기와 무관하게 그려짐).
-  const colsRef = useRef<{
-    owner: object;
-    xs: Float64Array;
-    inputL: EnvelopeColumn;
-    inputR: EnvelopeColumn;
-    protectedPlaceholder: EnvelopeColumn;
-  } | null>(null);
 
   // 패널이 세션 도중 마운트됐을 때(상세 뷰에서 뒤늦게 "보호 감쇠" 항목을 선택하는 경우)
   // 백필이 끝나기 전까지 들어오는 라이브 프레임을 잃지 않도록 대기시킨다.
@@ -112,97 +142,93 @@ function ProtectedComparePanelImpl({
   // 섞이지 않도록 토큰으로 무효화한다.
   const backfillTokenRef = useRef(0);
 
+  // Input 엔벨로프 — 재생 경로가 디코딩해 둔 PCM(인터리브 스테레오, 캘리브레이션 샘플레이트로
+  // 리샘플됨)을 그대로 소화한다. 예전엔 여기서 같은 파일을 decodeAudioData로 한 번 더 통째로
+  // 디코딩했다 — 파일 선택마다 풀 디코드가 2회 돌던 것을 재생용 1회로 합쳤다. 피크/엔벨로프가
+  // 원본이 아니라 리샘플된 PCM 기준이 되지만, 리샘플이 바꾸는 건 시간 격자뿐이라 1 ms 버킷
+  // 엔벨로프에서는 차이가 보이지 않는다. 디코딩 실패는 재생 경로가 에러 팝업으로 알린다.
+  //
+  // 원본은 전량이 이미 확정돼 있으므로 한 번에 밀어 넣고 그 뒤로는 갱신되지 않는다 —
+  // 스토어가 dirty해지지 않으니 오버레이의 rAF 루프도 이쪽 때문에 깨어나지 않는다.
   useEffect(() => {
-    if (!sourceFile) {
-      setOriginal(null);
-      setDecodeError(null);
+    const decoded = decodeReady ? getDecodedPlayback?.() ?? null : null;
+    if (!decoded) {
+      setInput(null);
       return;
     }
-    let cancelled = false;
-    setDecoding(true);
-    setDecodeError(null);
 
-    (async () => {
-      const Ctor = window.AudioContext ?? (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
-      if (!Ctor) {
-        if (!cancelled) {
-          setDecodeError("This browser doesn't support audio decoding.");
-          showError("This browser doesn't support audio decoding.");
-          setDecoding(false);
-        }
-        return;
-      }
-      const ctx = new Ctor();
-      try {
-        const buf = await ctx.decodeAudioData(await sourceFile.arrayBuffer());
-        if (cancelled) return;
-        const dataL = buf.getChannelData(0);
-        const dataR = buf.getChannelData(Math.min(1, buf.numberOfChannels - 1));
-        const buckets = computeInputBuckets(buf.duration);
-        const envL = new BucketEnvelope(buckets);
-        const envR = new BucketEnvelope(buckets);
-        const n = dataL.length;
-        for (let i = 0; i < n; i++) {
-          const b = Math.min(buckets - 1, Math.floor((i * buckets) / n));
-          envL.add(b, dataL[i]);
-          envR.add(b, dataR[i]);
-        }
-        setOriginal({ envL, envR, durationSec: buf.duration });
-      } catch {
-        if (!cancelled) {
-          setDecodeError("Failed to decode audio.");
-          showError("Failed to decode audio.");
-        }
-      } finally {
-        void ctx.close();
-        if (!cancelled) setDecoding(false);
-      }
-    })();
+    const bucketSec = bucketSecFor(decoded.duration);
+    const { inputL, inputR } = stores;
+    inputL.reset();
+    inputR.reset();
+    inputL.setInitialBucketSec(bucketSec);
+    inputR.setInitialBucketSec(bucketSec);
 
-    return () => { cancelled = true; };
-  }, [sourceFile, showError]);
+    const totalFrames = Math.floor(decoded.pcm.length / CHANNELS);
+    const chunkFrames = Math.max(1, Math.min(totalFrames, EXTRACT_CHUNK_FRAMES));
+    const scratchL = new Float32Array(chunkFrames);
+    const scratchR = new Float32Array(chunkFrames);
+    for (let start = 0; start < totalFrames; start += chunkFrames) {
+      const n = copyChannelFloat32(decoded.pcm, CHANNELS, 0, start, scratchL);
+      copyChannelFloat32(decoded.pcm, CHANNELS, 1, start, scratchR);
+      const startSec = start / decoded.rate;
+      inputL.addBlock(n === chunkFrames ? scratchL : scratchL.subarray(0, n), startSec, decoded.rate);
+      inputR.addBlock(n === chunkFrames ? scratchR : scratchR.subarray(0, n), startSec, decoded.rate);
+    }
+    inputL.flush();
+    inputR.flush();
+
+    setInput({
+      durationSec: decoded.duration,
+      peakL: inputL.snapshot().peak,
+      peakR: inputR.snapshot().peak,
+    });
+  }, [decodeReady, getDecodedPlayback, stores]);
 
   useEffect(() => {
-    protectedStoresRef.current[0].reset();
-    protectedStoresRef.current[1].reset();
-    colsRef.current = null;
+    stores.protectedL.reset();
+    stores.protectedR.reset();
     readyRef.current = false;
     pendingProtectedRef.current = [];
     backfillTokenRef.current += 1;
-  }, [sourceFile]);
+  }, [sourceFile, stores]);
+
+  // 이벤트(초당 ~100회)마다 새 Float32Array를 만들지 않기 위한 재사용 버퍼 — addBlock()은
+  // 값을 즉시 버킷으로 소화하고 참조를 보관하지 않으므로 안전하다(useChannelWaveStreams의
+  // chunkScratch와 같은 규약). 프레임 크기가 바뀔 때만 다시 잡는다.
+  const protectedScratchRef = useRef<{ l: Float32Array; r: Float32Array } | null>(null);
 
   const applyProtectedEvent = useCallback((ev: ProtectedEvent) => {
     sampleRateRef.current = ev.sampleRate;
-    const [storeL, storeR] = protectedStoresRef.current;
+    const { protectedL, protectedR } = stores;
     const samplesPerFrame = ev.processed.length / CHANNELS;
     const startSec = (ev.frameIndex * samplesPerFrame) / ev.sampleRate;
 
-    const l = new Float32Array(samplesPerFrame);
-    const r = new Float32Array(samplesPerFrame);
-    for (let s = 0; s < samplesPerFrame; s++) {
-      l[s] = ev.processed[s * CHANNELS] / INT16_SCALE;
-      r[s] = ev.processed[s * CHANNELS + 1] / INT16_SCALE;
+    let scratch = protectedScratchRef.current;
+    if (!scratch || scratch.l.length !== samplesPerFrame) {
+      scratch = { l: new Float32Array(samplesPerFrame), r: new Float32Array(samplesPerFrame) };
+      protectedScratchRef.current = scratch;
     }
-    storeL.addBlock(l, startSec, ev.sampleRate);
-    storeR.addBlock(r, startSec, ev.sampleRate);
-    storeL.flush();
-    storeR.flush();
-  }, []);
+    readChannelFloat32(ev.processed, CHANNELS, 0, scratch.l);
+    readChannelFloat32(ev.processed, CHANNELS, 1, scratch.r);
+    protectedL.addBlock(scratch.l, startSec, ev.sampleRate);
+    protectedR.addBlock(scratch.r, startSec, ev.sampleRate);
+    protectedL.flush();
+    protectedR.flush();
+  }, [stores]);
 
   useEffect(() => {
-    if (!original) return;
+    if (!input) return;
     const token = ++backfillTokenRef.current;
     let cancelled = false;
 
-    // Input과 같은 버킷 폭으로 맞춘다 — computeInputBuckets는 순수함수라 같은 durationSec엔
-    // 항상 같은 버킷 수를 내므로, 위 chartData의 Input 버킷 폭과 정확히 일치한다.
-    const buckets = computeInputBuckets(original.durationSec);
-    const bucketSec = original.durationSec / buckets;
-    const [storeL0, storeR0] = protectedStoresRef.current;
-    storeL0.reset();
-    storeR0.reset();
-    storeL0.setInitialBucketSec(bucketSec);
-    storeR0.setInitialBucketSec(bucketSec);
+    // Input과 같은 격자로 맞춘다 — bucketSecFor는 순수함수라 같은 durationSec엔 항상 같은 폭을 낸다.
+    const bucketSec = bucketSecFor(input.durationSec);
+    const { protectedL, protectedR } = stores;
+    protectedL.reset();
+    protectedR.reset();
+    protectedL.setInitialBucketSec(bucketSec);
+    protectedR.setInitialBucketSec(bucketSec);
 
     (async () => {
       if (getProtectedBlob) {
@@ -216,11 +242,10 @@ function ProtectedComparePanelImpl({
                 decodeWavRange(blob, header, Math.min(1, header.channels - 1), 0, header.durationSec),
               ]);
               if (!cancelled && backfillTokenRef.current === token && dataL.length > 0) {
-                const [storeL, storeR] = protectedStoresRef.current;
-                storeL.addBlock(dataL, 0, header.sampleRate);
-                storeR.addBlock(dataR, 0, header.sampleRate);
-                storeL.flush();
-                storeR.flush();
+                protectedL.addBlock(dataL, 0, header.sampleRate);
+                protectedR.addBlock(dataR, 0, header.sampleRate);
+                protectedL.flush();
+                protectedR.flush();
               }
             }
           }
@@ -237,14 +262,13 @@ function ProtectedComparePanelImpl({
     })();
 
     return () => { cancelled = true; };
-  }, [original, getProtectedBlob, applyProtectedEvent]);
+  }, [input, getProtectedBlob, applyProtectedEvent, stores]);
 
   useEffect(() => {
     const off = subscribeCaptureStream((ev: CaptureStreamEvent) => {
       if (ev.type === "reset") {
-        protectedStoresRef.current[0].reset();
-        protectedStoresRef.current[1].reset();
-        colsRef.current = null;
+        stores.protectedL.reset();
+        stores.protectedR.reset();
         pendingProtectedRef.current = [];
         backfillTokenRef.current += 1;
         readyRef.current = true;
@@ -261,67 +285,58 @@ function ProtectedComparePanelImpl({
     });
 
     return off;
-  }, [subscribeCaptureStream, applyProtectedEvent]);
+  }, [subscribeCaptureStream, applyProtectedEvent, stores]);
 
   const showL = channelMode !== "R";
   const showR = channelMode !== "L";
 
-  const chartData = useMemo(() => {
-    if (!original) return null;
+  /**
+   * uPlot에 싣는 데이터는 **x 도메인의 양 끝 두 점뿐**이다. 네 시리즈 모두 paths:()=>null이고
+   * 실제 스트로크는 envelopeOverlayPlugin이 스토어에서 직접 읽어 그리므로 u.data에 실값이
+   * 필요 없다. 그렇다고 비워 둘 수는 없는데, UPlotChart의 줌 판정(isZoomed)이 u.data[0]의
+   * 길이가 2 이상일 때만 동작하고 uPlot 기본 더블클릭 리셋(autoScaleX)도 이 extent로
+   * 돌아가기 때문이다 — 딱 그 두 가지를 위한 두 점이다.
+   */
+  const chartData = useMemo<uPlot.AlignedData | null>(() => {
+    if (!input) return null;
+    const blank = [null, null];
+    return [[0, input.durationSec], blank, blank, blank, blank] as unknown as uPlot.AlignedData;
+  }, [input]);
 
-    let cols = colsRef.current;
-    if (!cols || cols.owner !== original) {
-      // original.envL/envR는 이미 computeInputBuckets(durationSec) 크기로 만들어져 있다 —
-      // 여기서도 같은 함수로 다시 계산해(순수함수라 같은 durationSec엔 항상 같은 값) xs 길이를 맞춘다.
-      const buckets = computeInputBuckets(original.durationSec);
-      cols = {
-        owner: original,
-        xs: buildBucketXs(buckets, original.durationSec),
-        inputL: fillEnvelopeColumn(original.envL),
-        inputR: fillEnvelopeColumn(original.envR),
-        // Protected 컬럼은 실데이터를 담지 않는다 — series의 paths:()=>null과 짝지어
-        // 그리기를 liveEnvelopeOverlayPlugin에 완전히 위임한다(아래 options). uPlot의
-        // AlignedData 계약상 길이만 xs와 맞으면 되므로 재사용 가능한 상수 하나로 충분하다.
-        protectedPlaceholder: emptyEnvelopeColumn(buckets),
-      };
-      colsRef.current = cols;
-    }
-
-    return [
-      cols.xs,
-      cols.inputL,
-      cols.inputR,
-      cols.protectedPlaceholder,
-      cols.protectedPlaceholder,
-    ] as unknown as uPlot.AlignedData;
-  }, [original]);
+  const xRange = useMemo<[number, number] | null>(
+    () => (input ? [0, input.durationSec] : null),
+    [input],
+  );
 
   const yRange = useMemo<[number, number] | null>(() => {
-    if (!original) return null;
-    let peak = Y_MIN_SPAN;
-    if (showL) peak = Math.max(peak, original.envL.peak());
-    if (showR) peak = Math.max(peak, original.envR.peak());
-    peak *= Y_SCALE_PADDING;
-    return [-peak, peak];
-  }, [original, showL, showR]);
+    if (!input) return null;
+    // 하한(Y_MIN_SPAN)을 피크에 먼저 반영하고 넘기므로 헬퍼의 minSpan은 0이다.
+    const peak = Math.max(
+      Y_MIN_SPAN,
+      showL ? input.peakL : 0,
+      showR ? input.peakR : 0,
+    );
+    return symmetricYRange(peak, 0);
+  }, [input, showL, showR]);
 
   const options = useMemo<UPlotOptions | null>(() => {
-    if (!original) return null;
+    if (!input) return null;
+    // 네 시리즈 모두 uPlot의 기본 경로 빌드를 끈다 — 실제 스트로크는 envelopeOverlayPlugin이
+    // u.series[idx]의 show/stroke/width/points만 빌려 캔버스에 직접 그린다(u.data[idx]는 안 읽음).
+    // points는 Temperature/Excursion과 같은 규약이다 — 지름(CSS px)만 주면 오버레이가 uPlot과
+    // 동일한 기준(점 간격이 촘촘해지면 생략)으로 알아서 켜고 끈다. 원본은 배경 기준선이라 점을
+    // 띄우지 않는다.
     const inputSeries = (label: string, color: string): uPlot.Series => ({
       label, stroke: `${color}D9`, width: 1, spanGaps: true,
       paths: () => null,
       points: { show: false },
     });
-    // Protected도 uPlot의 기본 경로 빌드를 끈다 — 실제 스트로크는 liveEnvelopeOverlayPlugin이
-    // u.series[idx]의 show/stroke/width/points만 빌려 캔버스에 직접 그린다(u.data[idx]는 안 읽음).
-    // points는 Temperature/Excursion과 같은 규약이다 — 지름(CSS px)만 주면 오버레이가 uPlot과
-    // 동일한 기준(점 간격이 촘촘해지면 생략)으로 알아서 켜고 끈다.
     const protectedSeries = (label: string, color: string): uPlot.Series => ({
       label, stroke: color, width: 1.8, spanGaps: true,
       paths: () => null,
       points: { size: 4, fill: color },
     });
-    const [storeL, storeR] = protectedStoresRef.current;
+    const { inputL, inputR, protectedL, protectedR } = stores;
     return {
       legend: { show: false },
       cursor: { drag: { x: true, y: false } },
@@ -334,25 +349,31 @@ function ProtectedComparePanelImpl({
       ],
       axes: [
         buildTimeAxis(),
-        buildValueAxis({ size: 56, formatter: (v: number) => v.toFixed(2) }),
+        buildValueAxis({ size: 56 }),
       ],
       plugins: [
-        staticSeriesLayerPlugin([1, 2]),
-        liveEnvelopeOverlayPlugin([
-          { store: storeL, seriesIdx: 3 },
-          { store: storeR, seriesIdx: 4 },
+        // 배열 순서가 z-order다 — 배경인 원본을 먼저, 보호 결과를 그 위에 얹는다.
+        envelopeOverlayPlugin([
+          { store: inputL, seriesIdx: 1 },
+          { store: inputR, seriesIdx: 2 },
+          { store: protectedL, seriesIdx: 3 },
+          { store: protectedR, seriesIdx: 4 },
         ]),
-        zoomPlugin({ getFullXRange: () => [0, original.durationSec] }),
+        zoomPlugin({ getFullXRange: () => [0, input.durationSec] }),
+        // u.data가 비어 있으므로 네 값 모두 인덱스가 아니라 **시각으로** 조회한다 — 커서
+        // 픽셀을 그대로 환산한 시각이라 x축 눈금과 언제나 일치한다.
         tooltipPlugin({
           unit: "", decimals: 3,
           virtualSeries: [
-            { label: "Protected L", seriesIdx: 3, resolve: (t) => storeL.valueAt(t) },
-            { label: "Protected R", seriesIdx: 4, resolve: (t) => storeR.valueAt(t) },
+            { label: "Input L", seriesIdx: 1, resolve: (t) => inputL.valueAt(t) },
+            { label: "Input R", seriesIdx: 2, resolve: (t) => inputR.valueAt(t) },
+            { label: "Protected L", seriesIdx: 3, resolve: (t) => protectedL.valueAt(t) },
+            { label: "Protected R", seriesIdx: 4, resolve: (t) => protectedR.valueAt(t) },
           ],
         }),
       ],
     };
-  }, [original]);
+  }, [input, stores]);
 
   const seriesShow = useMemo(
     () => [
@@ -364,10 +385,9 @@ function ProtectedComparePanelImpl({
     [showL, showR, hiddenSeries],
   );
 
-  const placeholder = decodeError
-    ? "Unable to load original waveform."
-    : (decoding ? "Preparing original waveform…" : null)
-    ?? (!sourceFile ? "Select an audio source to see the original waveform." : null);
+  const placeholder = !sourceFile
+    ? "Select an audio source to see the original waveform."
+    : (input === null ? "Preparing original waveform…" : null);
 
   return (
     <div id="protected-compare-panel" className={cn("flex flex-col h-full", !bare && "card")}>
@@ -391,13 +411,13 @@ function ProtectedComparePanelImpl({
       </div>
 
       <div className="chart-body flex-1 flex flex-col min-h-[160px] p-2">
-        {options && chartData && yRange && !placeholder ? (
+        {options && chartData && xRange && yRange && !placeholder ? (
           <div className="flex-1 min-h-0">
             <UPlotChart
               options={options}
               data={chartData}
               yRange={yRange}
-              xRange={[0, original!.durationSec]}
+              xRange={xRange}
               seriesShow={seriesShow}
               yZoom
             />

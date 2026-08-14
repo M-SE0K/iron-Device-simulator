@@ -10,14 +10,20 @@
 import { syncListen } from "@/shared/lib/tauri-bridge/sync-listen";
 import { ironPerfCollector, type PerfSnapshot } from "./collector";
 
-export const IRON_PERF_ENABLED = process.env.NEXT_PUBLIC_IRON_PERF === "1";
-
-export { ironPerfCollector };
 export type { PerfSnapshot };
+
+/**
+ * ⚠️ 켜짐 판정은 **`process.env.NEXT_PUBLIC_IRON_PERF`를 가드 자리에서 직접** 비교한다.
+ * `const ENABLED = …`로 한 번 받아 쓰면 번들러가 그 바인딩이 "항상 false"임을 증명하지 못해
+ * 가드가 접히지 않는다. 그리고 그것만으로도 부족하다 — 변수가 **정의되어 있어야** Next가
+ * 리터럴로 치환해 주고, 정의돼 있지 않으면 `process.env.X` 런타임 조회로 남긴다. 그래서
+ * 기본값 "0"을 next.config.ts의 `env`에 못 박아 둔다. 둘 중 하나라도 빠지면 꺼진 배포
+ * 빌드에 계측 코드가 통째로 실린다 — 실측으로 확인한 사항이다.
+ */
 
 /** ③(WASM 엔진)/④(렌더)가 직접 잰 개별 표본을 기록한다. 꺼져 있으면 no-op. */
 export function recordPerfSample(stage: string, ms: number): void {
-  if (!IRON_PERF_ENABLED) return;
+  if (process.env.NEXT_PUBLIC_IRON_PERF !== "1") return;
   ironPerfCollector.record(stage, ms);
 }
 
@@ -52,7 +58,7 @@ let initialized = false;
 
 /** 앱 부트스트랩(IronPerfInit — TauriBridgeInit과 같은 자리)에서 한 번만 호출한다. */
 export function initIronPerf(): () => void {
-  if (!IRON_PERF_ENABLED || typeof window === "undefined") return () => {};
+  if (process.env.NEXT_PUBLIC_IRON_PERF !== "1" || typeof window === "undefined") return () => {};
   if (initialized) return () => {};
   initialized = true;
 

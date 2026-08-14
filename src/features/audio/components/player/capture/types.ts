@@ -1,4 +1,5 @@
 import type { AppStatus, AnalysisFrame, InputParameterValues } from "@/features/audio/types";
+import type { DecodedPlayback } from "@/features/audio/lib/codec/playback-decode";
 
 export type CaptureStreamEvent =
   | { type: "reset"; channels: number; sampleRate: number }
@@ -62,4 +63,10 @@ export interface WaveformPlayerHandle {
   exportProtectedAudio: () => Blob | null;
   getCaptureSnapshot: () => CaptureSnapshot | null;
   subscribeCaptureStream: (fn: CaptureStreamListener) => () => void;
+  /**
+   * 재생용으로 이미 디코딩해 둔 원본 PCM(인터리브 스테레오). 파일 선택 시 한 번 디코딩되는
+   * 값이라, 원본 파형이 필요한 쪽(Protection 패널의 Input 엔벨로프)이 같은 파일을 다시
+   * decodeAudioData하지 않고 이걸 소화한다. 디코딩 전/실패/파일 없음이면 null.
+   */
+  getDecodedPlayback: () => DecodedPlayback | null;
 }

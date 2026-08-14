@@ -5,7 +5,8 @@
 // 라이브 청크 구독(subscribeChannelStream)으로 스토어를 채운다. 파형 데이터 자체는 React
 // 상태를 거치지 않는다 — 상태는 헤더(채널 수/샘플레이트)뿐이다.
 import { useCallback, useEffect, useRef, useState } from "react";
-import { BYTES_PER_SAMPLE, INT16_SCALE } from "@/features/audio/lib/engine/core";
+import { BYTES_PER_SAMPLE } from "@/features/audio/lib/engine/core";
+import { readChannelFloat32 } from "@/features/audio/lib/pcm";
 import { yieldToMain } from "@/shared/lib/yield-to-main";
 import type {
   CaptureSnapshot,
@@ -41,8 +42,6 @@ interface Options {
   probe: boolean;
   getChannelsSnapshot?: () => CaptureSnapshot | null;
   subscribeChannelStream?: (fn: CaptureStreamListener) => () => void;
-  /** 세션 리셋(reset 이벤트) 직후 호출 — 호출부의 세션 단위 상태(자동 선택 등) 초기화용. */
-  onSessionReset?: () => void;
 }
 
 export function useChannelWaveStreams({
@@ -51,10 +50,8 @@ export function useChannelWaveStreams({
   probe,
   getChannelsSnapshot,
   subscribeChannelStream,
-  onSessionReset,
 }: Options) {
   const [header, setHeader] = useState<ChannelStreamHeader | null>(null);
-  const [channelError, setChannelError] = useState<string | null>(null);
 
   // 채널별 표시 스토어. 메인 차트의 ChartStore와 같은 역할이라 React 상태가 아니라 ref다 —
   // 청크가 도착해도 setState 없이 스토어가 직접 구독자(차트)에게 알린다.
@@ -72,8 +69,6 @@ export function useChannelWaveStreams({
   // 읽을 수 있게 ref로 미러링한다 — 매 청크마다 구독을 재생성하지 않기 위함.
   const wantedChannelsRef = useRef<number[]>(wantedChannels);
   useEffect(() => { wantedChannelsRef.current = wantedChannels; }, [wantedChannels]);
-  const onSessionResetRef = useRef(onSessionReset);
-  onSessionResetRef.current = onSessionReset;
   // 세션 누적 프레임 수 — 청크가 들어올 때마다 늘어나며, durationSec = 이 값/sampleRate.
   const totalFramesRef = useRef(0);
   // 이미 세션 시작~현재를 백필(seed)한 채널 집합 — 한 번만 백필하고, 그 뒤로는 청크 push로만
@@ -119,7 +114,7 @@ export function useChannelWaveStreams({
     const wanted = wantedChannelsRef.current;
     if (wanted.length === 0) return;
 
-    const view = new DataView(chunk);
+    const data = new Int16Array(chunk, 0, frameCount * channels);
     // 프레임 수가 바뀔 때만 다시 잡는다 — 헬퍼가 고정 크기로 보내므로 세션당 사실상 한 번이다.
     let samples = chunkScratchRef.current;
     if (samples.length !== frameCount) {
@@ -129,9 +124,7 @@ export function useChannelWaveStreams({
     for (const ch of wanted) {
       if (ch >= channels) continue;
       const waveStore = getStore(ch);
-      for (let i = 0; i < frameCount; i++) {
-        samples[i] = view.getInt16(i * bytesPerFrame + ch * BYTES_PER_SAMPLE, true) / INT16_SCALE;
-      }
+      readChannelFloat32(data, channels, ch, samples);
       waveStore.addBlock(samples, startSec, sampleRate);
       waveStore.flush();
     }
@@ -143,9 +136,7 @@ export function useChannelWaveStreams({
       totalFramesRef.current = 0;
       seededRef.current.clear();
       storesRef.current.forEach((waveStore) => waveStore.reset());
-      setChannelError(null);
       setHeader({ channels: ev.channels, sampleRate: ev.sampleRate });
-      onSessionResetRef.current?.();
       return;
     }
     // "protected"(보호 감쇠 PCM)는 이 훅의 관심사가 아니다 — 원본 채널 파형만 그린다.
@@ -221,9 +212,7 @@ export function useChannelWaveStreams({
         const view = new Int16Array(frames[fi]);
         const startSec = (fi * samplesPerFrame) / sampleRate;
         for (const [ch, waveStore] of liveTargets) {
-          for (let i = 0; i < samplesPerFrame; i++) {
-            scratch[i] = view[i * channels + ch] / INT16_SCALE;
-          }
+          readChannelFloat32(view, channels, ch, scratch);
           waveStore.addBlock(scratch, startSec, sampleRate);
         }
         // 시간 예산을 넘기면 지금까지 쌓인 걸 화면에 반영하고 한 프레임 양보한다 — 그
@@ -246,5 +235,5 @@ export function useChannelWaveStreams({
     })();
   }, [wantedChannels, getChannelsSnapshot, getStore]);
 
-  return { header, channelError, getStore };
+  return { header, getStore };
 }

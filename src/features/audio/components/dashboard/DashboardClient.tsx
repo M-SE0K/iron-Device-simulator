@@ -118,6 +118,11 @@ export default function DashboardPage({ useQueue }: DashboardPageProps) {
     () => realtimeWaveRef.current?.getCaptureSnapshot() ?? null,
     [],
   );
+  // 재생 경로가 디코딩해 둔 원본 PCM — Protection 패널이 같은 파일을 다시 디코딩하지 않게 한다.
+  const getDecodedPlayback = useCallback(
+    () => realtimeWaveRef.current?.getDecodedPlayback() ?? null,
+    [],
+  );
   const subscribeChannelStream = useCallback(
     (fn: CaptureStreamListener) => realtimeWaveRef.current?.subscribeCaptureStream(fn) ?? (() => {}),
     [],
@@ -391,6 +396,7 @@ export default function DashboardPage({ useQueue }: DashboardPageProps) {
               audioFile={audioFile}
               subscribeChannelStream={subscribeChannelStream}
               getChannelsSnapshot={getChannelsSnapshot}
+              getDecodedPlayback={getDecodedPlayback}
               getProtectedBlob={getProtectedBlob}
               channelHeader={channelHeader}
               getWaveStore={getWaveStore}

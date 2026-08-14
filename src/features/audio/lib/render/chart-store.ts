@@ -1,5 +1,6 @@
 import type { AnalysisFrame } from "@/features/audio/types";
 import type { SeriesReadBuffer } from "./read-buffer";
+import { VersionedSnapshotStore } from "./store-base";
 
 /**
  * 메인 차트(Temperature/Excursion)의 표시 데이터를 React 상태 밖에서 들고 있는 스토어.
@@ -50,21 +51,6 @@ export interface ChartSnapshot {
   lastX: number | null;
 }
 
-const EMPTY_SNAPSHOT: ChartSnapshot = {
-  version: 0,
-  count: 0,
-  lastTemperature: null,
-  lastExcursion: null,
-  tempMin: Infinity,
-  tempMax: -Infinity,
-  excMin: Infinity,
-  excMax: -Infinity,
-  sourceCount: 0,
-  pointInterval: 0,
-  firstX: null,
-  lastX: null,
-};
-
 /** arr[0..n) 오름차순에서 value 이상이 처음 나오는 인덱스. */
 function lowerBound(arr: Float64Array, n: number, value: number): number {
   let lo = 0;
@@ -89,7 +75,7 @@ function upperBound(arr: Float64Array, n: number, value: number): number {
   return lo;
 }
 
-export class ChartStore {
+export class ChartStore extends VersionedSnapshotStore<ChartSnapshot> {
   private xs = new Float64Array(MAX_CHART_POINTS);
   private temps = new Float64Array(MAX_CHART_POINTS);
   private excs = new Float64Array(MAX_CHART_POINTS);
@@ -105,23 +91,6 @@ export class ChartStore {
   private tMax = -Infinity;
   private eMin = Infinity;
   private eMax = -Infinity;
-
-  private ver = 0;
-  private dirty = false;
-  private listeners = new Set<() => void>();
-  private cachedSnapshot: ChartSnapshot = EMPTY_SNAPSHOT;
-
-  /**
-   * 데이터가 갱신됐을 때 호출될 콜백을 등록한다. 인스턴스에 바인딩된 안정된 참조라
-   * 이펙트 의존성에 그대로 넣어도 재구독이 일어나지 않는다.
-   *
-   * 알림 자체는 flush() 시점에만 발생하고, 실제 그리기 빈도는 구독자가 정한다
-   * (차트는 rAF로 합쳐 최대 실제 화면 주사율로 커밋한다).
-   */
-  subscribe = (fn: () => void): (() => void) => {
-    this.listeners.add(fn);
-    return () => { this.listeners.delete(fn); };
-  };
 
   /** 표시 프레임 하나 추가. 알림은 발생하지 않는다 — 배치 후 flush()를 호출한다. */
   push(frame: AnalysisFrame): void {
@@ -161,15 +130,6 @@ export class ChartStore {
     this.dirty = true;
   }
 
-  /** 마지막 flush 이후 push된 게 있으면 버전을 올리고 구독자에게 알린다. */
-  flush(): void {
-    if (!this.dirty) return;
-    this.dirty = false;
-    this.ver++;
-    this.cachedSnapshot = EMPTY_SNAPSHOT; // 다음 snapshot() 호출 때 다시 만든다
-    this.emit();
-  }
-
   reset(): void {
     this.count = 0;
     this.bucketSec = 0;
@@ -181,9 +141,7 @@ export class ChartStore {
     this.eMin = Infinity;
     this.eMax = -Infinity;
     this.dirty = false;
-    this.ver++;
-    this.cachedSnapshot = EMPTY_SNAPSHOT;
-    this.emit();
+    this.invalidate();
   }
 
   /** 캐시 복원용 — 리셋 후 주어진 프레임을 그대로 채워 넣는다. */
@@ -194,10 +152,9 @@ export class ChartStore {
     this.flush();
   }
 
-  snapshot(): ChartSnapshot {
-    if (this.cachedSnapshot.version === this.ver && this.ver !== 0) return this.cachedSnapshot;
+  protected buildSnapshot(): ChartSnapshot {
     const last = this.count - 1;
-    this.cachedSnapshot = {
+    return {
       version: this.ver,
       count: this.count,
       lastTemperature: last >= 0 ? this.temps[last] : null,
@@ -213,7 +170,6 @@ export class ChartStore {
       firstX: this.count > 0 ? this.xs[0] : null,
       lastX: last >= 0 ? this.xs[last] : null,
     };
-    return this.cachedSnapshot;
   }
 
   /**
@@ -301,6 +257,22 @@ export class ChartStore {
     return w;
   }
 
+  /**
+   * 주어진 시각에 가장 가까운 표시 점의 값 — 커서 툴팁용 저빈도 조회. 툴팁이 u.data(뷰포트
+   * 픽셀 열마다 min/max 극점 2개만 실은 감량 커밋본)에서 인덱스로 스냅하면 커서가 가리키는
+   * 선 위치와 무관한 극점 값이 잡힌다 — 감량 전 표시 배열에서 시각으로 직접 찾는다.
+   */
+  valueAt(metric: ChartMetric, timeSec: number): number | null {
+    const n = this.count;
+    if (n === 0 || !Number.isFinite(timeSec)) return null;
+    const xs = this.xs;
+    const src = metric === "temperature" ? this.temps : this.excs;
+    const i = lowerBound(xs, n, timeSec);
+    if (i <= 0) return src[0];
+    if (i >= n) return src[n - 1];
+    return timeSec - xs[i - 1] <= xs[i] - timeSec ? src[i - 1] : src[i];
+  }
+
   /** sessionStorage 캐시 저장용 — 감량된 표시 점만 나가므로 크기가 상한에 묶인다. */
   toFrames(): AnalysisFrame[] {
     const out: AnalysisFrame[] = new Array(this.count);
@@ -308,10 +280,6 @@ export class ChartStore {
       out[i] = { time: this.xs[i], temperature: this.temps[i], excursion: this.excs[i] };
     }
     return out;
-  }
-
-  private emit(): void {
-    this.listeners.forEach((fn) => fn());
   }
 
   /**

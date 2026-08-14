@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo } from "react";
+import { useCallback, useMemo } from "react";
 import { DEFAULT_TEMP_WARN, DEFAULT_TEMP_DANGER } from "@/features/audio/lib/render/detect-events";
 import { computeTemperatureYRange } from "@/features/audio/lib/render/chart-window";
 import type { ChartStore } from "@/features/audio/lib/render/chart-store";
@@ -63,6 +63,10 @@ export default function TemperatureChart({
   );
 
   const getFullXRange = useChartFullXRange(store);
+  const tooltipResolve = useCallback(
+    (t: number) => store.valueAt("temperature", t),
+    [store],
+  );
 
   const options = useMemo(() => buildMetricChartOptions({
     series: {
@@ -75,6 +79,7 @@ export default function TemperatureChart({
     axisSize: 52,
     tooltipUnit: "°C",
     tooltipDecimals: 1,
+    tooltipResolve,
     getFullXRange,
     extraPlugins: [
       thresholdsPlugin([
@@ -83,7 +88,7 @@ export default function TemperatureChart({
       ]),
       ...(annotations ? [annotatePlugin({ store: annotations, isEnabled })] : []),
     ],
-  }), [warnThreshold, dangerThreshold, getFullXRange, annotations, isEnabled]);
+  }), [warnThreshold, dangerThreshold, tooltipResolve, getFullXRange, annotations, isEnabled]);
 
   return (
     <MetricChartCard

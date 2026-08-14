@@ -7,7 +7,6 @@ import { useDrawerState } from "@/features/audio/components/dashboard/ActiveDraw
 import { cn, formatTime } from "@/shared/lib/utils";
 import { formatMm } from "@/features/audio/lib/units";
 import type { WorkspaceItemMeta } from "@/features/audio/lib/cache/workspace";
-import ChannelViewerOverlay from "./ChannelViewerOverlay";
 import { useEscapeKey } from "@/shared/hooks/useEscapeKey";
 import SideDrawer from "@/shared/components/overlay/SideDrawer";
 import CountBadge from "@/shared/components/ui/CountBadge";
@@ -22,7 +21,6 @@ function RecordRow({ item }: { item: WorkspaceItemMeta }) {
   const { rename, remove, exportJson, exportCsv, downloadAudio, downloadProtectedAudio } = useWorkspace();
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(item.name);
-  const [channelView, setChannelView] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -123,8 +121,6 @@ function RecordRow({ item }: { item: WorkspaceItemMeta }) {
           </button>
         ))}
       </div>
-
-      {channelView && <ChannelViewerOverlay item={item} onClose={() => setChannelView(false)} />}
     </div>
   );
 }

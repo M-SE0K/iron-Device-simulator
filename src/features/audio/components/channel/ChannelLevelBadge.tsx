@@ -1,13 +1,5 @@
 "use client";
 
-
-interface ChannelRowHeaderProps {
-  color: string;
-  name: string;
-  role: string;
-  stats?: { peak: number; rms: number } | null;
-}
-
 /**
  * 아주 작은 값이 "0.0000"으로 뭉개지지 않게 한다 — V/I 센스는 정상 동작 중에도 풀스케일의
  * 1/1000 수준(수십 LSB)에 머무는 일이 흔해서, 고정 소수점 4자리로는 살아있는 신호와 진짜
@@ -37,16 +29,5 @@ export function ChannelLevelBadge({ peak, rms }: { peak: number; rms: number }) 
     <span className="ml-auto text-[10px] font-mono text-iron-400">
       {`peak ${formatLevel(peak)} · rms ${formatLevel(rms)}`}
     </span>
-  );
-}
-
-export default function ChannelRowHeader({ color, name, role, stats }: ChannelRowHeaderProps) {
-  return (
-    <>
-      <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: color }} />
-      <span className="text-xs font-semibold text-iron-800 font-mono">{name}</span>
-      <span className="text-[11px] text-iron-400">{role}</span>
-      {stats && <ChannelLevelBadge peak={stats.peak} rms={stats.rms} />}
-    </>
   );
 }

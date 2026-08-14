@@ -1,4 +1,5 @@
 import type uPlot from "uplot";
+import { createRectCache } from "@/shared/lib/element-rect";
 
 /**
  * y축 gutter(플롯 영역 왼쪽 눈금 영역) 위에서의 확대/이동 조작.
@@ -12,6 +13,10 @@ import type uPlot from "uplot";
  * uPlot의 축은 DOM 엘리먼트가 아니라 캔버스에 그려지므로 "y축 위"를 가려낼 타깃이 없다.
  * 대신 루트에서 이벤트를 받아 플롯 영역(`u.over`)의 왼쪽인지로 판정한다 — 플롯 영역
  * 안쪽은 이미 x축 줌/커서 드래그가 쓰고 있어 그대로 통과시킨다.
+ *
+ * 적용은 **프레임당 한 번으로 합쳐** 넘긴다. apply()는 동기 리드로우(setScale)인데 트랙패드
+ * 휠은 초당 100회 넘게 들어오므로, 이벤트마다 즉시 적용하면 한 프레임 안에 리드로우가 여러 번
+ * 쌓인다(화면에 남는 건 마지막 하나뿐이다). x축 줌(zoom.ts)과 같은 pending+rAF 방식이다.
  */
 
 /** 휠 한 칸당 y 범위 배율 — x축(0.75)보다 완만하게 잡아 세밀한 조정이 되게 한다. */
@@ -33,14 +38,44 @@ export interface YZoomController {
 export function attachYZoom(u: uPlot, ctrl: YZoomController): () => void {
   const root = u.root;
 
+  // pointermove마다 rect를 직접 재면 강제 동기 레이아웃이 걸린다 — 특히 같은 이벤트에서
+  // 툴팁(u.over의 mousemove)이 먼저 DOM을 건드리고 그 직후 이 리스너가 읽는 순서라 매번
+  // 레이아웃이 동기로 돈다. 프레임당 한 번만 재는 캐시로 바꾼다(element-rect.ts).
+  const overRect = createRectCache(u.over);
+
   /** 이벤트 지점이 y축 gutter(플롯 영역 왼쪽, 같은 세로 구간) 위인지. */
   const overAxis = (e: MouseEvent): boolean => {
-    const r = u.over.getBoundingClientRect();
+    const r = overRect.get();
     return e.clientX < r.left && e.clientY >= r.top && e.clientY <= r.bottom;
   };
 
-  /** 지금 화면에 적용된 y 범위 — 아직 폭이 잡히지 않았으면 null. */
+  // 아직 커밋되지 않은 목표 범위. undefined = 대기 없음, null = 잠금 해제(자동 복귀) 예약.
+  let pending: [number, number] | null | undefined;
+  let frame = 0;
+
+  const flush = () => {
+    frame = 0;
+    const next = pending;
+    pending = undefined;
+    if (next !== undefined) ctrl.apply(next);
+  };
+
+  const schedule = (range: [number, number] | null) => {
+    pending = range;
+    if (frame === 0) frame = requestAnimationFrame(flush);
+  };
+
+  const cancelPending = () => {
+    if (frame !== 0) cancelAnimationFrame(frame);
+    frame = 0;
+    pending = undefined;
+  };
+
+  /** 지금 화면에 적용된(또는 이번 프레임에 적용될) y 범위 — 아직 폭이 잡히지 않았으면 null. */
   const currentRange = (): [number, number] | null => {
+    // 같은 프레임의 앞선 이벤트가 잡아 둔 목표가 있으면 그쪽에서 이어 간다 — 커밋된 스케일
+    // 기준으로 계산하면 한 프레임에 몰린 이벤트가 마지막 하나 빼고 전부 버려진다.
+    if (pending !== undefined) return pending ?? ctrl.getAuto();
     const min = u.scales.y.min;
     const max = u.scales.y.max;
     return min != null && max != null && max > min ? [min, max] : null;
@@ -51,7 +86,7 @@ export function attachYZoom(u: uPlot, ctrl: YZoomController): () => void {
     e.preventDefault();
 
     const cur = currentRange();
-    const rect = u.over.getBoundingClientRect();
+    const rect = overRect.get();
     if (!cur || !(rect.height > 0)) return;
 
     // 커서가 가리키는 값을 제자리에 고정한 채 폭만 줄이고 늘린다(x축 휠 줌과 같은 감각).
@@ -63,12 +98,12 @@ export function attachYZoom(u: uPlot, ctrl: YZoomController): () => void {
     const auto = ctrl.getAuto();
     const autoSpan = auto ? auto[1] - auto[0] : 0;
     if (autoSpan > 0 && nextSpan >= autoSpan * AUTO_SNAP) {
-      ctrl.apply(null);
+      schedule(null);
       return;
     }
 
     const nextMax = anchor + topPct * nextSpan;
-    ctrl.apply([nextMax - nextSpan, nextMax]);
+    schedule([nextMax - nextSpan, nextMax]);
   };
 
   // 드래그 팬 — 축을 잡고 아래로 끌면 그래프도 함께 아래로 따라오도록(=보이는 값 구간이
@@ -104,11 +139,11 @@ export function attachYZoom(u: uPlot, ctrl: YZoomController): () => void {
       setAxisCursor(overAxis(e));
       return;
     }
-    const rect = u.over.getBoundingClientRect();
+    const rect = overRect.get();
     if (!(rect.height > 0)) return;
     const span = dragStartRange[1] - dragStartRange[0];
     const shift = ((e.clientY - dragStartY) / rect.height) * span;
-    ctrl.apply([dragStartRange[0] + shift, dragStartRange[1] + shift]);
+    schedule([dragStartRange[0] + shift, dragStartRange[1] + shift]);
   };
 
   const endDrag = (e: PointerEvent) => {
@@ -124,7 +159,11 @@ export function attachYZoom(u: uPlot, ctrl: YZoomController): () => void {
 
   // 더블클릭은 축 위든 플롯 안이든 잠금을 푼다 — uPlot 자체 더블클릭이 x를 전체 범위로
   // 되돌리는 것과 짝을 맞춰, 한 번의 조작으로 두 축이 같이 원래대로 돌아가게 한다.
-  const onDblClick = () => ctrl.apply(null);
+  // 리셋은 즉시 반영한다 — 대기 중인 휠/드래그 목표가 뒤늦게 덮어쓰지 않게 먼저 버린다.
+  const onDblClick = () => {
+    cancelPending();
+    ctrl.apply(null);
+  };
 
   root.addEventListener("wheel", onWheel, { passive: false });
   root.addEventListener("pointerdown", onPointerDown);
@@ -142,6 +181,8 @@ export function attachYZoom(u: uPlot, ctrl: YZoomController): () => void {
     root.removeEventListener("pointercancel", endDrag);
     root.removeEventListener("pointerleave", onLeave);
     root.removeEventListener("dblclick", onDblClick);
+    cancelPending();
+    overRect.dispose();
     setAxisCursor(false);
   };
 }

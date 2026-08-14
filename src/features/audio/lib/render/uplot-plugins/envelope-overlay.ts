@@ -1,8 +1,12 @@
 import type uPlot from "uplot";
+import { frameScheduler } from "@/shared/lib/frame-scheduler";
 import { createReadBuffer, type SeriesReadBuffer } from "../read-buffer";
 import type { ChannelWaveStore } from "../wave-store";
 
-export interface LiveEnvelopeChannel {
+/** 인스턴스마다 다른 스케줄러 태스크 id를 붙이기 위한 카운터. */
+let overlaySeq = 0;
+
+export interface EnvelopeOverlayChannel {
   /** 이 채널의 파형 데이터를 들고 있는 독립 스토어 — u.data[]와 무관하게 자기 해상도로 자란다. */
   store: ChannelWaveStore;
   /** 범례 표시/색상/on-off 토글을 빌려올 시리즈 인덱스. u.data[seriesIdx]는 항상 비어있는
@@ -34,17 +38,20 @@ function shouldDrawPoints(u: uPlot, points: uPlot.Series.Points, count: number, 
 }
 
 /**
- * Input(원본 PCM)처럼 u.data[]에 실데이터를 실어 u.setData()로 갱신하는 대신, 독립된
- * ChannelWaveStore를 직접 읽어 캔버스에 수동으로 그리는 라이브 오버레이 플러그인.
+ * u.data[]에 실데이터를 실어 u.setData()로 갱신하는 대신, 독립된 ChannelWaveStore를 직접 읽어
+ * 캔버스에 수동으로 그리는 파형 오버레이 플러그인.
  *
- * u.setData()는 매번 uPlot 내부 스케일 재계산·시리즈 diff를 다시 돈다 — 정적인 원본 파형과
- * 같은 캔버스/인스턴스를 쓰면서도, 라이브로 계속 갱신되는 이 시리즈만 그 비용 없이 그리기
- * 위한 것이 이 플러그인의 존재 이유다. 스토어가 dirty해지면 자체 rAF 루프가 u.redraw(false,
- * false)만 불러 훅(drawAxes)을 재실행한다 — 공식 시리즈 경로(setData/스케일 재계산)는 건너뛴다.
+ * 핵심은 **읽기가 뷰포트 단위**라는 것이다(store.readRange) — 지금 보이는 x 구간만, 화면 폭
+ * 만큼의 점으로 읽는다. u.data에 세션 전체를 실으면 uPlot이 매 리드로우마다 그 전체를 훑어
+ * 경로를 다시 만드는데(줌 한 스텝마다 재빌드), 그 비용이 세션 길이에 비례해 커진다. 여기서는
+ * 버킷이 만석(5만 개)이 돼도 프레임당 처리 점 수가 화면 폭에 묶이고, 확대 상태에서는 보이지도
+ * 않는 구간을 아예 순회하지 않는다.
  *
- * 읽기는 **지금 보이는 x 구간만, 화면 폭만큼의 점으로** 한다(store.readRange). 세션이 길어져
- * 버킷이 만석이 돼도 프레임당 처리 점 수는 화면 폭에 묶이고, 확대 상태에서는 보이지도 않는
- * 구간을 훑지 않는다.
+ * 라이브로 자라는 트레이스(보호 감쇠 결과)와 이미 전량이 확정된 정적 트레이스(업로드된 원본)를
+ * 가리지 않는다 — 둘 다 같은 스토어 타입이고, 정적 트레이스는 그냥 스토어가 dirty해지지 않을
+ * 뿐이다. 라이브 쪽은 스토어가 dirty해진 프레임에만 u.redraw(false, false)로 훅(drawAxes)을
+ * 재실행한다 — 공식 시리즈 경로(setData/스케일 재계산)는 건너뛴다. 그 프레임 판정은 자체 rAF
+ * 루프가 아니라 전역 frameScheduler에 맡긴다(차트마다 루프를 따로 돌리지 않기 위함).
  *
  * 줌/팬은 별도 배선이 필요 없다 — zoomPlugin이 u.setScale()을 부르면 uPlot이 스스로 다시
  * 그리며 drawAxes 훅도 함께 재실행되므로, 그 시점의 최신 스케일로 store를 다시 읽어
@@ -54,15 +61,16 @@ function shouldDrawPoints(u: uPlot, points: uPlot.Series.Points, count: number, 
  * 표시 조건(점 간격이 촘촘하면 생략)은 uPlot이 기본 시리즈에 쓰는 기준과 맞춰 둬서,
  * Temperature/Excursion 차트와 확대했을 때 점이 나타나는 시점이 같다.
  */
-export function liveEnvelopeOverlayPlugin(channels: readonly LiveEnvelopeChannel[]): uPlot.Plugin {
-  let raf = 0;
+export function envelopeOverlayPlugin(channels: readonly EnvelopeOverlayChannel[]): uPlot.Plugin {
+  const taskId = `envelope-overlay:${++overlaySeq}`;
+  let unregister: (() => void) | null = null;
   let dirty = true;
   let offs: Array<() => void> = [];
   // 채널을 하나씩 순서대로 그리고 그 자리에서 소비하므로 버퍼 한 쌍을 전 채널이 돌려 쓴다.
   // 프레임마다 배열을 새로 만들지 않는 것이 이 경로에서 할당을 0으로 유지하는 핵심이다.
   let scratch: SeriesReadBuffer | null = null;
 
-  const strokeChannel = (u: uPlot, ctx: CanvasRenderingContext2D, ch: LiveEnvelopeChannel): void => {
+  const strokeChannel = (u: uPlot, ctx: CanvasRenderingContext2D, ch: EnvelopeOverlayChannel): void => {
     const s = u.series[ch.seriesIdx];
     if (!s?.show) return;
 
@@ -150,22 +158,25 @@ export function liveEnvelopeOverlayPlugin(channels: readonly LiveEnvelopeChannel
     hooks: {
       ready: (u) => {
         offs = channels.map((ch) => ch.store.subscribe(() => { dirty = true; }));
-        const loop = () => {
-          if (dirty) {
+        unregister = frameScheduler.register({
+          id: taskId,
+          phase: "draw",
+          isDirty: () => dirty,
+          run: () => {
             dirty = false;
             u.redraw(false, false);
-          }
-          raf = requestAnimationFrame(loop);
-        };
-        raf = requestAnimationFrame(loop);
+          },
+        });
       },
       drawAxes: (u) => {
         const canvas = u.ctx.canvas;
         if (canvas.width === 0 || canvas.height === 0) return;
+        // 배열 순서가 곧 z-order다 — 뒤에 오는 채널이 위에 그려진다.
         for (const ch of channels) strokeChannel(u, u.ctx, ch);
       },
       destroy: () => {
-        cancelAnimationFrame(raf);
+        unregister?.();
+        unregister = null;
         offs.forEach((off) => off());
         offs = [];
         scratch = null;

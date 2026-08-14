@@ -27,8 +27,9 @@ export function useCalibrationApply(deps: UseCalibrationApplyDeps) {
   const { showError, showSuccess } = useErrorPopup();
 
   const [deviceStatus, setDeviceStatus] = useState<DeviceApplyStatus>("idle");
-  const [deviceActual, setDeviceActual] = useState<{ sampleRate: number | null; bufferSize: number | null; channels?: number } | null>(null);
-  const [deviceError, setDeviceError] = useState<string | null>(null);
+  // 적용된 실제 장치 값은 appliedRuntime 하나만 들고 간다 — 드로어의 "Current (Applied)"·
+  // "Channels (Applied)" 행이 이 값을 읽는다. 실패 메시지도 따로 담지 않는다: deviceStatus가
+  // "error"로 바뀌어 드로어에 한 줄이 뜨고, 구체적 문구는 showError 팝업이 맡는다.
   const [appliedRuntime, setAppliedRuntime] = useState<DeviceActualCache | null>(null);
 
   useEffect(() => {
@@ -37,8 +38,6 @@ export function useCalibrationApply(deps: UseCalibrationApplyDeps) {
 
   const resetStatus = useCallback(() => {
     setDeviceStatus("idle");
-    setDeviceActual(null);
-    setDeviceError(null);
   }, []);
 
   const apply = useCallback(async () => {
@@ -51,7 +50,6 @@ export function useCalibrationApply(deps: UseCalibrationApplyDeps) {
     }
 
     setDeviceStatus("applying");
-    setDeviceError(null);
     const requested = { sampleRate: Number(draft.sampleRate), bufferSize: Number(draft.bufferSize) };
     const requestedChannels = clampCaptureChannels(draft.channels);
     const captureChannels = deviceInfo?.inputChannels
@@ -69,7 +67,6 @@ export function useCalibrationApply(deps: UseCalibrationApplyDeps) {
       const actualWithChannels = result.actual
         ? { ...result.actual, channels: result.channels }
         : null;
-      setDeviceActual(actualWithChannels);
       setDeviceStatus("applied");
       const runtime: DeviceActualCache = {
         requested: { ...requested, channels: captureChannels },
@@ -87,12 +84,11 @@ export function useCalibrationApply(deps: UseCalibrationApplyDeps) {
         ? "Microphone is already in use — stop recording and try applying again."
         : humanizeIpcError(result.error, "Failed to apply settings.");
       setDeviceStatus("error");
-      setDeviceError(message);
       showError(message);
     }
 
     await refreshDeviceInfo();
   }, [draft, setValues, onApply, hasAudioDeviceBridge, deviceInfo, setOpen, refreshDeviceInfo, showError, showSuccess]);
 
-  return { deviceStatus, deviceActual, deviceError, appliedRuntime, apply, resetStatus };
+  return { deviceStatus, appliedRuntime, apply, resetStatus };
 }

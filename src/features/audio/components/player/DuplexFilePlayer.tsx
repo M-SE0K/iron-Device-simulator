@@ -188,6 +188,7 @@ const DuplexFilePlayer = forwardRef<WaveformPlayerHandle, Props>(function Duplex
     exportProtectedAudio: captureSession.getProtectedBlob,
     getCaptureSnapshot: captureSession.getCaptureSnapshot,
     subscribeCaptureStream: captureSession.subscribeCaptureStream,
+    getDecodedPlayback: () => decodedRef.current,
   }), [
     captureSession.sendMessage, pausePlayback, captureSession.getRecordedBlob,
     captureSession.getProtectedBlob, captureSession.getCaptureSnapshot, captureSession.subscribeCaptureStream,

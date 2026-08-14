@@ -5,6 +5,8 @@
  * 빌드: FF_PROT_SRCS=custom/debug/mute.c */
 #include "../protection.h"
 #include <math.h>
+#include <stdio.h>
+
 #include <string.h>
 
 #define DEFAULT_SAMPLE_RATE_HZ 48000.0

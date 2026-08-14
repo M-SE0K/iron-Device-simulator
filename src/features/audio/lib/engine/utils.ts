@@ -18,21 +18,17 @@ export function deinterleave(src: Buffer | Uint8Array, samplesPerCh: number): In
   const dst = new Int16Array(samplesPerCh * CHANNELS);
   const channelOffsetSamples = samplesPerCh;
 
-  const isBuffer = Buffer.isBuffer(src);
+  // 프레임당 두 번 불리는 핫패스다 — DataView를 루프 안에서 만들면 샘플 수만큼 할당이 생긴다.
+  const view = Buffer.isBuffer(src)
+    ? null
+    : new DataView(src.buffer, src.byteOffset, src.byteLength);
 
   for (let ch = 0; ch < CHANNELS; ch++) {
     for (let i = 0; i < samplesPerCh; i++) {
       const srcOff = (i * CHANNELS + ch) * BYTES_PER_SAMPLE;
-      let sample: number;
-
-      if (isBuffer) {
-        sample = (src as Buffer).readInt16LE(srcOff);
-      } else {
-        const view = new DataView(src.buffer, src.byteOffset, src.byteLength);
-        sample = view.getInt16(srcOff, true);
-      }
-
-      dst[ch * channelOffsetSamples + i] = sample;
+      dst[ch * channelOffsetSamples + i] = view
+        ? view.getInt16(srcOff, true)
+        : (src as Buffer).readInt16LE(srcOff);
     }
   }
 

@@ -6,6 +6,7 @@ import { createAnalysisSocket } from "@/features/audio/lib/engine/protocol/local
 import type { SocketLike } from "@/features/audio/lib/engine/protocol/socket-types";
 import { useCalibration } from "@/features/audio/components/calibration/CalibrationContext";
 import { useErrorPopup } from "@/shared/components/error-popup/ErrorPopupContext";
+import { recordPerfSample } from "@/shared/lib/iron-perf";
 import { pcmFramesToWavBlob } from "@/features/audio/lib/codec/wav-encoder";
 import { CHANNELS, SAMPLE_RATE, SAMPLES_PER_CH, BYTES_PER_SAMPLE } from "@/features/audio/lib/engine/core";
 import { decodeProcessedPcmMessage } from "@/features/audio/lib/engine/protocol/analysis";
@@ -179,6 +180,9 @@ export function useCaptureSession(deps: UseCaptureSessionDeps) {
 
       } else if (msg.type === "frame") {
         framesRcvdRef.current++;
+        // ③ WASM 엔진 — 소요 시간은 엔진이 프레임마다 이미 재서 실어 보낸다
+        // (engine/utils.ts의 createAnalysisFrame). 여기서는 그 값을 수집기에 넘기기만 한다.
+        recordPerfSample("wasm_engine", msg.processingMs as number);
         const frame: AnalysisFrame = {
           time:        msg.time        as number,
           temperature: msg.temperature as number,

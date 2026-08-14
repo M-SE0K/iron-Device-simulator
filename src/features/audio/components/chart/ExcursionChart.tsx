@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo } from "react";
+import { useCallback, useMemo } from "react";
 import { toMm, MM_DECIMALS } from "@/features/audio/lib/units";
 import { computeExcursionYRange } from "@/features/audio/lib/render/chart-window";
 import type { ChartStore } from "@/features/audio/lib/render/chart-store";
@@ -67,6 +67,12 @@ export default function ExcursionChart({
   );
 
   const getFullXRange = useChartFullXRange(store);
+  // 스토어는 원시 변위를 들고 있다 — 표시 단위(mm) 변환은 커밋 경로(source의 transform)와
+  // 동일하게 여기서 한다.
+  const tooltipResolve = useCallback((t: number) => {
+    const v = store.valueAt("excursion", t);
+    return v === null ? null : toMm(v);
+  }, [store]);
 
   const options = useMemo(() => buildMetricChartOptions({
     series: {
@@ -78,12 +84,12 @@ export default function ExcursionChart({
       pointSize: 4,
     },
     axisSize: 60,
-    axisFormatter: (v: number) => v.toFixed(MM_DECIMALS),
     tooltipUnit: "mm",
     tooltipDecimals: MM_DECIMALS,
+    tooltipResolve,
     getFullXRange,
     extraPlugins: annotations ? [annotatePlugin({ store: annotations, isEnabled })] : undefined,
-  }), [getFullXRange, annotations, isEnabled]);
+  }), [tooltipResolve, getFullXRange, annotations, isEnabled]);
 
   return (
     <MetricChartCard
