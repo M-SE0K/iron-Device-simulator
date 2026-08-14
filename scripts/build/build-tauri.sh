@@ -122,15 +122,21 @@ preflight_windows_cross() {
 # --dev (알고리즘 개발 전용 빌드) ────────────────────────────────────────────
 #   npm run build:tauri -- --windows --dev
 DEV_WASM=false
+# FAST_PROFILE: 개발 전용 빌드(--dev/--devtools)에서 Cargo release 프로파일의 하드닝
+# 설정(Cargo.toml의 lto="fat"·codegen-units=1)을 빠른 값으로 덮어쓸지 여부. 아래 두 옵션 중
+# 하나라도 있으면 켜진다. 배포 빌드(옵션 없음)는 절대 켜지지 않아 Cargo.toml 그대로 간다.
+FAST_PROFILE=false
 TAURI_CONFIG_ARGS=()
 TAURI_FEATURES=()
 _ARGS=()
 for _arg in "$@"; do
   if [[ "$_arg" == "--devtools" ]]; then
     TAURI_FEATURES=(--features devtools)
+    FAST_PROFILE=true
     echo "▶ --devtools 지정 → DevTools를 포함한 측정 전용 빌드입니다 (배포용으로 쓰지 마세요)."
   elif [[ "$_arg" == "--dev" ]]; then
     DEV_WASM=true
+    FAST_PROFILE=true
     TAURI_CONFIG_ARGS=(--config src-tauri/tauri.dev-wasm.conf.json)
     export FF_PROT_HARDEN=0
     echo "▶ --dev 지정 → WASM을 암호화·하드닝·난독화 없이 평문 그대로 번들에 넣는 알고리즘 개발 전용 빌드입니다 (배포용으로 쓰지 마세요)."
@@ -139,6 +145,25 @@ for _arg in "$@"; do
   fi
 done
 set -- ${_ARGS[@]+"${_ARGS[@]}"}
+
+# ── 개발 전용 빌드: Cargo release 프로파일 하드닝을 빠른 값으로 오버라이드 ──────────────
+# Cargo.toml의 [profile.release]는 배포 하드닝용으로 lto="fat" + codegen-units=1 이라, 최종
+# 바이너리 codegen이 단일 스레드로 굳어 릴리스 빌드가 느리다(이 리포 실측: 한 줄만 고쳐도
+# 최종 crate codegen에만 ~82초, CPU는 코어 1개만). 이 비용은 리버싱 방어(심볼 인라이닝/제거)를
+# 위한 "의도된" 배포 비용이므로 Cargo.toml은 그대로 두고, 개발 반복 빌드(--dev/--devtools)에서만
+# CARGO_PROFILE_RELEASE_* 환경변수로 덮어써서 병렬 codegen + LTO 생략으로 되돌린다.
+# (환경변수 오버라이드는 Cargo.toml 값보다 우선한다 — release 프로파일 이름 그대로 사용.)
+#   · lto=false           : fat LTO 생략 — 최종 링크의 단일 스레드 병목 제거(가장 큰 효과)
+#   · codegen-units=256   : codegen을 최대한 잘게 쪼개 여러 코어로 병렬화(cargo dev 기본값)
+#   · strip=false         : 심볼 유지 — 측정/디버깅용 빌드라 스택트레이스·프로파일링에 유용
+# 배포 빌드(FAST_PROFILE=false)에는 이 export가 실행되지 않아 Cargo.toml의 하드닝이 유지된다.
+if [[ "$FAST_PROFILE" == "true" ]]; then
+  export CARGO_PROFILE_RELEASE_LTO=false
+  export CARGO_PROFILE_RELEASE_CODEGEN_UNITS=256
+  export CARGO_PROFILE_RELEASE_STRIP=false
+  echo "▶ 개발 전용 빌드 → Cargo release 프로파일을 빠른 값으로 오버라이드합니다" \
+    "(lto=off · codegen-units=256 · strip=off — 다중 코어 병렬 컴파일). 배포 빌드에는 적용되지 않습니다."
+fi
 
 MAC_ONLY=false
 WINDOWS_ONLY=false
