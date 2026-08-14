@@ -24,12 +24,13 @@ const Y_SCALE_PADDING = 1.1;
 const Y_MIN_SPAN = 0.05;
 
 /**
- * Protected 트레이스는 독립된 growing store로 그려진다(live-envelope-overlay.ts) — 초기
- * 버킷 폭을 1ms로 잡아, 재생 초반부는 실제로 ms 단위 해상도로 확인할 수 있다. 50초
- * (= MAX_WAVE_BUCKETS × 1ms) 지점부터는 ChannelWaveStore의 압축 로직대로 점점 넓어진다
- * (세션이 길어져도 버킷 개수 상한은 유지).
+ * Protected 트레이스도 독립된 growing store(live-envelope-overlay.ts)로 그려지지만, 시작
+ * 전에 이미 원본 파일 디코딩이 끝나 전체 길이(original.durationSec)를 알고 있다 — 그래서
+ * "길이를 모르는 라이브 스트림"처럼 1ms 고정폭으로 시작해 압축(compact)해 나가는 대신,
+ * Input과 똑같이 computeInputBuckets(durationSec)로 버킷 폭을 한 번에 정해 store에 심는다
+ * (setInitialBucketSec, original이 확정되는 시점에 호출). 두 트레이스가 같은 시간 격자를
+ * 공유해야 겹쳐 볼 때 유의미하므로, 압축 정책 차이로 격자가 어긋나는 일이 없게 한다.
  */
-const PROTECTED_INITIAL_BUCKET_SEC = 0.001;
 
 /**
  * Input(원본 PCM)은 업로드 시점에 전체 길이가 이미 확정돼 있다 — Protected처럼 "얼마나
@@ -84,11 +85,11 @@ function ProtectedComparePanelImpl({
   const [decodeError, setDecodeError] = useState<string | null>(null);
   const [decoding, setDecoding] = useState(false);
 
-  // Protected(L/R)는 Input과 달리 파일 길이 기준 고정 1000버킷에 묶이지 않는다 — 각자
-  // 독립된 ChannelWaveStore(1ms 초기 버킷, 세션이 길어지면 스스로 압축)로 자란다.
+  // 초기 버킷 폭은 아직 모르는 원본 길이 대신 임시값(default)으로 시작하고, original이
+  // 확정되는 즉시(아래 backfill 이펙트) Input과 동일한 버킷 폭으로 재설정한다.
   const protectedStoresRef = useRef<[ChannelWaveStore, ChannelWaveStore]>([
-    new ChannelWaveStore(PROTECTED_INITIAL_BUCKET_SEC),
-    new ChannelWaveStore(PROTECTED_INITIAL_BUCKET_SEC),
+    new ChannelWaveStore(),
+    new ChannelWaveStore(),
   ]);
   const sampleRateRef = useRef(0);
 
@@ -192,6 +193,16 @@ function ProtectedComparePanelImpl({
     if (!original) return;
     const token = ++backfillTokenRef.current;
     let cancelled = false;
+
+    // Input과 같은 버킷 폭으로 맞춘다 — computeInputBuckets는 순수함수라 같은 durationSec엔
+    // 항상 같은 버킷 수를 내므로, 위 chartData의 Input 버킷 폭과 정확히 일치한다.
+    const buckets = computeInputBuckets(original.durationSec);
+    const bucketSec = original.durationSec / buckets;
+    const [storeL0, storeR0] = protectedStoresRef.current;
+    storeL0.reset();
+    storeR0.reset();
+    storeL0.setInitialBucketSec(bucketSec);
+    storeR0.setInitialBucketSec(bucketSec);
 
     (async () => {
       if (getProtectedBlob) {

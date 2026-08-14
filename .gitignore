@@ -13,6 +13,7 @@ node_modules/
 
 # Tauri 빌드 산출물 (src-tauri 본 구현 단계에서 채워짐)
 /src-tauri/target/
+/src-tauri/target-dev-dt/
 /src-tauri/binaries/
 /src-tauri/gen/
 /dist-tauri/

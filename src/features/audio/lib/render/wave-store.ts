@@ -74,7 +74,7 @@ export class ChannelWaveStore {
   private count = 0;
 
   /** 압축 전 초기 버킷 폭(초). 생성자로 넘기지 않으면 기존 기본값(5ms)을 쓴다. */
-  private readonly initialBucketSec: number;
+  private initialBucketSec: number;
   private bucketSec: number;
   private durationSec = 0;
 
@@ -158,6 +158,17 @@ export class ChannelWaveStore {
     this.ver++;
     this.cachedSnapshot = EMPTY_SNAPSHOT; // 다음 snapshot() 호출 때 다시 만든다
     this.listeners.forEach((fn) => fn());
+  }
+
+  /**
+   * 이후의 reset()이 되돌아갈 초기 버킷 폭을 바꾼다. 총 길이를 미리 알 수 있는 호출부
+   * (예: 원본 파일과 같은 구간을 그리는 Protected 트레이스)가 원본과 동일한 버킷 폭으로
+   * 맞춰, 압축(compact)이 아예 일어나지 않고 두 파형이 같은 시간 격자를 공유하게 하기
+   * 위함이다. 버킷이 비어있는 상태(reset 직후)에서만 의미가 있다.
+   */
+  setInitialBucketSec(sec: number): void {
+    this.initialBucketSec = sec;
+    this.bucketSec = sec;
   }
 
   reset(): void {
