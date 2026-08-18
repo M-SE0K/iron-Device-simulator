@@ -47,6 +47,15 @@ export class PcmFrameStore {
     return this.slabs[slab].subarray(start, start + this.stride);
   }
 
+  /** 프레임 i 부터 같은 슬랩 안에서 연속된 프레임들을 한 뷰로 돌려준다 —
+   * 벌크 소비자(pcm-kit 백필 등)가 프레임 단위 대신 런 단위로 읽기 위한 접근자. */
+  frameRun(i: number, maxFrames: number): { view: Int16Array; frames: number } {
+    const [slab, offset] = this.locate(i);
+    const frames = Math.max(0, Math.min(maxFrames, this.count - i, this.capacityOf(slab) - offset));
+    const start = offset * this.stride;
+    return { view: this.slabs[slab].subarray(start, start + frames * this.stride), frames };
+  }
+
   append(src: Int16Array): Int16Array {
     this.ensure(this.count + 1);
     const view = this.frame(this.count);

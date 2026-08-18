@@ -2,13 +2,11 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { CHANNELS } from "@/features/audio/lib/engine/core";
-import { copyChannelFloat32, readChannelFloat32 } from "@/features/audio/lib/pcm";
+import { envelopeModeSuffix, recordPerfSample } from "@/shared/lib/iron-perf";
 import type { DecodedPlayback } from "@/features/audio/lib/codec/playback-decode";
 import { ChannelWaveStore, MAX_WAVE_BUCKETS } from "@/features/audio/lib/render/wave-store";
 import { peekWavHeader, decodeWavRange } from "@/features/audio/lib/codec/wav-incremental";
 import type { CaptureStreamEvent, CaptureStreamListener } from "@/features/audio/components/player/capture/types";
-
-const EXTRACT_CHUNK_FRAMES = 131072;
 
 const TARGET_BUCKET_SEC = 0.001;
 const MAX_BUCKETS = Math.floor(MAX_WAVE_BUCKETS * 0.99);
@@ -79,17 +77,14 @@ export function useProtectedCompareStreams({
     inputL.setInitialBucketSec(bucketSec);
     inputR.setInitialBucketSec(bucketSec);
 
+    /* 인터리브 디코드 결과를 채널 추출 pass 없이 pcm-kit 커널로 바로 집계한다 —
+     * 파일 전체를 도는 이 시딩은 메인 스레드 동기 실행이라 여기 소요 시간이 곧
+     * 업로드 직후 UI 정지 시간이다(envelope_seed 스테이지로 계측). */
     const totalFrames = Math.floor(decoded.pcm.length / CHANNELS);
-    const chunkFrames = Math.max(1, Math.min(totalFrames, EXTRACT_CHUNK_FRAMES));
-    const scratchL = new Float32Array(chunkFrames);
-    const scratchR = new Float32Array(chunkFrames);
-    for (let start = 0; start < totalFrames; start += chunkFrames) {
-      const n = copyChannelFloat32(decoded.pcm, CHANNELS, 0, start, scratchL);
-      copyChannelFloat32(decoded.pcm, CHANNELS, 1, start, scratchR);
-      const startSec = start / decoded.rate;
-      inputL.addBlock(n === chunkFrames ? scratchL : scratchL.subarray(0, n), startSec, decoded.rate);
-      inputR.addBlock(n === chunkFrames ? scratchR : scratchR.subarray(0, n), startSec, decoded.rate);
-    }
+    const t0 = performance.now();
+    inputL.addSamples(decoded.pcm, { channels: CHANNELS, channel: 0, frames: totalFrames, startSec: 0, sampleRate: decoded.rate });
+    inputR.addSamples(decoded.pcm, { channels: CHANNELS, channel: 1, frames: totalFrames, startSec: 0, sampleRate: decoded.rate });
+    recordPerfSample(`envelope_seed${envelopeModeSuffix()}`, performance.now() - t0);
     inputL.flush();
     inputR.flush();
 
@@ -108,22 +103,13 @@ export function useProtectedCompareStreams({
     backfillTokenRef.current += 1;
   }, [sourceFile, stores]);
 
-  const protectedScratchRef = useRef<{ l: Float32Array; r: Float32Array } | null>(null);
-
   const applyProtectedEvent = useCallback((ev: ProtectedEvent) => {
     const { protectedL, protectedR } = stores;
-    const samplesPerFrame = ev.processed.length / CHANNELS;
+    const samplesPerFrame = Math.floor(ev.processed.length / CHANNELS);
     const startSec = (ev.frameIndex * samplesPerFrame) / ev.sampleRate;
 
-    let scratch = protectedScratchRef.current;
-    if (!scratch || scratch.l.length !== samplesPerFrame) {
-      scratch = { l: new Float32Array(samplesPerFrame), r: new Float32Array(samplesPerFrame) };
-      protectedScratchRef.current = scratch;
-    }
-    readChannelFloat32(ev.processed, CHANNELS, 0, scratch.l);
-    readChannelFloat32(ev.processed, CHANNELS, 1, scratch.r);
-    protectedL.addBlock(scratch.l, startSec, ev.sampleRate);
-    protectedR.addBlock(scratch.r, startSec, ev.sampleRate);
+    protectedL.addSamples(ev.processed, { channels: CHANNELS, channel: 0, frames: samplesPerFrame, startSec, sampleRate: ev.sampleRate });
+    protectedR.addSamples(ev.processed, { channels: CHANNELS, channel: 1, frames: samplesPerFrame, startSec, sampleRate: ev.sampleRate });
     protectedL.flush();
     protectedR.flush();
   }, [stores]);

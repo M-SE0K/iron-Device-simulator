@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { readChannelFloat32 } from "@/features/audio/lib/pcm";
+import { envelopeModeSuffix, recordPerfSample } from "@/shared/lib/iron-perf";
 import { yieldToMain } from "@/shared/lib/yield-to-main";
 import type {
   CaptureSnapshot,
@@ -11,6 +11,10 @@ import type {
 import { ChannelWaveStore } from "@/features/audio/lib/render/wave-store";
 
 const SLICE_BUDGET_MS = 4;
+
+/* 백필에서 한 번에 집계로 넘기는 와이어 프레임 런 크기 — pcm-kit 커널이 벌크로
+ * 처리하므로 프레임 단위 대신 런 단위(기본 480샘플 × 128 ≈ 1.3초 분량)로 배치한다. */
+const BACKFILL_RUN_FRAMES = 128;
 
 export interface ChannelStreamHeader {
   channels: number;
@@ -49,7 +53,6 @@ export function useChannelWaveStreams({
   const totalFramesRef = useRef(0);
   const seededRef = useRef<Set<number>>(new Set());
   const sessionTokenRef = useRef(0);
-  const chunkScratchRef = useRef<Float32Array>(new Float32Array(0));
 
   useEffect(() => {
     const wantedSet = new Set(wantedChannels);
@@ -75,17 +78,10 @@ export function useChannelWaveStreams({
     const wanted = wantedChannelsRef.current;
     if (wanted.length === 0) return;
 
-    const data = chunk;
-    let samples = chunkScratchRef.current;
-    if (samples.length !== frameCount) {
-      samples = new Float32Array(frameCount);
-      chunkScratchRef.current = samples;
-    }
     for (const ch of wanted) {
       if (ch >= channels) continue;
       const waveStore = getStore(ch);
-      readChannelFloat32(data, channels, ch, samples);
-      waveStore.addBlock(samples, startSec, sampleRate);
+      waveStore.addSamples(chunk, { channels, channel: ch, frames: frameCount, startSec, sampleRate });
       waveStore.flush();
     }
   }, [getStore]);
@@ -138,25 +134,33 @@ export function useChannelWaveStreams({
       const liveTargets = targets.filter(([ch]) => ch < channels);
       if (liveTargets.length === 0) return;
 
-      const scratch = new Float32Array(samplesPerFrame);
       const frameCount = Math.floor(snap.totalFrames / samplesPerFrame);
-      let deadline = performance.now() + SLICE_BUDGET_MS;
+      let busyMs = 0;
+      let sliceStart = performance.now();
+      let deadline = sliceStart + SLICE_BUDGET_MS;
 
-      for (let fi = 0; fi < frameCount; fi++) {
-        const view = pcm.frame(fi);
+      let fi = 0;
+      while (fi < frameCount) {
+        const run = pcm.frameRun(fi, Math.min(BACKFILL_RUN_FRAMES, frameCount - fi));
+        if (run.frames === 0) break;
         const startSec = (fi * samplesPerFrame) / sampleRate;
+        const audioFrames = run.frames * samplesPerFrame;
         for (const [ch, waveStore] of liveTargets) {
-          readChannelFloat32(view, channels, ch, scratch);
-          waveStore.addBlock(scratch, startSec, sampleRate);
+          waveStore.addSamples(run.view, { channels, channel: ch, frames: audioFrames, startSec, sampleRate });
         }
+        fi += run.frames;
         if (performance.now() >= deadline) {
           liveTargets.forEach(([, s]) => s.flush());
+          busyMs += performance.now() - sliceStart;
           await yieldToMain();
           if (stale()) return;
-          deadline = performance.now() + SLICE_BUDGET_MS;
+          sliceStart = performance.now();
+          deadline = sliceStart + SLICE_BUDGET_MS;
         }
       }
       liveTargets.forEach(([, s]) => s.flush());
+      busyMs += performance.now() - sliceStart;
+      recordPerfSample(`envelope_backfill${envelopeModeSuffix()}`, busyMs);
 
       if (sessionTokenRef.current !== token) return;
       setHeader((prev) => (

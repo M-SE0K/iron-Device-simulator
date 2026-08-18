@@ -31,6 +31,12 @@ for arg in "$@"; do
   esac
 done
 
+# 렌더 계층 벌크 PCM 커널(pcm-kit) — 평문 배포 산출물이라 --dev 여부와 무관하게 항상
+# 컴파일하고, 아래 암호화 스테이징(ff_prot.wasm 전용)의 영향도 받지 않는다.
+# 엔진보다 먼저 빌드한다: custom/ 드롭인 소스 상태(교체 실험 중 중복 심볼 등)로 엔진
+# 컴파일이 실패해도 커널 산출물은 항상 갱신되도록.
+(cd native/pcm-kit && ./build-pcm-kit.sh)
+
 (cd native/wasm-engine && ./build-wasm.sh)
 
 if $ENC; then

@@ -1,3 +1,6 @@
+import { aggregateEnvelope, type PcmSource } from "@/features/audio/lib/pcm-kit";
+import { INT16_SCALE } from "@/features/audio/lib/engine/core";
+import { getEnvelopeMode } from "@/shared/lib/iron-perf";
 import type { SeriesReadBuffer } from "./read-buffer";
 import { VersionedSnapshotStore } from "./store-base";
 
@@ -7,6 +10,18 @@ const INITIAL_BUCKET_SEC = 0.005;
 
 const SEED_SCAN_LIMIT = 256;
 
+/* 레거시(A/B 측정) 경로 전용 — 옛 구현의 EXTRACT_CHUNK_FRAMES 와 동일한 청크 크기. */
+const LEGACY_EXTRACT_CHUNK_FRAMES = 131072;
+let legacyScratch: Float32Array | null = null;
+
+
+export interface AddSamplesOpts {
+  channels: number;
+  channel: number;
+  frames: number;
+  startSec: number;
+  sampleRate: number;
+}
 
 export interface WaveSnapshot {
   version: number;
@@ -38,9 +53,62 @@ export class ChannelWaveStore extends VersionedSnapshotStore<WaveSnapshot> {
   private sumSq = 0;
   private sampleCount = 0;
 
+  /** 인터리브 원본(int16/float32)에서 한 채널을 골라 직접 집계한다 — 사전 채널
+   * 추출 pass 없이 pcm-kit 커널(WASM, 미로드 시 JS 폴백)로 벌크 처리하는 주 경로. */
+  addSamples(src: PcmSource, opts: AddSamplesOpts): void {
+    const { channels, channel, frames, startSec, sampleRate } = opts;
+    if (frames <= 0 || !(sampleRate > 0) || !Number.isFinite(startSec) || startSec < 0) return;
+
+    if (getEnvelopeMode() === "legacy") {
+      this.addSamplesLegacy(src, opts);
+      return;
+    }
+
+    const step = 1 / sampleRate;
+    const endSec = startSec + (frames - 1) * step;
+    this.ensureCapacity(endSec);
+
+    const stats = aggregateEnvelope(
+      src, channels, channel, frames, startSec, sampleRate, this.bucketSec, MAX_WAVE_BUCKETS,
+      (firstBucket, count, mins, maxs) => this.mergeBuckets(firstBucket, count, mins, maxs),
+    );
+
+    if (stats.peak > this.peakAbs) this.peakAbs = stats.peak;
+    this.sumSq += stats.sumSq;
+    this.sampleCount += frames;
+    if (endSec + step > this.durationSec) this.durationSec = endSec + step;
+    this.dirty = true;
+  }
+
   addBlock(data: Float32Array, startSec: number, sampleRate: number): void {
+    this.addSamples(data, { channels: 1, channel: 0, frames: data.length, startSec, sampleRate });
+  }
+
+  /* ── A/B 측정용 레거시 경로 (__ironPerf.envelopeMode("legacy") 전용) ────────
+   * pcm-kit 도입 전 구현을 그대로 보존한 것: 사전 채널 추출 pass(readChannelFloat32
+   * 상당) + per-sample floor 버킷팅 2-pass 비용을 재현한다. 측정 빌드가 아니면
+   * getEnvelopeMode()가 항상 "wasm"이라 도달하지 않는다. 비교가 끝나면 삭제 가능. */
+  private addSamplesLegacy(src: PcmSource, opts: AddSamplesOpts): void {
+    const { channels, channel, frames, startSec, sampleRate } = opts;
+    for (let off = 0; off < frames; off += LEGACY_EXTRACT_CHUNK_FRAMES) {
+      const n = Math.min(LEGACY_EXTRACT_CHUNK_FRAMES, frames - off);
+      let data: Float32Array;
+      if (channels === 1 && src instanceof Float32Array) {
+        data = src.subarray(off, off + n);
+      } else {
+        const scratch = (legacyScratch ??= new Float32Array(LEGACY_EXTRACT_CHUNK_FRAMES));
+        const scale = src instanceof Int16Array ? 1 / INT16_SCALE : 1;
+        for (let i = 0; i < n; i++) scratch[i] = src[(off + i) * channels + channel] * scale;
+        data = scratch.subarray(0, n);
+      }
+      this.legacyBlock(data, startSec + off / sampleRate, sampleRate);
+    }
+  }
+
+  /* pcm-kit 도입 전 addBlock 본문 그대로 (per-sample floor 버킷팅). */
+  private legacyBlock(data: Float32Array, startSec: number, sampleRate: number): void {
     const n = data.length;
-    if (n === 0 || !(sampleRate > 0) || !Number.isFinite(startSec)) return;
+    if (n === 0) return;
 
     const step = 1 / sampleRate;
     const endSec = startSec + (n - 1) * step;
@@ -74,6 +142,25 @@ export class ChannelWaveStore extends VersionedSnapshotStore<WaveSnapshot> {
     this.sampleCount += n;
     if (endSec + step > this.durationSec) this.durationSec = endSec + step;
     this.dirty = true;
+  }
+
+  private mergeBuckets(firstBucket: number, count: number, mins: Float32Array, maxs: Float32Array): void {
+    for (let j = 0; j < count; j++) {
+      const mn = mins[j];
+      const mx = maxs[j];
+      if (mn > mx) continue;                       // 빈 버킷 센티널
+      const b = firstBucket + j;
+      if (b < 0 || b >= MAX_WAVE_BUCKETS) continue;
+      if (this.seen[b] === 0) {
+        this.mins[b] = mn;
+        this.maxs[b] = mx;
+        this.seen[b] = 1;
+        if (b >= this.count) this.count = b + 1;
+      } else {
+        if (mn < this.mins[b]) this.mins[b] = mn;
+        if (mx > this.maxs[b]) this.maxs[b] = mx;
+      }
+    }
   }
 
   setInitialBucketSec(sec: number): void {
