@@ -15,6 +15,11 @@ edition = "2021"
 # debug 빌드(npm run tauri:preview)는 이 피처와 무관하게 tauri 기본값대로 항상 열려 있다.
 [features]
 devtools = ["tauri/devtools"]
+# 평문 WASM 리소스 폴백(wasm_asset.rs)을 컴파일에 포함할지. --dev(알고리즘 개발 전용) 빌드에서만
+# 켠다(scripts/build/build-tauri.sh). 배포/--devtools 빌드에는 이 피처가 꺼져 있어 평문 폴백
+# 코드 자체가 바이너리에 없다 — 설치본 Resources 에 평문 ff_prot.wasm 을 떨어뜨려도 AES-GCM
+# 복호화(GCM 태그/AAD 무결성)를 우회할 수 없다(엔진 바꿔치기·평문 우회 벡터 제거).
+plain-wasm = []
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }

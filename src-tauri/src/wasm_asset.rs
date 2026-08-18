@@ -9,6 +9,7 @@ use tauri::{AppHandle, Manager};
 use crate::wasm_key::{WASM_SALT, WASM_SEED_A, WASM_SEED_B};
 
 const ENCRYPTED_RESOURCE_NAME: &str = "ff_prot.wasm.enc";
+#[cfg(feature = "plain-wasm")]
 const PLAIN_RESOURCE_NAME: &str = "ff_prot.wasm";
 const NONCE_LEN: usize = 12;
 
@@ -27,15 +28,23 @@ fn derive_key() -> [u8; 32] {
     okm
 }
 
-#[tauri::command]
-pub async fn wasm_asset_load(app: AppHandle) -> Result<Response, String> {
-    if let Ok(plain_path) = app
+// 평문 WASM 리소스 폴백은 --dev(알고리즘 개발 전용) 빌드에서만 컴파일된다(plain-wasm 피처).
+// 배포/--devtools 빌드에는 이 함수 자체가 없어, 설치본 Resources 에 평문 ff_prot.wasm 을
+// 떨어뜨려도 AES-GCM 복호화·무결성 검증(GCM 태그/AAD)을 우회할 수 없다.
+#[cfg(feature = "plain-wasm")]
+fn try_plain_resource(app: &AppHandle) -> Option<Vec<u8>> {
+    let plain_path = app
         .path()
         .resolve(PLAIN_RESOURCE_NAME, BaseDirectory::Resource)
-    {
-        if let Ok(plain) = std::fs::read(&plain_path) {
-            return Ok(Response::new(plain));
-        }
+        .ok()?;
+    std::fs::read(&plain_path).ok()
+}
+
+#[tauri::command]
+pub async fn wasm_asset_load(app: AppHandle) -> Result<Response, String> {
+    #[cfg(feature = "plain-wasm")]
+    if let Some(plain) = try_plain_resource(&app) {
+        return Ok(Response::new(plain));
     }
 
     let resource_path = app

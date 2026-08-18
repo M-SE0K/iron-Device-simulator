@@ -1,4 +1,5 @@
 import type { EngineFrameMessage, EngineMessage } from "../../../types";
+import { isIronPerfEnabled, recordPerfSample } from "@/shared/lib/iron-perf";
 import {
   EngineSessionCore,
   type EngineInitPayload,
@@ -7,6 +8,12 @@ import {
   type WorkerResponse,
 } from "./session-core";
 import type { ProtectedPcm } from "./frame-core";
+
+/* worker_roundtrip: sendFrame() 호출부터 해당 프레임 결과가 메인 스레드에 돌아올 때까지.
+ * wasm_engine(워커 안쪽 analyze 시간)과의 차 = 워커 래퍼 오버헤드(직렬화/전송/큐 대기 +
+ * frame-core 의 slice/deinterleave). 스탬프는 전송 순서와 1:1 정렬되며, 워밍업으로
+ * 버려진 프레임 수는 ready 메시지가 알려줘 그만큼 앞에서 걷어낸다. */
+const ROUNDTRIP_STAMP_CAP = 4096;
 
 export interface EngineClient {
   readonly closed: boolean;
@@ -81,6 +88,8 @@ class WorkerEngineClient implements EngineClient {
   private pendingFrames: ArrayBuffer[] = [];
   private flushScheduled = false;
   private initPosted = false;
+  private readonly perfEnabled = isIronPerfEnabled();
+  private roundtripStamps: number[] = [];
 
   constructor() {
     this.worker = new Worker(new URL("../worker/dsp-worker.ts", import.meta.url));
@@ -90,6 +99,7 @@ class WorkerEngineClient implements EngineClient {
       const data = e.data as WorkerResponse;
       if (!data || !Array.isArray(data.results)) return;
       for (const out of data.results) {
+        if (this.perfEnabled) this.trackRoundtrip(out.msg);
         routeMessage(this, out.msg);
         if (out.pcm) this.onProtectedPcm?.(out.pcm);
       }
@@ -131,10 +141,27 @@ class WorkerEngineClient implements EngineClient {
 
   sendFrame(data: ArrayBuffer): void {
     if (this.closed) return;
+    if (this.perfEnabled && this.roundtripStamps.length < ROUNDTRIP_STAMP_CAP) {
+      this.roundtripStamps.push(performance.now());
+    }
     this.pendingFrames.push(data);
     if (!this.flushScheduled) {
       this.flushScheduled = true;
       queueMicrotask(() => this.flushFrames());
+    }
+  }
+
+  /* frame/error 결과는 sendFrame 1건에 대한 응답이라 스탬프를 하나 소비한다.
+   * ready 는 init 응답이므로 소비하지 않되, 워밍업 드롭 수만큼 응답 없는 스탬프를 걷어낸다. */
+  private trackRoundtrip(msg: EngineMessage): void {
+    if (msg.type === "ready") {
+      const dropped = msg.warmupDroppedFrames ?? 0;
+      if (dropped > 0) this.roundtripStamps.splice(0, dropped);
+      return;
+    }
+    const t0 = this.roundtripStamps.shift();
+    if (t0 !== undefined && msg.type === "frame") {
+      recordPerfSample("worker_roundtrip", performance.now() - t0);
     }
   }
 

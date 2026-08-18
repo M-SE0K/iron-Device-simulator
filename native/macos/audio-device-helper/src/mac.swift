@@ -859,7 +859,17 @@ func runPlayCaptureStream(device: AudioDeviceID, sampleRate reqRate: Double, buf
                 }
             }
         })
-    stopFn = stopAndExit
+    // 종료 직전에 언더런 누계를 stderr로 남긴다 — Windows 헬퍼(main.cpp)와 같은 포맷.
+    // stdout은 JSON 헤더+PCM 전용이라 오염시키지 않고, stderr는 개발 실행(tauri dev)
+    // 터미널에서만 보인다. PlaybackRing이 세던 값을 처음으로 바깥에 보고하는 지점이다.
+    let reportUnderrunsAndExit: (Int32) -> Void = { code in
+        let underrun = ring.underrunFrames
+        if underrun > 0 {
+            fputs("play-capture: \(underrun) frames of playback underrun (ring starved)\n", stderr)
+        }
+        stopAndExit(code)
+    }
+    stopFn = reportUnderrunsAndExit
 
     // 헤더는 IOProc 시작 전에 쓴다 — 부모(run_streaming_helper)가 이 줄을 받아야 렌더러가
     // actual 값으로 엔진을 열고 프리필을 밀어 넣을 수 있다. 즉 이 헤더가 프리필의 출발 신호다.
@@ -887,7 +897,7 @@ func runPlayCaptureStream(device: AudioDeviceID, sampleRate reqRate: Double, buf
             guard ring.level >= prefillFrames || ring.endOfStream else {
                 if Date() >= deadline {
                     timer.cancel()
-                    stopAndExit(EXIT_CODE_PREFILL_TIMEOUT)
+                    reportUnderrunsAndExit(EXIT_CODE_PREFILL_TIMEOUT)
                 }
                 return
             }
@@ -897,7 +907,7 @@ func runPlayCaptureStream(device: AudioDeviceID, sampleRate reqRate: Double, buf
         }
         if finished {
             timer.cancel()
-            stopAndExit(0)
+            reportUnderrunsAndExit(0)
         }
     }
     timer.resume()

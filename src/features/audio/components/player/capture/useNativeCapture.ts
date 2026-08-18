@@ -4,6 +4,7 @@ import { useCallback, type MutableRefObject } from "react";
 import type { AppStatus } from "@/features/audio/types";
 import type { EngineClient } from "@/features/audio/lib/engine/protocol/engine-client";
 import { clampCaptureChannels, CHANNELS } from "@/features/audio/lib/engine/core";
+import { isIronPerfEnabled, recordPerfSample } from "@/shared/lib/iron-perf";
 import { encodeToInt16 } from "@/features/audio/lib/engine/utils";
 import { PcmFrameStore } from "@/features/audio/lib/pcm-frame-store";
 import { humanizeIpcError } from "@/shared/lib/ipc-error";
@@ -192,12 +193,23 @@ export function useNativeCapture(deps: NativeCaptureDeps) {
     let writtenFrames  = 0;
     const latestSensing = new Int16Array(wireSamplesPerCh * CHANNELS);
 
+    /* --dev 계측 게이지 — 셋 다 단위는 "와이어 프레임"(1프레임 = wireSamplesPerCh/rate 초,
+     * capturedFrames/producedFrames 와 동일 단위)으로 통일한다.
+     *   stream_lead:          엔진 선행분(생산−캡처)
+     *   stream_write_backlog: 헬퍼로 못 보내고 대기 중인 보호 PCM
+     *   stream_ring_est:      전송분−캡처 재생분 — 단일 클록이라 캡처 수 ≒ 재생 위치,
+     *                         IPC 비행분까지 포함한 링 백로그 상한 추정 */
+    const perfOn = isIronPerfEnabled();
+    let sentFrames = 0;
+    let pendingFrameCount = 0;
+
     const pendingWrites: Int16Array[] = [];
     let writeInFlight = false;
     let endRequested = false;
     let endSent = false;
 
     const takePendingWrites = (): Int16Array => {
+      pendingFrameCount = 0;
       if (pendingWrites.length === 1) return pendingWrites.pop()!;
       let total = 0;
       for (const part of pendingWrites) total += part.length;
@@ -217,7 +229,9 @@ export function useNativeCapture(deps: NativeCaptureDeps) {
       if (!bridge) return;
       if (pendingWrites.length >= batchFrames || (endRequested && pendingWrites.length > 0)) {
         writeInFlight = true;
-        void bridge.writePcm(takePendingWrites()).finally(() => {
+        const mergedPcm = takePendingWrites();
+        sentFrames += mergedPcm.length / (CHANNELS * wireSamplesPerCh);
+        void bridge.writePcm(mergedPcm).finally(() => {
           writeInFlight = false;
           drainWrites();
         });
@@ -248,6 +262,10 @@ export function useNativeCapture(deps: NativeCaptureDeps) {
         },
         pushProtected: (processed) => {
           pendingWrites.push(processed);
+          if (perfOn) {
+            pendingFrameCount += 1;
+            recordPerfSample("stream_write_backlog", pendingFrameCount);
+          }
           if (++writtenFrames >= totalPlaybackFrames) endRequested = true;
           drainWrites();
         },
@@ -264,6 +282,10 @@ export function useNativeCapture(deps: NativeCaptureDeps) {
         if (streaming) {
           latestSensing.set(frame);
           capturedFrames++;
+          if (perfOn) {
+            recordPerfSample("stream_lead", producedFrames - capturedFrames);
+            recordPerfSample("stream_ring_est", sentFrames - capturedFrames);
+          }
           produceFrames();
           return;
         }
@@ -280,9 +302,21 @@ export function useNativeCapture(deps: NativeCaptureDeps) {
     );
 
     const bridge = playback ? window.audioPlayCapture! : window.audioCapture!;
+    /* ipc_chunk_gap: 헬퍼 청크의 도착 "간격" 분포 — 프로세스 간 클록이 달라 절대 지연은
+     * 못 재지만, 기대값(bufferSize/rate)보다 벌어지는 꼬리가 릴레이/메인 스레드 정체의
+     * 신호다. reframe: 청크당 리프레이밍(JS DataView 루프) 소요. */
+    let lastChunkAt = 0;
     const offData = bridge.onData((chunk) => {
       if (client.closed) return;
+      if (!perfOn) {
+        reframe(chunk);
+        return;
+      }
+      const now = performance.now();
+      if (lastChunkAt > 0) recordPerfSample("ipc_chunk_gap", now - lastChunkAt);
+      lastChunkAt = now;
       reframe(chunk);
+      recordPerfSample("reframe", performance.now() - now);
     });
     const offEnded = bridge.onEnded((info) => {
       if (!isActiveRef.current) return;

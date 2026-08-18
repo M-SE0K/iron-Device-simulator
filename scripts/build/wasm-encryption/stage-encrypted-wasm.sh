@@ -45,4 +45,15 @@ if [[ -f "$OUT_WASM_FILE" ]]; then
   echo "→ $OUT_WASM_FILE 삭제 (평문 사본 제거 — ff_prot.js 글루만 out/에 남음)"
 fi
 
+# 배포 경로에는 평문 리소스가 있어선 안 된다. wasm_asset.rs의 평문 폴백은 배포 빌드에
+# 컴파일되지 않지만(plain-wasm 피처 off), 이전 --dev 스테이징(stage-dev-wasm.sh)이 남긴
+# 평문 src-tauri/resources/ff_prot.wasm 이 리소스 디렉터리에 잔존해 혼동/오배포되는 것을
+# 막기 위해 배포 스테이징에서 확실히 제거한다(기본 tauri.conf.json은 .enc만 번들하지만,
+# 잔재가 남아 있는 것 자체가 리스크다).
+PLAIN_RESOURCE="src-tauri/resources/ff_prot.wasm"
+if [[ -f "$PLAIN_RESOURCE" ]]; then
+  rm -f "$PLAIN_RESOURCE"
+  echo "→ $PLAIN_RESOURCE 삭제 (배포 경로에는 평문 리소스를 두지 않음)"
+fi
+
 echo "✓ 암호화 리소스 스테이징 완료: src-tauri/resources/ff_prot.wasm.enc"

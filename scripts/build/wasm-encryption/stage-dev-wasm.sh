@@ -7,7 +7,9 @@
 #      (tauri.dev-wasm.conf.json의 bundle.resources가 이 경로를 번들에 넣는다)
 #   2) src-tauri/resources/ff_prot.wasm.enc 가 없으면 빈 플레이스홀더를 만든다 — 기본
 #      tauri.conf.json의 bundle.resources가 이 파일의 "존재"를 요구하기 때문이다(내용은
-#      쓰이지 않는다 — src-tauri/src/wasm_asset.rs가 평문 리소스를 우선 사용한다).
+#      쓰이지 않는다 — --dev 빌드는 plain-wasm 피처가 켜져 src-tauri/src/wasm_asset.rs가
+#      평문 리소스를 우선 사용한다. 이 피처는 배포/--devtools 빌드에는 꺼져 있어 그쪽에선
+#      평문 폴백 자체가 컴파일되지 않는다).
 #
 # out/의 평문 사본은 지우지 않는다 — --dev 빌드는 평문이 들어가도 상관없는
 # 알고리즘 개발 전용 빌드다(배포 금지).

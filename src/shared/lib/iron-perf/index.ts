@@ -30,6 +30,12 @@ function emitTimingMeasure(stage: string, ms: number): void {
   }
 }
 
+/** 계측 빌드 여부 — recordPerfSample 은 스스로 가드하지만, 스탬프 배열 유지 같은
+ * 계측 "준비" 비용까지 피하고 싶은 호출부가 이 값으로 감싼다. */
+export function isIronPerfEnabled(): boolean {
+  return process.env.NEXT_PUBLIC_IRON_PERF === "1";
+}
+
 export function recordPerfSample(stage: string, ms: number): void {
   if (process.env.NEXT_PUBLIC_IRON_PERF !== "1") return;
   emitTimingMeasure(stage, ms);

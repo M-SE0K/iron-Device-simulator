@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useCallback, useRef, useEffect, useMemo } from "react";
+import { recordPerfSample } from "@/shared/lib/iron-perf";
 import { Activity, Menu, PanelLeftClose, PanelLeftOpen, ShieldAlert, Thermometer } from "lucide-react";
 import Sidebar from "./Sidebar";
 import SelectedFilePanel from "@/features/audio/components/dashboard/SelectedFilePanel";
@@ -255,6 +256,7 @@ export default function DashboardPage() {
       outputQueueRef.current = [];
 
       if (bucket.length === 0) return;
+      const drainT0 = performance.now();
 
       const eventFrames = detectEvents(bucket, prevTempRef.current, thresholdsRef.current);
       const renderFrame = coalesceFrames(bucket);
@@ -273,6 +275,7 @@ export default function DashboardPage() {
       for (const f of renderFrames) chartStore.push(f);
       chartStore.flush();
       markHasFrames();
+      recordPerfSample("render_drain", performance.now() - drainT0);
     };
 
     let renderRaf = 0;
