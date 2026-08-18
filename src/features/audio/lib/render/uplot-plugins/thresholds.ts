@@ -1,4 +1,5 @@
-import type uPlot from "uplot";
+import "@/shared/lib/dpr-cap";
+import uPlot from "uplot";
 
 export interface ThresholdLine {
   y: number;
@@ -6,14 +7,13 @@ export interface ThresholdLine {
   label: string;
 }
 
-/** y=임계값(WARN/DANGER) 점선 + 라벨 — 캔버스에 직접 그린다. */
 export function thresholdsPlugin(lines: ThresholdLine[]): uPlot.Plugin {
   return {
     hooks: {
       draw: (u) => {
         if (lines.length === 0) return;
         const ctx = u.ctx;
-        const pxRatio = window.devicePixelRatio || 1;
+        const pxRatio = uPlot.pxRatio || 1;
         const { left, width } = u.bbox;
         ctx.save();
         for (const line of lines) {

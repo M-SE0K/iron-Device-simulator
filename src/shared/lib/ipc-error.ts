@@ -19,13 +19,6 @@ const FS_ERRNO_MESSAGES: Record<string, string> = {
   EMFILE: "Too many files are open — try again.",
 };
 
-/**
- * Tauri IPC/네이티브 헬퍼가 그대로 돌려주는 짧은 에러 코드(예: "capture-already-running")나
- * Node fs 에러 메시지(예: "ENOENT: no such file or directory, open '...'")를 사용자가 읽을 수
- * 있는 문장으로 바꾼다. 이미 사람이 쓴 문장(공백 포함)은 그대로 통과시키고, 알려지지 않은
- * 코드성 값만 원문을 노출하지 않고 `fallback`으로 대신하되 콘솔에는 원본을 남겨 디버깅은
- * 가능하게 한다.
- */
 export function humanizeIpcError(raw: string | null | undefined, fallback: string): string {
   if (!raw) return fallback;
   if (KNOWN_MESSAGES[raw]) return KNOWN_MESSAGES[raw];
@@ -35,8 +28,6 @@ export function humanizeIpcError(raw: string | null | undefined, fallback: strin
     if (raw.startsWith(code)) return message;
   }
 
-  // 공백이 있으면 이미 사람이 작성한 문장(예: 앱 코드에서 직접 throw한 메시지)일 가능성이
-  // 높다 — 그대로 보여준다. 공백 없는 짧은 코드성 문자열만 알 수 없는 IPC 코드로 취급한다.
   if (/\s/.test(raw)) return raw;
 
   console.warn(`[ipc] unrecognized error code: ${raw}`);

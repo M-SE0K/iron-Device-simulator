@@ -2,7 +2,8 @@
   "$schema": "https://unpkg.com/knip@latest/schema.json",
   "entry": [
     "scripts/build/wasm-encryption/encrypt-wasm.js",
-    "scripts/build/wasm-encryption/gen-wasm-key-rs.js"
+    "scripts/build/wasm-encryption/gen-wasm-key-rs.js",
+    "native/wasm-engine/obfuscate-wasm-consts.js"
   ],
   "ignore": ["installer-site/**"],
   "ignoreDependencies": ["javascript-obfuscator", "wasm-opt"]

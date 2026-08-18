@@ -1,5 +1,6 @@
-import { useCallback, type MutableRefObject } from "react";
+import { useCallback } from "react";
 import type { AnalysisFrame } from "@/features/audio/types";
+import type { FrameLog } from "@/features/audio/lib/frame-log";
 import type {
   SaveWorkspaceInput,
   SessionStatus,
@@ -8,7 +9,6 @@ import type { TempThresholds } from "@/features/audio/lib/render/detect-events";
 
 interface WorkspaceSaveSource {
   originalFile: File;
-  /** 전 채널 WAV(ch0=V, ch1=I, ch2+ 확장 채널 포함) — 없으면(캡처 이력 없음) 업로드 원본으로 대체한다. */
   capturedAudio: Blob | null;
 }
 
@@ -19,7 +19,7 @@ interface WorkspaceSaveRequest {
 }
 
 interface UseWorkspaceSaveOptions {
-  framesRef: MutableRefObject<AnalysisFrame[]>;
+  frameLog: FrameLog;
   thresholds: TempThresholds;
   getProtectedBlob: () => Blob | null;
   saveCurrent: (input: SaveWorkspaceInput) => Promise<void>;
@@ -42,13 +42,13 @@ function computeMeasurementSummary(
 }
 
 export function useWorkspaceSave({
-  framesRef,
+  frameLog,
   thresholds,
   getProtectedBlob,
   saveCurrent,
 }: UseWorkspaceSaveOptions) {
   return useCallback(async ({ name, audioDuration, source }: WorkspaceSaveRequest) => {
-    const frames = framesRef.current;
+    const frames = frameLog.toFrames();
     const protectedAudio = getProtectedBlob();
     const { peakTemp, peakExcursion, status } = computeMeasurementSummary(frames, thresholds);
 
@@ -70,5 +70,5 @@ export function useWorkspaceSave({
       peakExcursion,
       status,
     });
-  }, [framesRef, thresholds, getProtectedBlob, saveCurrent]);
+  }, [frameLog, thresholds, getProtectedBlob, saveCurrent]);
 }

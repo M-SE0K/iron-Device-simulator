@@ -1,18 +1,5 @@
-/**
- * 차트 y축 표시 범위 계산.
- *
- * 예전엔 프레임 배열 전체를 훑어 극값을 구했지만, 지금은 ChartStore가 누적 극값을 push
- * 시점에 O(1)로 유지하므로 그 스칼라만 받는다 — 세션이 길어져도 범위 계산 비용이 늘지 않고,
- * 표시 점이 감량돼도 실제 피크 기준의 범위가 유지된다.
- */
-
-/** 파형 y축이 피크 위로 확보하는 여유 비율 — 선이 카드 위아래에 딱 붙지 않게 한다. */
 const Y_SCALE_PADDING = 1.1;
 
-/**
- * 파형 차트의 대칭 y 범위 [-yMax, yMax]. `minSpan`은 무음/초기 상태에서 폭이 0으로
- * 붕괴하지 않게 하는 최소 반높이다 — 하한을 이미 피크에 반영해 넘기는 호출부는 0을 준다.
- */
 export function symmetricYRange(peak: number, minSpan: number): [number, number] {
   const yMax = Math.max(peak * Y_SCALE_PADDING, minSpan);
   return [-yMax, yMax];

@@ -1,8 +1,5 @@
 "use client";
 
-// Temperature/ExcursionChart가 공유하는 카드 셸 — 헤더(제목/확대 버튼/현재값)와
-// UPlotChart 마운트+empty state만 그린다. 시리즈 스타일·y축 범위·값 색상 판정처럼
-// 메트릭마다 다른 부분은 각 차트 컴포넌트가 options/source/색상을 만들어 그대로 넘긴다.
 import UPlotChart, { type UPlotDataSource, type UPlotOptions } from "@/shared/components/UPlotChart";
 import type { DrawControl } from "./hooks/useDrawMode";
 import ChartDrawControls from "./ChartDrawControls";
@@ -20,7 +17,6 @@ interface Props {
   streaming: boolean;
   options: UPlotOptions;
   source: UPlotDataSource;
-  /** 있으면 헤더에 연필(그리기 모드)·지우개(전체 지우기) 버튼을 노출한다. */
   draw?: DrawControl;
 }
 

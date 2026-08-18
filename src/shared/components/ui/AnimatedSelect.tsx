@@ -1,20 +1,11 @@
 "use client";
 
-// 애니메이션 드롭다운 — 네이티브 <select>를 대체하는 커스텀 셀렉트.
-// 네이티브 <select>는 펼침 목록(option list)을 브라우저가 그려 트랜지션을 넣을 수 없으므로,
-// 드로어(Calibration/Workspace)의 드롭다운 UX를 통일된 인터랙티브 애니메이션으로 대체한다:
-//   · 트리거: 열림 시 chevron 180° 회전, 포커스 링, 눌림(active) 스케일
-//   · 메뉴: opacity + scale + translateY 로 펼침/접힘 양방향 재생, 뷰포트 하단이면 위로 flip
-//   · 옵션: 진입 시 index 기반 stagger, hover 하이라이트, 선택 항목 체크 + 자동 스크롤
-//   · 키보드: ↑/↓ 이동, Enter 선택, Esc/외부클릭 닫기 (role=listbox/option, aria-activedescendant)
 import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { Check, ChevronDown } from "lucide-react";
 
 export interface SelectOption {
   value: string;
-  /** 표시 라벨 (미지정 시 value 사용) */
   label?: string;
-  /** 우측 보조 텍스트(예: "(연결 안 됨)") */
   hint?: string;
 }
 
@@ -22,9 +13,7 @@ interface Props {
   value: string;
   options: SelectOption[];
   onChange: (value: string) => void;
-  /** 선택값이 옵션에 없을 때 보여줄 placeholder */
   placeholder?: string;
-  /** 트리거/옵션 라벨 뒤에 붙는 단위(예: "Hz") */
   unit?: string;
   disabled?: boolean;
   className?: string;
@@ -54,13 +43,11 @@ export default function AnimatedSelect({
   const selected = selectedIndex >= 0 ? options[selectedIndex] : null;
   const withUnit = (s: string) => (unit ? `${s} ${unit}` : s);
 
-  // 열 때: 하이라이트를 선택 항목으로, 뷰포트 하단 공간이 부족하면 위로 flip
   const openMenu = useCallback(() => {
     if (disabled) return;
     const rect = rootRef.current?.getBoundingClientRect();
     if (rect) {
       const spaceBelow = window.innerHeight - rect.bottom;
-      // 옵션당 ~36px, 최대 240px 기준으로 아래 공간이 모자라고 위가 더 넓으면 flip
       const needed = Math.min(options.length * 36 + 8, 240);
       setFlipUp(spaceBelow < needed && rect.top > spaceBelow);
     }
@@ -79,7 +66,6 @@ export default function AnimatedSelect({
     [options, onChange, close],
   );
 
-  // 외부 클릭으로 닫기
   useEffect(() => {
     if (!open) return;
     const onDown = (e: MouseEvent) => {
@@ -89,7 +75,6 @@ export default function AnimatedSelect({
     return () => document.removeEventListener("mousedown", onDown);
   }, [open, close]);
 
-  // 열리면 하이라이트(또는 선택) 항목이 보이도록 스크롤
   useEffect(() => {
     if (!open) return;
     const el = listRef.current?.querySelector<HTMLElement>('[data-active="true"]');
@@ -162,7 +147,6 @@ export default function AnimatedSelect({
         />
       </button>
 
-      {/* 펼침 목록 — 항상 마운트, 클래스 토글로 양방향 애니메이션 */}
       <ul
         ref={listRef}
         role="listbox"

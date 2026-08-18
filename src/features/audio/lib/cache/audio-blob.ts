@@ -40,8 +40,6 @@ export async function getCachedAudio(): Promise<File | null> {
     const pointerExists = hasSessionJson(POINTER_KEY);
     const ptr = readSessionJson<AudioPointer>(POINTER_KEY);
     if (!ptr) {
-      // 기존 동작 유지: 키가 없을 때만 orphaned IDB 값을 지우고, JSON 파손/접근 실패는
-      // null을 반환하는 데 그친다.
       if (pointerExists === false) await clearAudio();
       return null;
     }

@@ -16,12 +16,9 @@ import MetricChartCard from "./MetricChartCard";
 interface Props {
   store: ChartStore;
   isActive: boolean;
-  /** 재생 중일 때만 true — x축을 시계에 맞춰 균일하게 스크롤(60 Hz 버벅임 방지)하는 데 쓴다. */
   streaming?: boolean;
   audioDuration?: number | null;
-  /** 점 잇기 주석 스토어 — 넘기면 정지 상태(canAnnotate)에서 헤더 연필 토글이 나타난다. */
   annotations?: AnnotationStore;
-  /** 정지/재생 종료 상태 여부 — 재생 중에는 그리기 모드에 들어갈 수 없다. */
   canAnnotate?: boolean;
 }
 
@@ -48,8 +45,6 @@ export default function ExcursionChart({
     audioDuration,
   });
 
-  // 헤더 색상 판정에만 쓰는 y 상한 — 실제 축 범위는 source.read()가 커밋 시점에 정한다.
-  // snapshot()은 버전별로 캐시된 스칼라라 렌더마다 읽어도 비용이 없다.
   const { yMax } = computeExcursionYRange(
     store.snapshot().excMin, store.snapshot().excMax, toMm, SCALE_PADDING,
   );
@@ -67,8 +62,6 @@ export default function ExcursionChart({
   );
 
   const getFullXRange = useChartFullXRange(store);
-  // 스토어는 원시 변위를 들고 있다 — 표시 단위(mm) 변환은 커밋 경로(source의 transform)와
-  // 동일하게 여기서 한다.
   const tooltipResolve = useCallback((t: number) => {
     const v = store.valueAt("excursion", t);
     return v === null ? null : toMm(v);

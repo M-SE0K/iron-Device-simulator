@@ -5,7 +5,6 @@ const config: Config = {
   theme: {
     extend: {
       colors: {
-        // Iron Device brand palette — Split Studio / Navy Shell
         brand: {
           blue: "#0B4171",
           "blue-light": "#6B9BD1",

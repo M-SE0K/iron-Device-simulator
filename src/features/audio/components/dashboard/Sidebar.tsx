@@ -2,10 +2,9 @@
 
 import { memo } from "react";
 import { LayoutGrid, FolderOpen, History, SlidersHorizontal } from "lucide-react";
+import type { DrawerKey } from "../ActiveDrawerContext";
 
-type SidebarDrawerKey = "view" | "workspace" | "records" | "calibration";
-
-const NAV_ITEMS: { key: SidebarDrawerKey; icon: typeof FolderOpen; label: string }[] = [
+const NAV_ITEMS: { key: DrawerKey; icon: typeof FolderOpen; label: string }[] = [
   { key: "view",        icon: LayoutGrid,          label: "View" },
   { key: "workspace",   icon: FolderOpen,          label: "Workspace" },
   { key: "records",     icon: History,             label: "Records" },
@@ -13,8 +12,8 @@ const NAV_ITEMS: { key: SidebarDrawerKey; icon: typeof FolderOpen; label: string
 ];
 
 interface SidebarProps {
-  activeDrawer: SidebarDrawerKey | null;
-  onOpenDrawer: (key: SidebarDrawerKey) => void;
+  activeDrawer: DrawerKey | null;
+  onOpenDrawer: (key: DrawerKey) => void;
   mobileOpen?: boolean;
   onMobileClose?: () => void;
   collapsed?: boolean;
@@ -34,7 +33,6 @@ function Sidebar({
 
   return (
     <>
-      {/* 모바일 전용 백드롭 — lg 이상에서는 렌더되지 않음 */}
       <div
         onClick={onMobileClose}
         aria-hidden
@@ -54,7 +52,6 @@ function Sidebar({
         }`}
         style={{ paddingTop: "calc(1.5rem + env(safe-area-inset-top))" }}
       >
-      {/* 로고 — 이미지 대신 텍스트 워드마크 */}
       <div id="header-logo" className="px-1 mb-6">
         <span id="brand-name" className="text-white text-[15px] font-extrabold tracking-tight">
           IRON DEVICE
@@ -83,6 +80,4 @@ function Sidebar({
   );
 }
 
-// 대시보드가 실시간 프레임 갱신으로 주기적으로 리렌더돼도 사이드바 props는 토글 시에만
-// 바뀐다 — memo로 캡처 중 불필요한 리렌더를 차단한다(onMobileClose는 부모에서 useCallback).
 export default memo(Sidebar);

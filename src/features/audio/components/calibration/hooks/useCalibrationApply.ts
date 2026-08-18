@@ -19,17 +19,13 @@ export interface UseCalibrationApplyDeps {
   hasAudioDeviceBridge: boolean;
   deviceInfo: DeviceInfo | null;
   refreshDeviceInfo: (uid?: string) => Promise<void>;
-  onApply?: (values: CalibrationValues) => void;
 }
 
 export function useCalibrationApply(deps: UseCalibrationApplyDeps) {
-  const { draft, setValues, setOpen, hasAudioDeviceBridge, deviceInfo, refreshDeviceInfo, onApply } = deps;
+  const { draft, setValues, setOpen, hasAudioDeviceBridge, deviceInfo, refreshDeviceInfo } = deps;
   const { showError, showSuccess } = useErrorPopup();
 
   const [deviceStatus, setDeviceStatus] = useState<DeviceApplyStatus>("idle");
-  // 적용된 실제 장치 값은 appliedRuntime 하나만 들고 간다 — 드로어의 "Current (Applied)"·
-  // "Channels (Applied)" 행이 이 값을 읽는다. 실패 메시지도 따로 담지 않는다: deviceStatus가
-  // "error"로 바뀌어 드로어에 한 줄이 뜨고, 구체적 문구는 showError 팝업이 맡는다.
   const [appliedRuntime, setAppliedRuntime] = useState<DeviceActualCache | null>(null);
 
   useEffect(() => {
@@ -42,7 +38,6 @@ export function useCalibrationApply(deps: UseCalibrationApplyDeps) {
 
   const apply = useCallback(async () => {
     setValues(draft);
-    onApply?.(draft);
 
     if (!hasAudioDeviceBridge || !window.audioCapture) {
       setOpen(false);
@@ -88,7 +83,7 @@ export function useCalibrationApply(deps: UseCalibrationApplyDeps) {
     }
 
     await refreshDeviceInfo();
-  }, [draft, setValues, onApply, hasAudioDeviceBridge, deviceInfo, setOpen, refreshDeviceInfo, showError, showSuccess]);
+  }, [draft, setValues, hasAudioDeviceBridge, deviceInfo, setOpen, refreshDeviceInfo, showError, showSuccess]);
 
   return { deviceStatus, appliedRuntime, apply, resetStatus };
 }

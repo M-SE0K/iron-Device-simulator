@@ -3,11 +3,11 @@
 import { memo, useEffect, useMemo, useRef, useState } from "react";
 import { ChevronRight, History, Music, Pencil, Trash2 } from "lucide-react";
 import { useWorkspace } from "./WorkspaceContext";
-import { useDrawerState } from "@/features/audio/components/dashboard/ActiveDrawerContext";
+import { useDrawerState } from "@/features/audio/components/ActiveDrawerContext";
 import { cn, formatTime } from "@/shared/lib/utils";
 import { formatMm } from "@/features/audio/lib/units";
 import type { WorkspaceItemMeta } from "@/features/audio/lib/cache/workspace";
-import { useEscapeKey } from "@/shared/hooks/useEscapeKey";
+import { useEscapeKey } from "@/shared/hooks/useGlobalKey";
 import SideDrawer from "@/shared/components/overlay/SideDrawer";
 import CountBadge from "@/shared/components/ui/CountBadge";
 

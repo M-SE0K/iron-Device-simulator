@@ -121,6 +121,12 @@ preflight_windows_cross() {
 
 # --dev (알고리즘 개발 전용 빌드) ────────────────────────────────────────────
 #   npm run build:tauri -- --windows --dev
+# 평문 WASM(암호화/하드닝/난독화 없음)에 더해 파이프라인 성능 계측까지 함께 켠다:
+#   · NEXT_PUBLIC_IRON_PERF=1 → window.__ironPerf (src/shared/lib/iron-perf)
+#   · --features devtools     → 그 값을 조회할 WebView 인스펙터(콘솔)
+# 웹(next dev)에는 네이티브 브리지(audioCapture/audioPlayCapture)가 없어 dev:perf로는 실제
+# 캡처/재생 파이프라인을 측정할 수 없다 — 계측이 의미 있는 실행 환경이 Tauri 셸뿐이라
+# perf 빌드 플래그를 이 개발 빌드에 통합했다.
 DEV_WASM=false
 # FAST_PROFILE: 개발 전용 빌드(--dev/--devtools)에서 Cargo release 프로파일의 하드닝
 # 설정(Cargo.toml의 lto="fat"·codegen-units=1)을 빠른 값으로 덮어쓸지 여부. 아래 두 옵션 중
@@ -139,7 +145,14 @@ for _arg in "$@"; do
     FAST_PROFILE=true
     TAURI_CONFIG_ARGS=(--config src-tauri/tauri.dev-wasm.conf.json)
     export FF_PROT_HARDEN=0
+    # perf 빌드 플래그 통합(위 헤더 주석 참고). NEXT_PUBLIC_IRON_PERF는 next.config.ts가
+    # 빌드 타임 리터럴로 인라인하므로 build-desktop.sh의 next build 전에 export돼야 하고,
+    # __ironPerf 조회에는 인스펙터가 필요해 devtools 피처도 함께 켠다. --devtools와 겹쳐
+    # 지정해도 같은 값 대입이라 무해하다.
+    export NEXT_PUBLIC_IRON_PERF=1
+    TAURI_FEATURES=(--features devtools)
     echo "▶ --dev 지정 → WASM을 암호화·하드닝·난독화 없이 평문 그대로 번들에 넣는 알고리즘 개발 전용 빌드입니다 (배포용으로 쓰지 마세요)."
+    echo "  · 성능 계측 포함: NEXT_PUBLIC_IRON_PERF=1 + DevTools — 앱 실행 후 인스펙터 콘솔에서 __ironPerf.snapshot() 로 조회"
   else
     _ARGS+=("$_arg")
   fi

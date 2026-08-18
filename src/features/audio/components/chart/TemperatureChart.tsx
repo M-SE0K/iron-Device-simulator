@@ -16,14 +16,11 @@ import MetricChartCard from "./MetricChartCard";
 interface Props {
   store: ChartStore;
   isActive: boolean;
-  /** 재생 중일 때만 true — x축을 시계에 맞춰 균일하게 스크롤(60 Hz 버벅임 방지)하는 데 쓴다. */
   streaming?: boolean;
   audioDuration?: number | null;
   warnThreshold?: number;
   dangerThreshold?: number;
-  /** 점 잇기 주석 스토어 — 넘기면 정지 상태(canAnnotate)에서 헤더 연필 토글이 나타난다. */
   annotations?: AnnotationStore;
-  /** 정지/재생 종료 상태 여부 — 재생 중에는 그리기 모드에 들어갈 수 없다. */
   canAnnotate?: boolean;
 }
 

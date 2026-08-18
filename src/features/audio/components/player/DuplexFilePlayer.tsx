@@ -42,8 +42,6 @@ const DuplexFilePlayer = forwardRef<WaveformPlayerHandle, Props>(function Duplex
   const [duration, setDuration]       = useState(0);
   const [isReady, setIsReady]         = useState(false);
   const [isConnecting, setIsConnecting] = useState(false);
-  // 스피커로 내보낼 신호. 기본은 보호 통과본 — 원본은 같은 리그에서 보호 유/무를 비교하는 A/B용이다.
-  // 파일을 바꿔도 유지된다(비교 중에 매번 다시 고르게 하지 않으려는 것).
   const [playbackMode, setPlaybackMode] = useState<PlaybackMode>("protected");
   const decodedRef = useRef<DecodedPlayback | null>(null);
   const captureStartedRef = useRef(false);
@@ -51,7 +49,7 @@ const DuplexFilePlayer = forwardRef<WaveformPlayerHandle, Props>(function Duplex
   const lastUiUpdateRef = useRef(0);
 
   const captureSession = useCaptureSession({
-    status, onStatusChange, onFrameReceived, onStreamStart,
+    onStatusChange, onFrameReceived, onStreamStart,
     inputParams, playbackMode,
   });
 
@@ -108,7 +106,7 @@ const DuplexFilePlayer = forwardRef<WaveformPlayerHandle, Props>(function Duplex
         return;
       }
       if (ev.type !== "chunk") return;
-      capturedFramesRef.current += ev.chunk.byteLength / (ev.channels * 2);
+      capturedFramesRef.current += ev.chunk.length / ev.channels;
       const pos = Math.min(capturedFramesRef.current / ev.sampleRate, decodedRef.current?.duration ?? Infinity);
       const now = performance.now();
       if (now - lastUiUpdateRef.current >= 100) {
@@ -182,15 +180,13 @@ const DuplexFilePlayer = forwardRef<WaveformPlayerHandle, Props>(function Duplex
   }, [captureSession.cleanup, onStatusChange]);
 
   useImperativeHandle(ref, () => ({
-    sendMessage: captureSession.sendMessage,
-    pause: pausePlayback,
     exportRecordedAudio: captureSession.getRecordedBlob,
     exportProtectedAudio: captureSession.getProtectedBlob,
     getCaptureSnapshot: captureSession.getCaptureSnapshot,
     subscribeCaptureStream: captureSession.subscribeCaptureStream,
     getDecodedPlayback: () => decodedRef.current,
   }), [
-    captureSession.sendMessage, pausePlayback, captureSession.getRecordedBlob,
+    captureSession.getRecordedBlob,
     captureSession.getProtectedBlob, captureSession.getCaptureSnapshot, captureSession.subscribeCaptureStream,
   ]);
 
@@ -212,7 +208,6 @@ const DuplexFilePlayer = forwardRef<WaveformPlayerHandle, Props>(function Duplex
       onReset={audioFile ? onReset : undefined}
       playbackMode={playbackMode}
       onPlaybackModeChange={setPlaybackMode}
-      // 세션이 살아 있는 동안(재생/일시정지/연결 중)에는 잠근다 — 모드는 세션 시작 시점에만 반영된다.
       playbackModeLocked={isConnecting || status === "playing" || status === "paused"}
     >
       <div id="duplex-progress" className="flex-1 min-w-0 h-9 flex items-center">

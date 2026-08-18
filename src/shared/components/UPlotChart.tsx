@@ -1,9 +1,7 @@
 "use client";
 
-// uPlot 공용 래퍼 — 차트를 쓰는 곳마다 인스턴스 관리를 반복하지 않도록 여기 한 곳에서만 감싼다.
-// uPlot 모듈 자체는 SSR에서 import해도 안전하고(DOM 접근은 인스턴스 생성 시점), 생성은
-// layout effect 안에서만 하므로 dynamic import가 필요 없다.
 import { useId, useLayoutEffect, useRef } from "react";
+import "@/shared/lib/dpr-cap";
 import uPlot from "uplot";
 import "uplot/dist/uPlot.min.css";
 import { frameScheduler } from "@/shared/lib/frame-scheduler";
@@ -12,38 +10,14 @@ import { attachYZoom } from "@/shared/lib/uplot-y-zoom";
 
 export type UPlotOptions = Omit<uPlot.Options, "width" | "height">;
 
-/**
- * React 렌더를 거치지 않는 데이터 공급원. 스트리밍 차트처럼 초당 수십~수백 번 갱신되는
- * 경우에 쓴다 — 갱신 알림이 오면 rAF로 합쳐 최대 화면 주사율(≈60Hz)로만 uPlot에 커밋하므로,
- * 도착 빈도가 아무리 높아도 그리기 횟수와 리렌더 횟수가 함께 뛰지 않는다.
- */
-/**
- * read()에 전달되는 현재 표시 상태 — "지금 화면에 보이는 x 구간을, 이 픽셀 폭에 맞춰"
- * 읽어 오라는 요청이다. 세션 전체를 매번 커밋하는 대신 뷰포트만 커밋하려는 소스가 쓴다.
- */
-export interface UPlotReadView {
-  /** 현재 x 스케일의 최소/최대(데이터 좌표). */
+interface UPlotReadView {
   xMin: number;
   xMax: number;
-  /** 플롯 영역의 CSS 픽셀 폭 — 낼 점 수 예산을 여기서 정한다. */
   pxWidth: number;
 }
 
 export interface UPlotDataSource {
-  /** 갱신 알림 구독. 이펙트 의존성으로 쓰이므로 반드시 안정된 참조여야 한다. */
   subscribe: (cb: () => void) => () => void;
-  /**
-   * 커밋할 데이터 스냅샷. 그릴 게 없으면 null. 참조는 매 렌더 새로 만들어도 된다.
-   *
-   * `view`는 인스턴스가 아직 없는 최초 시드 호출에서만 생략된다 — 그 경우 소스는 전체
-   * 범위를 적당한 기본 예산으로 읽으면 된다. `view`를 무시하고 늘 전체를 돌려줘도 되므로
-   * 기존 소스는 그대로 동작한다.
-   *
-   * `xFull`은 **뷰포트만 커밋하는 소스**가 "전체(줌 아웃) x 도메인"을 알려주는 값이다.
-   * 뷰포트 데이터의 extent는 이제 "지금 보는 창"일 뿐 전체 도메인이 아니라서, 줌 판정과
-   * "줌 아님" 상태의 도메인 복원을 데이터 extent로 하면 창이 스스로 좁아진다. 돌려주지
-   * 않으면 기존처럼 xRange prop과 데이터 extent를 쓴다.
-   */
   read: (view?: UPlotReadView) => {
     data: uPlot.AlignedData;
     yRange?: [number, number];
@@ -52,60 +26,17 @@ export interface UPlotDataSource {
 }
 
 interface Props {
-  /**
-   * width/height를 제외한 uPlot 옵션. 참조가 바뀌면 인스턴스를 파괴하고 다시 만드므로
-   * 호출부는 반드시 useMemo로 안정화해야 한다 — 매 데이터 틱마다 바뀌면 안 된다.
-   */
   options: UPlotOptions;
-  /** source를 쓰지 않는(React 상태로 데이터를 넘기는) 차트용 데이터. */
   data?: uPlot.AlignedData;
-  /**
-   * 있으면 data/yRange prop 대신 이쪽에서 데이터를 읽는다 — 갱신이 React 커밋을 거치지 않는다.
-   */
   source?: UPlotDataSource;
-  /**
-   * y축 표시 범위. 스트리밍 중 창이 갱신될 때마다 함께 갱신된다 — 옵션 재생성 없이
-   * 스케일만 따라가게 하기 위해 옵션이 아니라 별도 prop으로 받는다.
-   * (source를 쓰는 경우엔 source.read()가 돌려주는 yRange가 우선한다.)
-   */
   yRange?: [number, number];
-  /** x축 전체(줌 아웃) 범위 — 생략하면 데이터 extent. (예: 채널 뷰의 [0, 전체 길이]) */
   xRange?: [number, number];
-  /**
-   * 데이터 시리즈별 표시 여부(인덱스 0 = 첫 데이터 시리즈). 인스턴스 재생성 없이
-   * setSeries로 토글한다 — 채널 L/R/Both 전환처럼 시리즈 구성이 고정된 경우용.
-   */
   seriesShow?: boolean[];
-  /**
-   * 라이브 스트리밍 중 x축 오른쪽 끝을 "마지막 데이터 점의 시간"이 아니라 벽시계로 추정한
-   * 재생 시각에 맞춰 매 애니메이션 프레임 균일하게 전진시킨다. 데이터 도착 개수가 화면
-   * 주사율의 정수배가 아닐 때(예: ~100 fps 데이터 vs 60 Hz 화면) 매 paint마다 오른쪽 끝이
-   * 1칸/2칸씩 들쭉날쭉 밀려 생기던 60 Hz 버벅임(x-step aliasing)을 없앤다. 데이터 점은
-   * 여전히 도착 즉시 커밋되므로(버퍼링 없음) 지연은 추가되지 않는다 — 창(뷰포트)만 시계를
-   * 따라 흐른다. xRange와는 배타적이며(둘 다 있으면 streamFollow 우선), 재생 중일 때만 켠다.
-   */
   streamFollow?: boolean;
-  /**
-   * y축 gutter(왼쪽 눈금 영역)에서의 사용자 확대/이동을 켠다. 휠은 커서가 가리키는 값을
-   * 고정한 채 y 범위를 좁히고 넓히며, 상하 드래그는 그 범위를 통째로 민다. 잡은 범위는
-   * 이후 커밋에서도 유지되고(자동 범위가 덮어쓰지 않는다), 더블클릭하거나 자동 범위 폭까지
-   * 축소하면 다시 자동 추종으로 돌아간다. x축 줌과 독립이라 둘을 겹쳐 쓸 수 있다.
-   */
   yZoom?: boolean;
   className?: string;
 }
 
-/**
- * 현재 x 스케일이 전체 범위에서 벗어나 있으면(=사용자 줌) true.
- *
- * 데이터가 1점뿐일 때는 xs[0]===xs[last]라 "전체 범위"가 폭 0으로 퇴화하는데, uPlot은
- * 이 경우 자체 rangeNum() 패딩으로 스케일에 임의의 여백을 준다(우리 커스텀 range 콜백은
- * autoScaleX가 min/max를 직접 넘길 때 우회된다). 그 패딩을 "사용자 줌"으로 오판하면
- * zoomedRef가 그 순간의 좁은 범위에 영구히 고정돼버려 — 스트리밍 시작 직후(프레임 1개
- * 도착 시점) 매번 재현되던 "자동으로 살짝 줌인된 채 고정" 버그의 원인이었다. 폭이
- * 유의미하게 벌어지기 전(포인트 2개 미만이거나 전체 범위가 사실상 0)에는 줌 판정을
- * 보류한다.
- */
 function isZoomed(u: uPlot, xRange: [number, number] | null): boolean {
   const xs = u.data[0];
   if (!xs || xs.length < 2) return false;
@@ -117,19 +48,10 @@ function isZoomed(u: uPlot, xRange: [number, number] | null): boolean {
   return Math.abs(min - full[0]) > tol || Math.abs(max - full[1]) > tol;
 }
 
-/** 시리즈 수에 맞는 빈 데이터 — uPlot은 data 길이가 series 길이와 맞지 않으면 그리지 못한다. */
 function emptyData(options: UPlotOptions): uPlot.AlignedData {
   return options.series.map(() => []) as unknown as uPlot.AlignedData;
 }
 
-/**
- * streamFollow 전용 줌 판정. isZoomed()의 1e-6 상대오차는 "고정 전체범위 vs 정적 데이터
- * extent" 비교용으론 적절하지만, streamFollow의 "전체 범위"는 매 프레임 시계로 다시 계산한
- * 목표값이라 호출 시점의 수 ms 지터만으로도 그 극히 촘촘한 오차범위를 넘어버려 정상 스트리밍을
- * "줌"으로 오판한다(리사이즈 등 사소한 계기로 한 번 setScale 훅이 이 경로를 타면 창이 그
- * 자리에 얼어붙는 버그의 원인이었다). 실제 사용자 줌(휠 25%/드래그 임의 구간)은 폭이나 왼쪽
- * 경계를 항상 시계 지터보다 훨씬 크게(%) 바꾸므로, 그 둘을 가르기에 충분히 관대한 임계값을 쓴다.
- */
 function isZoomedFollow(u: uPlot, anchorT: number, anchorWall: number): boolean {
   const xs = u.data[0];
   if (!xs || xs.length < 2) return false;
@@ -146,30 +68,18 @@ export default function UPlotChart({ options, data, source, yRange, xRange, seri
   const containerRef = useRef<HTMLDivElement | null>(null);
   const chartRef = useRef<uPlot | null>(null);
   const zoomedRef = useRef(false);
-  // 사용자가 y축에서 직접 잡은 범위(yZoom). 채워져 있는 동안은 소스/prop이 주는 자동
-  // 범위(yRangeRef)보다 항상 우선한다 — 스트리밍으로 데이터가 자라도 잠긴 창이 풀리지 않게.
   const yLockRef = useRef<[number, number] | null>(null);
-  // true인 동안의 setScale은 우리가 유발한 내부 커밋(생성/setData) — 사용자 줌이 아니다.
   const internalCommitRef = useRef(false);
-  // 최신 props를 훅/이펙트가 항상 안정된 참조로 읽을 수 있게 미러링한다.
   const dataRef = useRef<uPlot.AlignedData | null>(data ?? null);
   const yRangeRef = useRef<[number, number] | null>(yRange ?? null);
   const xRangeRef = useRef<[number, number] | null>(xRange ?? null);
-  // source가 알려준 전체 x 도메인(read()의 xFull). xRange prop과 같은 역할이지만 React
-  // 리렌더 없이 커밋 시점에 갱신된다 — 세션 길이처럼 초당 수십 번 자라는 값을 prop으로
-  // 올리면 그때마다 리렌더가 나기 때문이다.
   const sourceXFullRef = useRef<[number, number] | null>(null);
-  // 뷰포트만 커밋하는 source에게 "지금 창을 다시 읽어 달라"고 요청하는 훅 — 사용자 줌으로
-  // 창이 바뀌었을 때 setScale 훅이 부른다. source 이펙트가 살아있는 동안만 채워져 있다.
   const sourceRefreshRef = useRef<(() => void) | null>(null);
   const sourceReadRef = useRef(source?.read);
-  // 인스턴스에 이미 반영된 데이터 — 재생성 직후 data effect가 같은 데이터를 중복 커밋하지 않게 한다.
   const appliedDataRef = useRef<uPlot.AlignedData | null>(null);
 
   dataRef.current = data ?? null;
   sourceReadRef.current = source?.read;
-  // source 모드에서는 y 범위도 커밋 시점에 source.read()가 채운다 — prop으로 덮어쓰면
-  // 커밋 사이에 범위가 null로 되돌아가 y축이 데이터 extent로 튄다.
   if (!source) yRangeRef.current = yRange ?? null;
   xRangeRef.current = xRange ?? null;
   const seriesShowRef = useRef(seriesShow);
@@ -177,34 +87,19 @@ export default function UPlotChart({ options, data, source, yRange, xRange, seri
   const streamFollowRef = useRef(streamFollow);
   streamFollowRef.current = streamFollow;
 
-  // streamFollow 앵커: 마지막으로 커밋된 데이터의 x(오디오 시각)와 그 순간의 벽시계.
-  // 매 프레임 xmax = anchorTime + (now - anchorWall) 로 오른쪽 끝을 균일하게 흐르게 한다.
   const streamAnchorTimeRef = useRef<number | null>(null);
   const streamAnchorWallRef = useRef(0);
 
-  /** 전체(줌 아웃) x 도메인 — source가 알려준 값이 있으면 그쪽, 없으면 xRange prop. */
   const fullXRange = (): [number, number] | null => sourceXFullRef.current ?? xRangeRef.current;
 
-  /** 실제로 그려야 할 y 범위 — 사용자가 잡아둔 창이 있으면 그쪽이 자동 범위를 덮는다. */
   const effectiveYRange = (): [number, number] | null => yLockRef.current ?? yRangeRef.current;
 
-  /**
-   * 시계가 정한 "지금의 오른쪽 끝" — 앵커(마지막 커밋 데이터의 시각 + 그 순간의 벽시계)
-   * 이후 실제로 흐른 시간만큼 전진시킨 값. 앵커가 아직 없으면 null.
-   *
-   * 이 값이 **스케일뿐 아니라 읽기 창의 오른쪽 끝이기도** 하다는 점이 중요하다. 소스에게
-   * `u.scales.x.max`를 그대로 넘기면 그건 직전 커밋이 남긴 "그때의 최신 데이터 시각"이라,
-   * 그 창으로 다시 읽으면 그 사이 도착한 데이터가 창 밖에 있어 영영 들어오지 못한다 —
-   * 창이 자기 꼬리를 물고 데이터에 끌려다니며 실제 재생 시간보다 훨씬 느리게 흐른다.
-   */
   const streamMax = (): number | null => {
     const anchorT = streamAnchorTimeRef.current;
     if (anchorT == null) return null;
     return anchorT + Math.max(0, (performance.now() - streamAnchorWallRef.current) / 1000);
   };
 
-  // 현재 앵커 기준으로 x 스케일을 [0, 시계 추정 시각]으로 맞춘다. 데이터가 안 들어온
-  // 프레임에도 호출돼 창이 계속 흐르게 하므로 60/120 Hz 어디서든 전진량이 일정하다.
   const applyStreamScale = (u: uPlot) => {
     const max = streamMax();
     if (max == null) return;
@@ -220,7 +115,6 @@ export default function UPlotChart({ options, data, source, yRange, xRange, seri
     });
   };
 
-  // 컨테이너 크기에 맞춤 — uPlot 루트에는 캔버스 밖 legend DOM이 붙을 수 있어 그 높이를 뺀다.
   const sizeToContainer = (u: uPlot, el: HTMLElement) => {
     const rect = el.getBoundingClientRect();
     const legend = u.root.querySelector<HTMLElement>(".u-legend");
@@ -230,7 +124,6 @@ export default function UPlotChart({ options, data, source, yRange, xRange, seri
     if (width > 0 && height > 0) u.setSize({ width, height });
   };
 
-  // 인스턴스 생성/파괴 — options 참조가 바뀔 때만.
   useLayoutEffect(() => {
     const el = containerRef.current;
     if (!el) return;
@@ -244,19 +137,9 @@ export default function UPlotChart({ options, data, source, yRange, xRange, seri
         x: {
           time: false,
           ...options.scales?.x,
-          // range를 커스텀하지 않는다 — 기본값(snapNumX)은 uPlot이 요청한 dataMin/dataMax를
-          // 그대로 통과시키는데, 예전엔 여기서 xRangeRef.current를 무조건 덮어썼다. 그러면
-          // 드래그 셀렉트·휠 줌이 계산한 실제 확대 범위(예: 3.7~9.5초)까지 고정 범위로
-          // 되돌려버려 xRange가 있는 차트(채널 파형/보호 감쇠 비교)의 줌 자체가 항상
-          // 무효화됐다 — "확대해도 안 먹힌다" 버그의 원인. 대신 "줌 안 된 상태에서 xRange로
-          // 되돌리기"는 아래 setData 커밋 시점(줌이 아닐 때만)에 명시적으로 한 번 더
-          // setScale해서 처리하고, 더블클릭 리셋 보정은 uplot-plugins.ts의 zoomPlugin이
-          // getFullXRange로 맡는다.
         },
         y: {
           ...options.scales?.y,
-          // setData(data, true)가 유발하는 auto-range가 여기로 들어온다 — 사용자가 잡은
-          // 창(yLockRef)을 여기서 되돌려줘야 매 커밋마다 자동 범위로 튕겨나가지 않는다.
           range: (u, dataMin, dataMax) => effectiveYRange() ?? [dataMin, dataMax],
         },
       },
@@ -266,19 +149,7 @@ export default function UPlotChart({ options, data, source, yRange, xRange, seri
           ...(options.hooks?.setScale ?? []),
           (u, key) => {
             if (key !== "x") return;
-            // 줌 상태는 사용자 조작(드래그/휠/더블클릭)으로 바뀐 스케일에서만 다시 판정한다.
-            // 우리가 유발한 내부 커밋(생성/setData/streamFollow)은 스케일을 데이터 extent가
-            // 아닌 값([0, 시계])으로 세팅할 수 있어, 이때 isZoomed를 돌리면 정상 스트리밍을
-            // "사용자 줌"으로 오판해 창이 그 자리에 얼어붙는다.
             if (internalCommitRef.current) return;
-            // 전체 도메인 복귀(더블클릭 리셋/휠 풀줌아웃 스냅)는 추정 판정을 거치지 않고
-            // **확정 해제**한다. 라이브 세션에서는 비교 기준(fullXRange = 마지막 커밋 시점의
-            // xFull)이 항상 한 프레임(수십 ms)쯤 낡아 있어, 미세 허용오차 판정에 맡기면 리셋
-            // 직후에도 "줌 중"에 갇힌다 — 갇힌 채로는 재읽기 창이 표시 창을 따라오지 못해,
-            // 리셋 순간의 화면(옛 줌 창 데이터만 전체 축에 늘려 그린, 나머지는 백지)이 다음
-            // 줌 조작까지 그대로 남는다. 허용오차는 그 낡음(커밋 몇 프레임 = 수십 ms)만
-            // 흡수할 만큼 — 전체의 0.5%, 최소 0.05초 — 로 잡는다. 더 키우면 짧은 파일에서
-            // 실제 얕은 줌까지 전체 복귀로 오인해 줌이 풀려버린다.
             const full = fullXRange();
             const sMin = u.scales.x.min;
             const sMax = u.scales.x.max;
@@ -295,21 +166,14 @@ export default function UPlotChart({ options, data, source, yRange, xRange, seri
                 ? isZoomedFollow(u, anchorT, streamAnchorWallRef.current)
                 : isZoomed(u, full);
             }
-            // 뷰포트만 커밋하는 source는 창이 바뀌면 그 창의 데이터를 새로 읽어야 한다.
-            // 재생 중에는 다음 갱신 알림(≤10 ms)이 곧 채워 주지만, 일시정지 중에는 알림이
-            // 아예 오지 않아 확대해도 새 구간이 영영 비어 있게 된다.
             sourceRefreshRef.current?.();
           },
         ],
       },
     };
 
-    // source 모드면 인스턴스를 만들 때도(옵션 변경으로 재생성될 때 포함) 항상 최신 데이터를
-    // source에서 다시 읽는다 — 재생성과 스트리밍 커밋 사이에 데이터가 되돌아가지 않게 한다.
     const seed = sourceReadRef.current?.();
     if (seed?.yRange) yRangeRef.current = seed.yRange;
-    // 없으면 null로 되돌린다 — 세션 리셋으로 데이터가 비었는데 옛 도메인이 남아 있으면
-    // 빈 차트를 지난 세션 길이에 맞춰 그리려 든다.
     sourceXFullRef.current = seed?.xFull ?? null;
     const initialData = seed?.data ?? dataRef.current ?? emptyData(options);
 
@@ -318,16 +182,8 @@ export default function UPlotChart({ options, data, source, yRange, xRange, seri
     chartRef.current = u;
     appliedDataRef.current = initialData;
     zoomedRef.current = false;
-    // 인스턴스가 새로 만들어지면(옵션 변경/새 세션) y 잠금도 함께 푼다 — x 줌 상태를
-    // 여기서 초기화하는 것과 같은 이유다.
     yLockRef.current = null;
-    // batch로 감싸는 이유: setScale/setSize의 커밋(setScale 훅 실행 포함)은 마이크로태스크로
-    // 밀리는데, 이 가드(internalCommitRef)는 동기적으로 풀린다 — batch가 커밋을 이 자리에서
-    // 동기 실행시켜야 가드가 훅까지 덮는다(생성자가 큐에 넣어 둔 커밋도 함께 소화된다).
     u.batch(() => {
-      // 생성 직후 uPlot 자체 auto-range는 "지금 들어온 데이터"의 extent를 기준으로 잡는다
-      // (예: 채널 파형은 아직 로드 전이라 비어있거나 극히 짧음) — xRange가 있으면(세션 전체
-      // 길이처럼 데이터보다 넓은 고정 도메인) 그 쪽을 우선한다.
       const seededXFull = fullXRange();
       if (seededXFull) u.setScale("x", { min: seededXFull[0], max: seededXFull[1] });
       applySeriesShow(u);
@@ -338,14 +194,9 @@ export default function UPlotChart({ options, data, source, yRange, xRange, seri
     const ro = new ResizeObserver(() => {
       const chart = chartRef.current;
       if (!chart) return;
-      // setSize()가 유발하는 내부 재계산(있다면)이 "사용자 줌"으로 오판되지 않게 감싼다 —
-      // 감싸지 않으면 사이드바 접기/펼치기나 창 크기 변경만으로 스트리밍 차트(streamFollow)가
-      // 줌 상태로 오판돼 멈춰버리는 버그가 있었다.
       internalCommitRef.current = true;
       sizeToContainer(chart, el);
       internalCommitRef.current = false;
-      // 폭이 바뀌면 뷰포트 소스의 점 수 예산도 달라진다 — 다음 갱신 알림을 기다리지 않고
-      // 새 폭으로 다시 읽는다(정지 상태에서 사이드바를 접었다 펴도 해상도가 따라오게).
       sourceRefreshRef.current?.();
     });
     ro.observe(el);
@@ -359,9 +210,6 @@ export default function UPlotChart({ options, data, source, yRange, xRange, seri
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [options]);
 
-  // 데이터 커밋 — uPlot은 setData 안에서 동기적으로 다시 그리므로 이 구간이 곧 렌더 시간이다.
-  // ref로만 상태를 읽으므로 React 커밋(아래 data effect)과 rAF 루프(source effect)가 같은
-  // 경로를 공유한다.
   const commitRef = useRef<(next: uPlot.AlignedData) => void>(() => {});
   commitRef.current = (next: uPlot.AlignedData) => {
     const u = chartRef.current;
@@ -373,15 +221,6 @@ export default function UPlotChart({ options, data, source, yRange, xRange, seri
     const xR = fullXRange();
     const follow = streamFollowRef.current;
     const t0 = performance.now();
-    // streamFollow: 방금 커밋된 최신 데이터 시각에 벽시계 앵커를 재설정한다 — 이후 rAF가
-    // 이 앵커에서 흐른 실제 시간만큼만 오른쪽 끝을 민다.
-    //
-    // **줌 중에는 건드리지 않는다.** 줌 중 커밋은 확대한 창의 데이터라 그 마지막 점은 라이브
-    // 스트림의 최신 시각이 아니라 "확대해 둔 구간의 오른쪽 끝"이다. 그걸 앵커로 삼으면
-    // 앵커가 과거에 묶여버려, 줌을 풀 때 isZoomedFollow가 기대하는 시각(앵커+경과)과 실제
-    // 전체 범위의 오른쪽 끝이 크게 어긋난다 — 더블클릭으로 리셋해도 계속 "줌 중"으로 판정돼
-    // 추종이 되살아나지 않던 원인이다. 손대지 않으면 앵커는 줌 직전의 라이브 시각에 머물고
-    // 경과 시간이 그만큼 흘러 기대값이 실제 최신 시각을 그대로 따라간다.
     if (follow && !zoomed) {
       const xs = next[0];
       if (xs && xs.length) {
@@ -391,30 +230,19 @@ export default function UPlotChart({ options, data, source, yRange, xRange, seri
     }
     internalCommitRef.current = true;
     u.batch(() => {
-      // 줌 중이면 x 스케일을 유지한 채 데이터만 갱신하고(줌이 풀리지 않게), y 창만 따라간다.
       u.setData(next, !zoomed);
       if (zoomed) {
         if (yR) u.setScale("y", { min: yR[0], max: yR[1] });
       } else if (follow) {
-        // x는 시계가 소유한다 — setData(data, true)가 잠깐 데이터 extent로 잡아둔 x를
-        // 같은 batch 안에서 [0, 시계]로 덮어써(단일 redraw라 깜빡임 없음) 오른쪽 끝이
-        // 데이터 도착 개수가 아니라 실제 흐른 시간에 비례해 균일하게 흐르게 한다. y는
-        // 위 setData(data, true)의 auto-range(y.range 콜백 → yRange)가 그대로 따라간다.
         applyStreamScale(u);
       } else if (xR) {
-        // setData(data, true)의 자체 auto-range는 방금 갱신된 데이터 자체의 extent로
-        // 잡히는데, xRange가 있는 차트는 데이터 extent와 별개로 명시된 고정 도메인을 계속
-        // 보여줘야 한다.
         u.setScale("x", { min: xR[0], max: xR[1] });
       }
     });
     internalCommitRef.current = false;
-    // ④ 렌더 — uPlot은 batch 안에서 동기적으로 다시 그리므로 이 구간이 곧 드로우 시간이다.
-    // (계측이 꺼진 빌드에서는 이 호출 자체가 dead-code로 사라진다 — iron-perf/index.ts)
     recordPerfSample("chart_render", performance.now() - t0);
   };
 
-  // passive effect가 아니라 layout effect여야 React 커밋과 같은 프레임(브라우저 paint 전)에 반영된다.
   useLayoutEffect(() => {
     if (source || !data) return;
     if (!chartRef.current || appliedDataRef.current === data) return;
@@ -422,36 +250,16 @@ export default function UPlotChart({ options, data, source, yRange, xRange, seri
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [data]);
 
-  /**
-   * 프레임 태스크 — "무엇을 그릴지"(source 커밋)와 "어디를 볼지"(streamFollow 스케일 전진)를
-   * **한 태스크로 합쳐** 프레임당 리드로우가 한 번만 나게 한다.
-   *
-   * 예전에는 둘이 각자 rAF 루프를 돌았다. 개념적으로 독립인 건 맞지만, 재생 중에는 거의 매
-   * 프레임 둘 다 돌아서 같은 차트가 setData로 한 번, setScale로 또 한 번 — 두 번 다시 그려졌다
-   * (뒤에 오는 쪽이 앞의 결과를 덮으므로 앞의 리드로우는 통째로 낭비다). spline 경로에 면적
-   * 채우기까지 있는 메트릭 차트에서 그 절반이 버려지고 있었다.
-   *
-   * 합칠 수 있는 이유는 commitRef가 이미 같은 batch 안에서 setData와 스케일 전진을 함께
-   * 처리하기 때문이다 — 데이터가 들어온 프레임에는 커밋 한 번이 곧 스트림 추종이기도 하다.
-   * 남는 건 "데이터가 안 들어온 프레임에도 창은 흘러야 한다"뿐이고, 그건 아래 else 가지다.
-   *
-   * 루프를 컴포넌트마다 두지 않고 전역 스케줄러에 맡기는 이유는 frame-scheduler.ts 참고.
-   */
   const subscribe = source?.subscribe;
   const taskId = useId();
   useLayoutEffect(() => {
     if (!subscribe && !streamFollow) return;
 
-    // (재)시작 시 경과 기준을 now로 리베이스한다 — 일시정지 뒤 재개 때 정지 동안 흐른
-    // 벽시계가 elapsed에 잡혀 오른쪽 끝이 훌쩍 튀는 것을 막는다.
     if (streamFollow) streamAnchorWallRef.current = performance.now();
 
-    // 갱신 알림이 온 뒤 아직 커밋하지 않았음을 나타내는 플래그. 구독 직후 한 번은 무조건
-    // 맞춰 둔다(늦게 마운트된 차트의 백필).
     let dataDirty = subscribe != null;
     const markDirty = () => { dataDirty = true; };
 
-    /** 창을 시계에 맞춰 흐르게 해야 하는 상태인지(=재생 중이고 사용자 줌이 아니며 앵커가 있음). */
     const needsStreamScale = (): boolean => (
       streamFollowRef.current === true
       && !zoomedRef.current
@@ -461,14 +269,8 @@ export default function UPlotChart({ options, data, source, yRange, xRange, seri
     const commitFromSource = () => {
       const u = chartRef.current;
       if (!u) return;
-      // 지금 보이는 창과 플롯 폭을 그대로 넘긴다 — 소스가 이 예산에 맞춰 점 수를 줄인다.
-      // bbox는 디바이스 픽셀이라 CSS 픽셀로 환산하고, 아직 크기가 안 잡혔으면 차트 폭으로
-      // 대신한다.
-      const pxRatio = window.devicePixelRatio || 1;
+      const pxRatio = uPlot.pxRatio || 1;
       const plotWidth = u.bbox && u.bbox.width > 0 ? u.bbox.width / pxRatio : u.width;
-      // streamFollow 중에는 **시계가 정한 창**으로 읽는다(streamMax 참고) — 현재 스케일로
-      // 읽으면 직전 커밋 이후 도착한 데이터가 창 밖이라 잡히지 않는다. 그 창의 왼쪽 끝은
-      // applyStreamScale과 같은 0이다.
       const followMax = needsStreamScale() ? streamMax() : null;
       const res = sourceReadRef.current?.({
         xMin: followMax != null ? 0 : (u.scales.x.min ?? 0),
@@ -497,8 +299,6 @@ export default function UPlotChart({ options, data, source, yRange, xRange, seri
           return;
         }
         internalCommitRef.current = true;
-        // batch 없이 setScale만 부르면 커밋(훅 실행)이 마이크로태스크로 밀려 가드가 풀린
-        // 뒤에 돈다 — 매 프레임의 내부 창 전진이 "사용자 줌" 재판정을 타게 된다.
         u.batch(() => applyStreamScale(u));
         internalCommitRef.current = false;
       },
@@ -512,15 +312,12 @@ export default function UPlotChart({ options, data, source, yRange, xRange, seri
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [subscribe, streamFollow, taskId]);
 
-  // 시리즈 표시 토글 — 재생성 없이 반영한다.
   useLayoutEffect(() => {
     const u = chartRef.current;
     if (u && seriesShow) applySeriesShow(u);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [seriesShow?.join(",")]);
 
-  // yRange/xRange만 바뀐 경우(데이터 동일)에도 스케일을 따라가게 한다.
-  // y를 사용자가 잡아둔 상태면 자동 범위가 갱신돼도 그대로 둔다.
   useLayoutEffect(() => {
     const u = chartRef.current;
     if (!u) return;
@@ -528,9 +325,6 @@ export default function UPlotChart({ options, data, source, yRange, xRange, seri
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [yRange?.[0], yRange?.[1]]);
 
-  // y축 확대/이동 — 인스턴스가 살아있는 동안만 리스너를 붙인다. 잠금 해제(null)일 때
-  // 자동 범위가 있으면 그 값으로 되돌리고, 없으면(데이터 extent를 쓰는 차트) 현재 데이터로
-  // 다시 auto-range를 태운다.
   useLayoutEffect(() => {
     const u = chartRef.current;
     if (!u || !yZoom) return;
@@ -539,7 +333,6 @@ export default function UPlotChart({ options, data, source, yRange, xRange, seri
       apply: (range) => {
         yLockRef.current = range;
         internalCommitRef.current = true;
-        // batch: setData(data, true)의 x auto-rescale 훅까지 가드 안에서 동기 실행되게.
         u.batch(() => {
           const next = effectiveYRange();
           if (next) u.setScale("y", { min: next[0], max: next[1] });

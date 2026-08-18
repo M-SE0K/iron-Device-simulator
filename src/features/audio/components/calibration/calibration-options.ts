@@ -7,22 +7,12 @@ export const BUFFER_SIZE_OPTIONS = ["8", "16", "32", "64", "128", "256", "480", 
 export const CHANNEL_OPTIONS = ["2", "4", "6", "8"];
 
 export const CALIBRATION_EMPTY: CalibrationValues = {
-  speakerModel: "",
-  ampOutputPower: "20",
   ambientTemp: String(DEFAULT_AMBIENT_TEMP),
   sampleRate: String(SAMPLE_RATE),
   bufferSize: String(SAMPLES_PER_CH),
   channels: "2",
-  inputDeviceId: "",
-  inputDeviceLabel: "",
   captureDeviceUID: "",
-  outputDeviceId: "",
-  outputDeviceLabel: "",
   outputChannel: "0",
-  tempBase: "",
-  excAmp: "",
-  tempMult: "",
-  excMult: "",
   tempWarn: String(DEFAULT_TEMP_WARN),
   tempDanger: String(DEFAULT_TEMP_DANGER),
 };

@@ -4,14 +4,13 @@ import { memo, useEffect } from "react";
 import { RefreshCw, RotateCcw, X } from "lucide-react";
 import AnimatedSelect from "@/shared/components/ui/AnimatedSelect";
 import DeviceSelectField from "./DeviceSelectField";
-import { useDrawerState } from "@/features/audio/components/dashboard/ActiveDrawerContext";
+import { useDrawerState } from "@/features/audio/components/ActiveDrawerContext";
 import { CALIBRATION_EMPTY, useCalibration } from "./CalibrationContext";
-import type { CalibrationValues } from "@/features/audio/types";
 import { useNativeAudioDevice } from "./hooks/useNativeAudioDevice";
 import { useDeviceOptionAutoCorrect } from "./hooks/useDeviceOptionAutoCorrect";
 import { useCalibrationDraft } from "./hooks/useCalibrationDraft";
 import { useCalibrationApply } from "./hooks/useCalibrationApply";
-import { useEscapeKey } from "@/shared/hooks/useEscapeKey";
+import { useEscapeKey } from "@/shared/hooks/useGlobalKey";
 import SideDrawer from "@/shared/components/overlay/SideDrawer";
 import LabeledField from "@/shared/components/ui/LabeledField";
 
@@ -81,12 +80,7 @@ function DeviceRow({ label, value }: { label: string; value: string }) {
   );
 }
 
-interface Props {
-  projectName?: string | null;
-  onApply?: (values: CalibrationValues) => void;
-}
-
-function CalibrationDrawer({ projectName, onApply }: Props) {
+function CalibrationDrawer() {
   const { values, setValues } = useCalibration();
   const { open, setOpen } = useDrawerState("calibration");
   const { draft, setDraft, set } = useCalibrationDraft(open, values);
@@ -100,7 +94,7 @@ function CalibrationDrawer({ projectName, onApply }: Props) {
   } = useDeviceOptionAutoCorrect({ deviceInfo, deviceInfoLoading, hasAudioDeviceBridge, draft, set });
   const {
     deviceStatus, appliedRuntime, apply, resetStatus,
-  } = useCalibrationApply({ draft, setValues, setOpen, hasAudioDeviceBridge, deviceInfo, refreshDeviceInfo, onApply });
+  } = useCalibrationApply({ draft, setValues, setOpen, hasAudioDeviceBridge, deviceInfo, refreshDeviceInfo });
 
   useEffect(() => {
     if (!open) return;
@@ -148,13 +142,6 @@ function CalibrationDrawer({ projectName, onApply }: Props) {
         </div>
       }
     >
-          {projectName && (
-            <div className="px-3 py-2 rounded-lg bg-brand-blue/5 text-xs text-brand-blue">
-              Target: <span className="font-medium">{projectName}</span>
-            </div>
-          )}
-
-
           <section className="space-y-3">
             <h4 className="text-xs font-semibold text-iron-500">THRESHOLD</h4>
             <div className="grid grid-cols-2 gap-3">
@@ -252,9 +239,6 @@ function CalibrationDrawer({ projectName, onApply }: Props) {
                 devices={nativeDevices.map((d) => ({
                   value: d.uid,
                   label: d.name || "Unnamed",
-                  // d.probed가 true인 응답에서만 채널 수를 띄운다. Windows 목록은 --no-probe라
-                  // false이고, 현재 macOS 목록은 probed를 보내지 않으므로 확정 채널 수는 선택 후
-                  // query 정보 패널에서 보여준다.
                   hint: [
                     d.probed ? `${d.inputChannels}ch` : null,
                     d.isDefault ? "Default" : null,

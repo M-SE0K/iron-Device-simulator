@@ -17,7 +17,6 @@ export function openIndexedDb(options: OpenIndexedDbOptions): Promise<IDBDatabas
   });
 }
 
-/** 트랜잭션을 열고 `run`을 실행한 뒤 완료(oncomplete)까지 기다린다 — 쓰기 계열 공용 래퍼. */
 export function runTx(
   db: IDBDatabase,
   storeNames: string | string[],
@@ -32,7 +31,6 @@ export function runTx(
   });
 }
 
-/** IDBRequest 하나의 결과를 Promise로 감싼다 — 읽기 계열(get/getAll) 공용 래퍼. */
 export function requestToPromise<T>(req: IDBRequest<T>): Promise<T> {
   return new Promise((resolve, reject) => {
     req.onsuccess = () => resolve(req.result);

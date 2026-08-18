@@ -1,19 +1,14 @@
 import type { AnalysisFrame } from "../../types";
-import type { QueuedFrame } from "./types";
 
-export function coalesceFrames(bucket: QueuedFrame[]): AnalysisFrame {
-  if (bucket.length === 1) return bucket[0].frame;
+export function coalesceFrames(bucket: AnalysisFrame[]): AnalysisFrame {
+  if (bucket.length === 1) return bucket[0];
 
-  const frames = bucket.map(q => q.frame);
-  const latest = frames[frames.length - 1];
+  const latest = bucket[bucket.length - 1];
 
   return {
     ...latest,
-    sourceCount: frames.length,
-    timeStart:   frames[0].time,
-    timeEnd:     latest.time,
-    temperatureMax: Math.max(...frames.map(f => f.temperature)),
-    excursionMin:   Math.min(...frames.map(f => f.excursion)),
-    excursionMax:   Math.max(...frames.map(f => f.excursion)),
+    temperatureMax: Math.max(...bucket.map(f => f.temperature)),
+    excursionMin:   Math.min(...bucket.map(f => f.excursion)),
+    excursionMax:   Math.max(...bucket.map(f => f.excursion)),
   };
 }

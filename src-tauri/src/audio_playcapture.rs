@@ -1,17 +1,3 @@
-//! audio_playcapture.rs — 파일 재생 + V/I 캡처(상주 play-capture 헬퍼) 커맨드/이벤트:
-//! `audio_playcapture_start_write`, `audio_playcapture_write_chunk`(raw invoke body +
-//! `x-write-id` 헤더), `audio_playcapture_finalize_write`, `audio_playcapture_cancel_write`,
-//! `audio_playcapture_start`(data: Channel — Raw PCM 청크),
-//! `audio_playcapture_control`, `audio_playcapture_stop`,
-//! `app.emit("audio-playcapture:ended", { code })`.
-//!
-//! ref 전달은 청크 핸드셰이크(start-write/write-chunk/finalize-write)다 — 파일 전체를 한 번의
-//! IPC로 넘기면(수 분 파일 기준 수십 MB) 순간적으로 렌더러/IPC가 멎는다. 렌더러가 PCM을 작은
-//! 조각으로 잘라 순차 전송하고, 여기서는 임시 파일에 동기 write로 받아쓴다 — 동기 write 자체가
-//! OS 파이프/파일 버퍼링에 걸리므로 렌더러의 순차 await 루프가 자연스러운 백프레셔를 갖는다
-//! (원본 JS의 `stream.write` false→drain 대기와 동등한 효과, 방식만 다르다).
-//! 완성된 파일 경로는 writeId로 보관해뒀다가 `start`의 refWriteId로 소비한다.
-
 use std::collections::HashMap;
 use std::fs::File;
 use std::io::{BufWriter, Write};
@@ -35,9 +21,7 @@ struct WriteSession {
 pub struct PlayCaptureState {
     pub controller: Arc<StreamController>,
     write_seq: AtomicU64,
-    /// 진행 중인 청크 업로드: writeId -> 임시 파일 + 쓰기 스트림.
     write_sessions: Mutex<HashMap<String, WriteSession>>,
-    /// finalize-write 완료, `start`의 소비 대기 중인 ref 파일: writeId -> path.
     finalized_refs: Mutex<HashMap<String, PathBuf>>,
 }
 
@@ -58,7 +42,6 @@ impl Default for PlayCaptureState {
     }
 }
 
-/// 렌더러가 재생 파일 PCM을 청크로 잘라 보내기 시작 — 임시 파일에 대한 쓰기 스트림을 연다.
 #[tauri::command]
 pub async fn audio_playcapture_start_write(
     state: State<'_, PlayCaptureState>,
@@ -82,14 +65,6 @@ pub async fn audio_playcapture_start_write(
     }
 }
 
-/// 청크 하나를 파일에 쓴다 — raw invoke body(`InvokeBody::Raw`) + `x-write-id` 헤더로 세션을 찾는다.
-///
-/// ⚠️ 이 커맨드만 sync로 남는다 — 형제 커맨드들과 달리 `async fn`으로 못 바꾼다.
-/// `Request<'a>`가 invoke 호출 스택 프레임을 빌리는 타입이라 `tokio::spawn`이 요구하는
-/// `'static`과 맞지 않기 때문이다(file_export.rs 상단 주석과 동일한 제약, 거기서도 raw body를
-/// 받는 커맨드만 sync로 남겼다). 즉 청크 write는 여전히 UI 스레드를 잡는다.
-/// 옮기려면 시그니처를 바꿔 body를 `Vec<u8>`로 먼저 복사해 소유해야 한다 — 청크당 4MB 추가
-/// 복사가 생기므로 별도 판단이 필요해 이번 변경 범위에서는 제외했다.
 #[tauri::command]
 pub fn audio_playcapture_write_chunk(
     state: State<'_, PlayCaptureState>,
@@ -119,7 +94,6 @@ pub fn audio_playcapture_write_chunk(
     }
 }
 
-/// 마지막 청크 후 스트림을 닫고, 완성된 경로를 finalizedRefs로 옮긴다 — `start`가 그걸 소비한다.
 #[tauri::command]
 pub async fn audio_playcapture_finalize_write(
     state: State<'_, PlayCaptureState>,
@@ -132,7 +106,7 @@ pub async fn audio_playcapture_finalize_write(
     let WriteSession { path, mut writer } = session;
     match writer.flush() {
         Ok(()) => {
-            drop(writer); // 파일 핸들을 닫는다 — start()가 곧바로 헬퍼에 읽기용으로 넘긴다.
+            drop(writer);
             state.finalized_refs.lock().unwrap().insert(write_id, path);
             Ok(serde_json::json!({ "success": true }))
         }
@@ -144,7 +118,6 @@ pub async fn audio_playcapture_finalize_write(
     }
 }
 
-/// 업로드 실패/재생 취소 시 진행 중이거나 완료된 세션을 정리해 임시 파일이 남지 않게 한다.
 #[tauri::command]
 pub async fn audio_playcapture_cancel_write(
     state: State<'_, PlayCaptureState>,
@@ -166,37 +139,22 @@ pub struct PlayCaptureStartOptions {
     buffer_size: u32,
     #[serde(default)]
     channels: Option<u32>,
-    // wire 키는 native-bridge.d.ts 원형(`deviceUID` — 대문자 UID) 그대로. rename_all =
-    // "camelCase"는 `deviceUid`를 만들어 shim이 보내는 키와 어긋나므로 명시적으로 재지정한다.
     #[serde(default, rename = "deviceUID")]
     device_uid: Option<String>,
     #[serde(default)]
     ref_write_id: Option<String>,
-    /// ref 파일의 채널 수 — 2면 헬퍼가 인터리브 스테레오로 해석해 L/R을 분리한다.
-    /// 생략 시 헬퍼 기본값(1=모노).
     #[serde(default)]
     ref_channels: Option<u32>,
-    /// 출력 채널 지정 — 생략/0이면 헬퍼 기본값(ch0)이라 안 붙여도 되지만, 명시적으로 넘겨
-    /// Calibration의 Output Channel 필드가 항상 실제 헬퍼 호출에 반영됨을 보장한다.
     #[serde(default)]
     output_channel: Option<u32>,
-    /// R 출력 채널 — 범위 밖/L과 중복이면 헬퍼가 에러 없이 모노로 폴백한다.
     #[serde(default)]
     output_channel_r: Option<u32>,
-    /// true면 `--ref`(파일 전체 선업로드) 대신 stdin 스트리밍 재생 모드(`--stream`)로 띄운다.
-    /// 재생 PCM은 `audio_playcapture_write_pcm`으로 프레임마다 들어온다 —
-    /// 렌더러가 ff_prot을 통과시킨 결과를 밀어 넣으므로 스피커로는 보호된 신호만 나간다.
-    /// 이 모드에서는 `ref_write_id`가 필요 없다.
     #[serde(default)]
     stream: Option<bool>,
-    /// `--stream` 전용: 재생을 시작하기 전에 링에 채워둘 분량(ms). 생략 시 헬퍼 기본값(40).
     #[serde(default)]
     prefill_ms: Option<u32>,
 }
 
-// audio_capture_start와 같은 이유로 `async fn` + `Result` — 재생 버튼의 가장 큰 프리즈가
-// 여기였다. `run_streaming_helper`가 헬퍼의 첫 줄 JSON을 기다리는 동안(프로세스 생성 → ASIO
-// 드라이버 로드 → ASIOInit → 버퍼 생성) sync 커맨드는 UI 스레드를 통째로 잡고 있었다.
 #[tauri::command]
 pub async fn audio_playcapture_start(
     app: AppHandle,
@@ -212,10 +170,6 @@ pub async fn audio_playcapture_start(
         return Ok(serde_json::json!({ "success": false, "error": "play-capture-already-running" }));
     }
 
-    // 스트리밍 모드는 재생 PCM이 stdin으로 들어오므로 ref 파일 자체가 없다.
-    // ref 모드에서는 refWriteId가 없거나, 있어도 finalize-write를 거치지 않았으면
-    // (=finalizedRefs에 없으면) 진행할 수 없다 — 원본 JS의
-    // `if (!refWriteId || !refPath) return missing-ref-write-id` 그대로.
     let stream_mode = opts.stream.unwrap_or(false);
     let ref_path = if stream_mode {
         None
@@ -238,11 +192,8 @@ pub async fn audio_playcapture_start(
         }
         None => base_args.push("--stream".to_string()),
     }
-    // 위 옵션들은 헬퍼가 위치 인자 파싱 전에 걷어내므로 sampleRate/bufferSize/channels의
-    // 위치는 두 모드에서 동일하다.
     base_args.push(opts.sample_rate.to_string());
     base_args.push(opts.buffer_size.to_string());
-    // 원본 JS `String(channels || 2)` — 0도 "미지정"과 동일하게 취급해 2로 폴백한다.
     base_args.push(opts.channels.filter(|&c| c != 0).unwrap_or(2).to_string());
     if let Some(v) = opts.ref_channels {
         base_args.push("--ref-channels".to_string());
@@ -264,9 +215,6 @@ pub async fn audio_playcapture_start(
     }
     let args = with_device(base_args, opts.device_uid.as_deref());
 
-    // 재생 완료(code 0) 포함 모든 종료 경로(정상 종료·에러·조기 kill)에서 ref 임시 파일을
-    // 정리한다 — 원본의 onChildError/onChildExit 콜백을 합친 것과 동등(Rust에서는 spawn 실패
-    // 아니면 exit뿐이라 콜백 하나로 충분). 스트리밍 모드에는 지울 임시 파일이 없다.
     let cleanup: Option<Box<dyn FnOnce() + Send>> = ref_path.map(|path| {
         Box::new(move || {
             let _ = std::fs::remove_file(&path);
@@ -284,18 +232,6 @@ pub async fn audio_playcapture_start(
     ))
 }
 
-/// `--stream` 모드 전용: 보호 처리된 PCM 한 덩이를 헬퍼 stdin에 프레이밍해 밀어 넣는다.
-///
-/// `audio_playcapture_write_chunk`와 같은 이유로 sync다 — raw invoke body(`Request<'a>`)가
-/// 호출 스택 프레임을 빌리는 타입이라 `async fn`의 `'static` 요구와 맞지 않는다. 즉 이 커맨드는
-/// IPC 디스패치 스레드에서 인라인으로 실행된다.
-///
-/// ⚠️ 그래서 **호출 빈도가 이 커맨드의 안전 조건**이다. 감당 가능한 건 페이로드 크기가 아니라
-/// 초당 호출 횟수 쪽이다 — 처음엔 프레임마다 한 번씩 부르게 짰다가, bufferSize를 16으로 낮추면
-/// 초당 3000회가 되어 메인 스레드가 잠기고 재생이 지지직거리는 것을 실측으로 확인했다.
-/// 지금은 렌더러(`useNativeCapture.ts`의 `PLAYBACK_WRITE_BATCH_MS`)가 ~10 ms어치씩 모아
-/// 보내서 bufferSize와 무관하게 ~100 Hz로 묶어 준다. 그 배칭이 이 sync 구현의 전제다 —
-/// 호출 빈도를 올리려면 먼저 이걸 async로 옮겨야 한다(raw body를 `Vec<u8>`로 복사한 뒤 spawn).
 #[tauri::command]
 pub fn audio_playcapture_write_pcm(
     state: State<'_, PlayCaptureState>,
@@ -310,8 +246,6 @@ pub fn audio_playcapture_write_pcm(
     if bytes.is_empty() {
         return serde_json::json!({ "success": true });
     }
-    // 헬퍼 프레이밍: `"pcm <바이트수>\n"` + 페이로드. 한 번의 write_all로 보내야 헤더와
-    // 페이로드 사이에 pause/end 같은 제어 라인이 끼어들 수 없다(streaming.rs 참고).
     let mut framed = Vec::with_capacity(bytes.len() + 16);
     framed.extend_from_slice(format!("pcm {}\n", bytes.len()).as_bytes());
     framed.extend_from_slice(bytes);
@@ -321,9 +255,6 @@ pub fn audio_playcapture_write_pcm(
     }
 }
 
-/// pause/resume/end — 헬퍼 stdin 라인 명령으로 중계. stop은 별도 커맨드(stdin EOF→유예→kill).
-/// `end`는 `--stream` 모드에서 "재생 PCM은 여기까지"를 알리는 신호다 — 헬퍼는 링을 다 비운 뒤
-/// 감쇠 테일까지 캡처하고 exit 0으로 끝낸다(= 기존 재생 완료와 같은 경로).
 #[tauri::command]
 pub async fn audio_playcapture_control(
     state: State<'_, PlayCaptureState>,
@@ -341,7 +272,6 @@ pub async fn audio_playcapture_control(
     }
 }
 
-/// audio_capture_stop과 동일 — stdin EOF 후 최대 200ms 유예 폴링 + reap이라 UI 스레드에서 뺀다.
 #[tauri::command]
 pub async fn audio_playcapture_stop(
     state: State<'_, PlayCaptureState>,

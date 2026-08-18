@@ -9,7 +9,6 @@ export function readSessionJson<T>(key: string): T | null {
   }
 }
 
-/** 키 존재 여부. null은 브라우저 외 환경이거나 storage 접근 자체가 실패한 경우다. */
 export function hasSessionJson(key: string): boolean | null {
   if (typeof window === "undefined") return null;
   try {

@@ -43,7 +43,6 @@ export function useMetricChartRuntime({
     READOUT_INTERVAL_MS,
   );
 
-  // 정지되면 현재값 표시는 다음 스토어 갱신을 기다리지 않고 즉시 비운다.
   useEffect(() => {
     if (isActive) return;
     setReadout((previous) => (

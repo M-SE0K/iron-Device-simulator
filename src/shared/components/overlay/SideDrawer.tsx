@@ -5,41 +5,20 @@ import type { ReactNode } from "react";
 
 interface SideDrawerProps {
   open: boolean;
-  /** 백드롭 클릭 + 기본 헤더의 닫기 버튼이 호출 */
   onClose: () => void;
   ariaLabel: string;
-  /**
-   * content-column 기준(absolute, z-40/50) vs 전체화면 오버레이 위(fixed, z-[61]/[62]).
-   * 대부분의 사이드바 드로어는 "content", 오버레이 안에서 여는 드로어만 "overlay".
-   */
   layer?: "content" | "overlay";
-  /** 슬라이드 방향 — 기본은 우측(right). 좌측 Sidebar 옆에서 여는 드로어는 "left". */
   side?: "left" | "right";
-  /** 패널 폭 클래스 — 기본은 320px(다른 사이드 드로어와 동일). 차트처럼 넓은 본문은 오버라이드. */
   widthClassName?: string;
-  /** 상단 safe-area 여백(전체화면 오버레이 위에 뜨는 드로어) */
   safeAreaTop?: boolean;
-  /** 기본 헤더(제목 + 카운트 pill + 닫기) 대신 통째로 쓸 커스텀 헤더 */
   header?: ReactNode;
-  /** 기본 헤더 제목 — header 미지정 시 사용 */
   title?: string;
-  /** 제목 옆 카운트 pill — 0보다 클 때만 표시(header 미지정 시) */
   count?: number;
-  /** 스크롤 본문 래퍼 클래스(기본 "p-4"; Calibration은 "p-4 space-y-5") */
   bodyClassName?: string;
-  /** 본문 아래 고정 푸터(Calibration의 적용/초기화 바 등) */
   footer?: ReactNode;
   children: ReactNode;
 }
 
-/**
- * 사이드 슬라이드 드로어 공용 셸 — 백드롭(300ms 페이드) + 좌/우 패널(240ms 슬라이드) + 기본
- * 헤더/본문/푸터. WorkspaceDrawer / RecordsDrawer / CalibrationDrawer / ChannelSelectDrawer가
- * 복붙하던 동일 마크업을 통합한다. 기본은 우측(side="right") — 좌측 Sidebar 옆에서 여는
- * 드로어는 side="left"를 쓴다. ESC 닫기는 셸이 강제하지 않는다 — 각 드로어가 스스로
- * useEscapeKey로 관리한다(오버레이 위 드로어인 ChannelSelectDrawer는 부모의 open 상태를
- * 그대로 물려받는다).
- */
 export default function SideDrawer({
   open,
   onClose,
@@ -66,7 +45,6 @@ export default function SideDrawer({
 
   return (
     <>
-      {/* 배경 오버레이 */}
       <div
         onClick={onClose}
         aria-hidden
@@ -75,7 +53,6 @@ export default function SideDrawer({
         }`}
       />
 
-      {/* 슬라이딩 패널 */}
       <aside
         className={`${panelPos} top-0 ${sidePos} h-full ${widthClassName} bg-white ${sideBorder} border-iron-100 ${sideShadow} flex flex-col transition-transform duration-[240ms] ease-out ${
           open ? "translate-x-0" : closedTranslate

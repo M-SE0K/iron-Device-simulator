@@ -1,10 +1,5 @@
 "use client";
 
-// 대시보드의 동적 차트 그리드 — View 탭에서 체크된 항목만, 고정된 정렬(Protection →
-// Excursion → Temperature → 채널 오름차순)로 최대 2열에 흘려 배치한다. 행 수는 제한이
-// 없다(넘치면 main이 스크롤). Protection(전/후 비교)은 항상 전체 폭이고, 1칸짜리 항목이
-// 행에 혼자 남으면 전체 폭으로 늘려 빈 칸을 만들지 않는다 — 기본 선택 상태의 결과가 곧
-// 예전 고정 배치(1행 Protection / 2행 Excursion·Temperature)다.
 import { useMemo } from "react";
 import type { CaptureSnapshot, CaptureStreamListener } from "@/features/audio/components/player/capture/types";
 import type { DecodedPlayback } from "@/features/audio/lib/codec/playback-decode";
@@ -15,7 +10,7 @@ import type { TempThresholds } from "@/features/audio/lib/render/detect-events";
 import TemperatureChart from "@/features/audio/components/chart/TemperatureChart";
 import ExcursionChart from "@/features/audio/components/chart/ExcursionChart";
 import { ProtectedComparePanel } from "@/features/audio/components/channel/ProtectedComparePanel";
-import type { ChannelStreamHeader } from "@/features/audio/components/channel/useChannelWaveStreams";
+import type { ChannelStreamHeader } from "@/features/audio/components/channel/hooks/useChannelWaveStreams";
 import ChannelChartCard from "./ChannelChartCard";
 import {
   VIEW_PROTECTED,
@@ -31,15 +26,12 @@ interface Props {
   chartStore: ChartStore;
   isActive: boolean;
   isPlaying: boolean;
-  /** 메트릭 차트의 점 잇기 활성 조건 — 정지 상태이면서 그릴 프레임이 있을 때. */
   canAnnotateMetric: boolean;
   audioDuration: number | null;
   tempThresholds: TempThresholds;
   audioFile: File | null;
   subscribeChannelStream: (fn: CaptureStreamListener) => () => void;
-  /** 채널 파형이 확대 시 원본 PCM을 직접 읽는 데 쓰는 스냅샷 getter(안정된 참조). */
   getChannelsSnapshot: () => CaptureSnapshot | null;
-  /** 재생 경로가 디코딩해 둔 원본 PCM getter — Protection 패널의 Input 엔벨로프용(안정된 참조). */
   getDecodedPlayback: () => DecodedPlayback | null;
   getProtectedBlob: () => Blob | null;
   channelHeader: ChannelStreamHeader | null;
@@ -52,7 +44,6 @@ interface GridCell {
   span: 1 | 2;
 }
 
-/** 체크된 항목을 고정 정렬로 나열하고 2열 흐름의 스팬(전체 폭 여부)을 계산한다. */
 function computeCells(selected: Set<string>): GridCell[] {
   const channels = Array.from(selected)
     .map(parseViewChannelId)
@@ -67,7 +58,7 @@ function computeCells(selected: Set<string>): GridCell[] {
   let pending: string | null = null;
   const flushPending = () => {
     if (pending === null) return;
-    cells.push({ id: pending, span: 2 }); // 짝이 없는 1칸 항목은 전체 폭으로 늘린다
+    cells.push({ id: pending, span: 2 });
     pending = null;
   };
   for (const id of orderedIds) {
@@ -117,7 +108,6 @@ export default function DashboardViewGrid({
 
   const renderItem = (id: string) => {
     if (id === VIEW_PROTECTED) {
-      // View 탭에서 개별 꺼둔 시리즈(Input/Protected × L/R)를 패널의 hiddenSeries 인덱스로 변환.
       const hiddenSeries = new Set(
         PROTECTED_SERIES_IDS.flatMap((subId, i) => (selected.has(subId) ? [] : [i])),
       );

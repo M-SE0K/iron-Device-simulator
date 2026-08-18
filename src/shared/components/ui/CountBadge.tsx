@@ -1,9 +1,5 @@
-// 섹션 헤더 우측의 "초록 점 + 개수(+접미사)" 배지 — WorkspaceFolderSection /
-// RecordsDrawer / ChannelSelectDrawer 섹션 헤더가 공유한다.
-
 interface CountBadgeProps {
   count: number;
-  /** 개수 뒤 접미사(예: "개 파일", "ch") */
   suffix?: string;
 }
 

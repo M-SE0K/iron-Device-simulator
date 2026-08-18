@@ -3,7 +3,7 @@
 import { memo } from "react";
 import { useWorkspace } from "./WorkspaceContext";
 import WorkspaceFolderSection from "./WorkspaceFolderSection";
-import { useEscapeKey } from "@/shared/hooks/useEscapeKey";
+import { useEscapeKey } from "@/shared/hooks/useGlobalKey";
 import SideDrawer from "@/shared/components/overlay/SideDrawer";
 
 function WorkspaceDrawer() {

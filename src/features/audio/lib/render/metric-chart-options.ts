@@ -1,51 +1,31 @@
+import "@/shared/lib/dpr-cap";
 import uPlot from "uplot";
 import type { UPlotOptions } from "@/shared/components/UPlotChart";
 import { buildAreaFill, buildTimeAxis, buildValueAxis } from "./uplot-option";
 import { tooltipPlugin, zoomPlugin } from "./uplot-plugins";
 
-/**
- * Temperature/ExcursionChart가 공유하는 uPlot 시리즈/옵션 빌더 — legend/cursor/축/기본
- * 플러그인(zoom+tooltip) 구성은 두 차트가 항상 동일하고, 시리즈 스타일과 메트릭별 추가
- * 플러그인(예: 온도의 WARN/DANGER 임계선)만 다르다. 이 차이만 config로 받는다.
- */
 interface MetricSeriesStyle {
   label: string;
   color: string;
   width: number;
-  /** 부드러운 곡선(spline) 보간. 생략하면 uPlot 기본(직선) 경로를 쓴다. */
   spline?: boolean;
-  /** 선 아래 면적 그라디언트 [위, 아래] 색상. 생략하면 채우지 않는다. */
   fill?: [top: string, bottom: string];
-  /** 커서 포인트 반지름(px). 생략 시 5. */
   pointSize?: number;
 }
 
 export interface MetricChartOptionsConfig {
   series: MetricSeriesStyle;
   axisSize: number;
-  /** y축 눈금 뒤에 붙일 단위(예: "mm"). 생략하면 숫자만 — 자리수는 줌 폭에 맞춰 자동. */
-  axisUnit?: string;
   tooltipUnit: string;
   tooltipDecimals: number;
-  /**
-   * 커서 시각의 값 getter — 넘기면 툴팁이 u.data(뷰포트 감량 커밋본, 픽셀 열당 min/max
-   * 극점 2개) 인덱스 스냅 대신 이쪽으로 조회한다. 스냅은 커서가 가리키는 선과 무관한
-   * 극점 값을 잡을 수 있다. 반드시 안정된 참조여야 한다(옵션에 박힌다).
-   */
   tooltipResolve?: (timeSec: number) => number | null;
-  /**
-   * 세션 전체 x 도메인 getter — 뷰포트만 커밋하므로 zoomPlugin의 기본값(데이터 extent)은
-   * "지금 확대한 창"이라 줌아웃·더블클릭 리셋이 제자리를 맴돈다. `useChartFullXRange` 참고.
-   * 반드시 안정된 참조여야 한다(옵션에 박히므로 매 렌더 새 함수면 인스턴스가 재생성된다).
-   */
   getFullXRange?: () => [number, number] | null;
-  /** thresholdsPlugin 등 메트릭별 추가 플러그인 — 기본 zoom/tooltip 뒤에 붙는다. */
   extraPlugins?: uPlot.Plugin[];
 }
 
 export function buildMetricChartOptions(config: MetricChartOptionsConfig): UPlotOptions {
   const {
-    series, axisSize, axisUnit, tooltipUnit, tooltipDecimals, tooltipResolve, getFullXRange, extraPlugins,
+    series, axisSize, tooltipUnit, tooltipDecimals, tooltipResolve, getFullXRange, extraPlugins,
   } = config;
   return {
     legend: { show: false },
@@ -61,7 +41,7 @@ export function buildMetricChartOptions(config: MetricChartOptionsConfig): UPlot
         points: { size: series.pointSize ?? 5, fill: series.color },
       },
     ],
-    axes: [buildTimeAxis(), buildValueAxis({ size: axisSize, unit: axisUnit })],
+    axes: [buildTimeAxis(), buildValueAxis({ size: axisSize })],
     plugins: [
       zoomPlugin({ getFullXRange }),
       tooltipPlugin({

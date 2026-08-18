@@ -8,7 +8,6 @@ import type { PlaybackMode } from "./capture/types";
 interface Props {
   isReady: boolean;
   isPlaying: boolean;
-  /** true인 동안 재생 버튼이 스피너로 바뀌고 비활성화된다 — 네이티브 캡처 장치 연결 등 재생 시작 전 대기 구간용. */
   isConnecting?: boolean;
   currentTime: number;
   duration: number;
@@ -18,16 +17,12 @@ interface Props {
   onSave?: () => void;
   canSave?: boolean;
   onReset?: () => void;
-  /** 스피커로 내보낼 신호 — 보호 통과본(기본) 또는 원본. 생략하면 토글 자체를 렌더하지 않는다. */
   playbackMode?: PlaybackMode;
   onPlaybackModeChange?: (mode: PlaybackMode) => void;
-  /** 세션이 살아 있는 동안 true — 재생 중 전환은 엔진 상태·클록 정합이 깨져 막는다. */
   playbackModeLocked?: boolean;
-  /** 가운데 슬롯 — DuplexFilePlayer의 진행바. */
   children: ReactNode;
 }
 
-/** 하단 중앙 재생 컨트롤 알약 UI — DuplexFilePlayer의 프레젠테이션 셸. */
 export default function PlayerBar({
   isReady,
   isPlaying,

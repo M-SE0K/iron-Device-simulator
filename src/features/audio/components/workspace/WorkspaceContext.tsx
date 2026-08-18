@@ -3,7 +3,7 @@
 import { createContext, useCallback, useContext, useMemo, useState, type ReactNode } from "react";
 import { useWorkspaceItems } from "./hooks/useWorkspaceItems";
 import { useLocalFolderConnection } from "./hooks/useLocalFolderConnection";
-import { useActiveDrawer, useDrawerState } from "@/features/audio/components/dashboard/ActiveDrawerContext";
+import { useActiveDrawer, useDrawerState } from "@/features/audio/components/ActiveDrawerContext";
 import type { WorkspaceItemMeta, SaveWorkspaceInput } from "@/features/audio/lib/cache/workspace";
 import type { LocalAudioFileEntry } from "@/features/audio/lib/local-folder";
 

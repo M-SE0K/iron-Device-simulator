@@ -9,8 +9,9 @@ edition = "2021"
 # 측정/디버깅 전용 빌드 플래그. 켜지 않은 배포 빌드에는 DevTools(WebView 인스펙터)가 아예
 # 컴파일되지 않는다 — tauri의 open_devtools/is_devtools_open은 물론 wry가 웹뷰에 거는
 # WKWebView `isInspectable` / WebView2 `AreDevToolsEnabled` 설정 자체가 false로 굳는다.
-# 패키징된 앱에서 window.__ironPerf(지연 측정)를 콘솔로 호출해야 할 때만 켠다:
-#   npm run build:tauri:mac -- --devtools   (scripts/build/build-tauri.sh 가 --features 로 전달)
+# 켜는 경로는 둘이다(scripts/build/build-tauri.sh 가 --features 로 전달):
+#   npm run build:tauri -- --dev        계측(NEXT_PUBLIC_IRON_PERF=1)까지 함께 켠다 — window.__ironPerf 측정용
+#   npm run build:tauri -- --devtools   WASM 암호화/하드닝을 배포와 동일하게 유지한 채 인스펙터만 연다
 # debug 빌드(npm run tauri:preview)는 이 피처와 무관하게 tauri 기본값대로 항상 열려 있다.
 [features]
 devtools = ["tauri/devtools"]

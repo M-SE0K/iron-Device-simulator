@@ -1,7 +1,7 @@
 import { CHANNELS, BYTES_PER_SAMPLE } from "../engine/core";
 
 export function pcmFramesToWavBlob(
-  frames: ArrayBuffer[],
+  frames: readonly (ArrayBuffer | Uint8Array<ArrayBuffer>)[],
   sampleRate: number,
   channels: number = CHANNELS,
 ): Blob {

@@ -16,12 +16,6 @@ const VARIANT_STYLE = {
   },
 } as const;
 
-/**
- * 화면 정중앙에 뜨는 단일 피드백 팝업(에러 또는 성공). 배경 클릭/ESC로는 닫히지 않고
- * "닫기" 버튼을 눌러야만 사라진다 — USB 연결 끊김처럼 사용자가 반드시 인지해야 하는
- * 에러를 실수로 흘려보내지 않기 위함. z-index는 드로어/전체화면 오버레이(최대 z-[65])
- * 위에 항상 뜨도록 최상위로 둔다.
- */
 export default function ErrorPopupModal({ message, variant, queuedCount, onClose }: ErrorPopupModalProps) {
   const { label, icon: Icon, iconWrap } = VARIANT_STYLE[variant];
   return (

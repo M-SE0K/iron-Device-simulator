@@ -34,7 +34,7 @@ export interface FrameResult {
   temperature:  number;
   excursion:    number;
   processingMs: number;
-  processedPcm?: Int16Array;
+  processedPcm: Int16Array;
 }
 
 export interface RealSensingPair {
@@ -42,18 +42,8 @@ export interface RealSensingPair {
   i: Int16Array;
 }
 
-export interface MemoryLayout {
-  allocTemp(): { tempPtr: number; excPtr: number };
-  allocBuf(): number;
-  writePlanar(bufPtr: number, planar: Int16Array): void;
-  execAnalysis(bufPtr: number, tempPtr: number, excPtr: number, ambientTemp: number, sensing?: RealSensingPair): void;
-  readResults(tempPtr: number, excPtr: number): [number, number];
-  readProcessedPcm(bufPtr: number, samplesPerCh: number): Int16Array;
-  free(ptrs: number[]): void;
-}
-
 export interface AnalysisSession {
-  analyze(pcm: Buffer | Uint8Array, params: EngineParams, sensing?: RealSensingPair): FrameResult;
+  analyze(pcm: Uint8Array, params: EngineParams, sensing?: RealSensingPair): FrameResult;
   close(): void;
 }
 
