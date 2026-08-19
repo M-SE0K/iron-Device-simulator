@@ -2,6 +2,8 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { CHANNELS } from "@/features/audio/lib/engine/core";
+import { quantizeInterleaved } from "@/features/audio/lib/engine/utils";
+import { envelopeChunkFrames } from "@/features/audio/lib/pcm-kit";
 import { envelopeModeSuffix, recordPerfSample } from "@/shared/lib/iron-perf";
 import type { DecodedPlayback } from "@/features/audio/lib/codec/playback-decode";
 import { ChannelWaveStore, MAX_WAVE_BUCKETS } from "@/features/audio/lib/render/wave-store";
@@ -26,8 +28,12 @@ export interface PanelStores {
 
 export interface InputMeta {
   durationSec: number;
+  sampleRate: number;
+  /* peak 는 양자화 후 값이라 1.0 을 넘지 않는다 — 원본이 풀스케일을 넘었는지는 clipped* 로 본다. */
   peakL: number;
   peakR: number;
+  clippedL: boolean;
+  clippedR: boolean;
 }
 
 interface Options {
@@ -44,7 +50,11 @@ export function useProtectedCompareStreams({
   getDecodedPlayback,
   decodeReady = false,
   getProtectedBlob,
-}: Options): { stores: PanelStores; input: InputMeta | null } {
+}: Options): {
+  stores: PanelStores;
+  getFullXRange: () => [number, number] | null;
+  input: InputMeta | null;
+} {
   const [input, setInput] = useState<InputMeta | null>(null);
 
   const storesRef = useRef<PanelStores | null>(null);
@@ -77,21 +87,37 @@ export function useProtectedCompareStreams({
     inputL.setInitialBucketSec(bucketSec);
     inputR.setInitialBucketSec(bucketSec);
 
-    /* 인터리브 디코드 결과를 채널 추출 pass 없이 pcm-kit 커널로 바로 집계한다 —
-     * 파일 전체를 도는 이 시딩은 메인 스레드 동기 실행이라 여기 소요 시간이 곧
-     * 업로드 직후 UI 정지 시간이다(envelope_seed 스테이지로 계측). */
+    /* 디코드 결과(Float32)를 그대로 넣지 않고 와이어와 같은 int16 로 양자화해서 집계한다.
+     * Protected 는 encodeToInt16 → ±1 클램프를 거친 값이라, 원본 float 을 그대로 넣으면
+     * passthrough 에서도 두 곡선이 어긋난다(1.0 을 넘는 소스에서 특히). 청크 폭은 커널
+     * 내부 분해와 같게 잡아, 통째로 한 번 넣는 것과 버킷 경계가 어긋나지 않게 한다.
+     * 파일 전체를 도는 이 시딩은 메인 스레드 동기 실행이라 여기 소요 시간이 곧 업로드
+     * 직후 UI 정지 시간이다(envelope_seed 스테이지로 계측). */
     const totalFrames = Math.floor(decoded.pcm.length / CHANNELS);
+    const chunkFrames = envelopeChunkFrames(CHANNELS, true, bucketSec, decoded.rate);
+    const scratch = new Int16Array(chunkFrames * CHANNELS);
+    let clippedMask = 0;
+
     const t0 = performance.now();
-    inputL.addSamples(decoded.pcm, { channels: CHANNELS, channel: 0, frames: totalFrames, startSec: 0, sampleRate: decoded.rate });
-    inputR.addSamples(decoded.pcm, { channels: CHANNELS, channel: 1, frames: totalFrames, startSec: 0, sampleRate: decoded.rate });
+    for (let off = 0; off < totalFrames; off += chunkFrames) {
+      const n = Math.min(chunkFrames, totalFrames - off);
+      clippedMask |= quantizeInterleaved(decoded.pcm, off, n, scratch);
+      const view = n === chunkFrames ? scratch : scratch.subarray(0, n * CHANNELS);
+      const opts = { channels: CHANNELS, frames: n, startSec: off / decoded.rate, sampleRate: decoded.rate };
+      inputL.addSamples(view, { ...opts, channel: 0 });
+      inputR.addSamples(view, { ...opts, channel: 1 });
+    }
     recordPerfSample(`envelope_seed${envelopeModeSuffix()}`, performance.now() - t0);
     inputL.flush();
     inputR.flush();
 
     setInput({
       durationSec: decoded.duration,
+      sampleRate: decoded.rate,
       peakL: inputL.snapshot().peak,
       peakR: inputR.snapshot().peak,
+      clippedL: (clippedMask & 1) !== 0,
+      clippedR: (clippedMask & 2) !== 0,
     });
   }, [decodeReady, getDecodedPlayback, stores]);
 
@@ -182,5 +208,17 @@ export function useProtectedCompareStreams({
     return off;
   }, [subscribeCaptureStream, applyProtectedEvent, stores]);
 
-  return { stores, input };
+  /* 줌아웃·더블클릭 리셋이 "커밋된 창"이 아니라 세션 전체로 돌아가게 하는 기준.
+   * source 모드에서는 뷰포트 구간만 커밋되므로 이걸 안 넘기면 줌아웃이 막힌다. */
+  const getFullXRange = useCallback((): [number, number] | null => {
+    const duration = Math.max(
+      stores.inputL.snapshot().durationSec,
+      stores.inputR.snapshot().durationSec,
+      stores.protectedL.snapshot().durationSec,
+      stores.protectedR.snapshot().durationSec,
+    );
+    return duration > 0 ? [0, duration] : null;
+  }, [stores]);
+
+  return { stores, getFullXRange, input };
 }

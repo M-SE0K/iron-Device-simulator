@@ -10,6 +10,12 @@ import { attachYZoom } from "@/shared/lib/uplot-y-zoom";
 
 export type UPlotOptions = Omit<uPlot.Options, "width" | "height">;
 
+/* 줌 상태에서 뷰포트 양옆으로 더 읽어둘 비율(각 방향). 스케일 변경 → 재읽기 사이의 한
+ * 프레임 동안 옛 데이터가 새 범위를 덮게 한다. 휠 한 칸은 1/0.75 = 1.333 배이므로 0.5 면
+ * 두 칸(1.78배)까지 커버된다. 그린 뒤 잘려나가는 구간이라 그리기 비용은 늘지 않는다
+ * (uPlot 은 가시 인덱스 범위만 패스로 만든다). */
+const SOURCE_OVERREAD = 0.5;
+
 interface UPlotReadView {
   xMin: number;
   xMax: number;
@@ -232,6 +238,13 @@ export default function UPlotChart({ options, data, source, yRange, xRange, seri
     u.batch(() => {
       u.setData(next, !zoomed);
       if (zoomed) {
+        /* setData(…, false) 는 "그릴 인덱스 범위"(uPlot 내부 i0/i1)를 다시 계산하지 않는다.
+         * source 모드는 커밋할 때마다 배열이 통째로 바뀌므로, 옛 배열 기준 인덱스를 그대로
+         * 쓰면 새 배열의 일부만 그려져 좌우에 여백이 남는다. 같은 범위로 x 스케일을 한 번
+         * 더 눌러 새 배열 기준으로 재계산시킨다(값이 같으면 setScale 훅은 안 뜬다). */
+        const sMin = u.scales.x.min;
+        const sMax = u.scales.x.max;
+        if (sMin != null && sMax != null) u.setScale("x", { min: sMin, max: sMax });
         if (yR) u.setScale("y", { min: yR[0], max: yR[1] });
       } else if (follow) {
         applyStreamScale(u);
@@ -272,10 +285,14 @@ export default function UPlotChart({ options, data, source, yRange, xRange, seri
       const pxRatio = uPlot.pxRatio || 1;
       const plotWidth = u.bbox && u.bbox.width > 0 ? u.bbox.width / pxRatio : u.width;
       const followMax = needsStreamScale() ? streamMax() : null;
+      const xMin = followMax != null ? 0 : (u.scales.x.min ?? 0);
+      const xMax = followMax ?? (u.scales.x.max ?? 0);
+      const span = xMax - xMin;
+      const margin = zoomedRef.current && span > 0 ? span * SOURCE_OVERREAD : 0;
       const res = sourceReadRef.current?.({
-        xMin: followMax != null ? 0 : (u.scales.x.min ?? 0),
-        xMax: followMax ?? (u.scales.x.max ?? 0),
-        pxWidth: Math.max(1, Math.round(plotWidth)),
+        xMin: xMin - margin,
+        xMax: xMax + margin,
+        pxWidth: Math.max(1, Math.round(plotWidth * (1 + SOURCE_OVERREAD * 2))),
       });
       if (!res) return;
       if (res.yRange) yRangeRef.current = res.yRange;

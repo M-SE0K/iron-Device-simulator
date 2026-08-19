@@ -193,17 +193,19 @@ export function useCaptureSession(deps: UseCaptureSessionDeps) {
     [],
   );
 
-  const getCaptureSnapshot = useCallback((): CaptureSnapshot | null => {
-    const raw = rawCaptureRef.current;
-    if (!raw || raw.frameCount === 0) return null;
+  const snapshotOf = (store: PcmFrameStore | null): CaptureSnapshot | null => {
+    if (!store || store.frameCount === 0) return null;
     return {
-      channels: raw.channels,
-      sampleRate: raw.sampleRate,
-      pcm: raw,
-      samplesPerFrame: raw.samplesPerFrame,
-      totalFrames: raw.totalSamples,
+      channels: store.channels,
+      sampleRate: store.sampleRate,
+      pcm: store,
+      samplesPerFrame: store.samplesPerFrame,
+      totalFrames: store.totalSamples,
     };
-  }, []);
+  };
+
+  const getCaptureSnapshot = useCallback((): CaptureSnapshot | null => snapshotOf(rawCaptureRef.current), []);
+
 
   const pauseRecording = useCallback(() => {
     recordingActiveRef.current = false;

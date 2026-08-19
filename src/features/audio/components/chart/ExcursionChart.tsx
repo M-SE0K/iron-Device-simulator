@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useMemo } from "react";
+import { useMemo } from "react";
 import { toMm, MM_DECIMALS } from "@/features/audio/lib/units";
 import { computeExcursionYRange } from "@/features/audio/lib/render/chart-window";
 import type { ChartStore } from "@/features/audio/lib/render/chart-store";
@@ -62,11 +62,6 @@ export default function ExcursionChart({
   );
 
   const getFullXRange = useChartFullXRange(store);
-  const tooltipResolve = useCallback((t: number) => {
-    const v = store.valueAt("excursion", t);
-    return v === null ? null : toMm(v);
-  }, [store]);
-
   const options = useMemo(() => buildMetricChartOptions({
     series: {
       label: "Excursion",
@@ -79,10 +74,9 @@ export default function ExcursionChart({
     axisSize: 60,
     tooltipUnit: "mm",
     tooltipDecimals: MM_DECIMALS,
-    tooltipResolve,
     getFullXRange,
     extraPlugins: annotations ? [annotatePlugin({ store: annotations, isEnabled })] : undefined,
-  }), [tooltipResolve, getFullXRange, annotations, isEnabled]);
+  }), [getFullXRange, annotations, isEnabled]);
 
   return (
     <MetricChartCard

@@ -1,6 +1,7 @@
 "use client";
 
 import { memo } from "react";
+import Image from "next/image";
 import { LayoutGrid, FolderOpen, History, SlidersHorizontal } from "lucide-react";
 import type { DrawerKey } from "../ActiveDrawerContext";
 
@@ -52,10 +53,19 @@ function Sidebar({
         }`}
         style={{ paddingTop: "calc(1.5rem + env(safe-area-inset-top))" }}
       >
-      <div id="header-logo" className="px-1 mb-6">
-        <span id="brand-name" className="text-white text-[15px] font-extrabold tracking-tight">
-          IRON DEVICE
-        </span>
+      <div
+        id="header-logo"
+        className="-mx-4 mb-6 flex items-center justify-center bg-white px-5 py-6"
+        style={{ marginTop: "calc(-1.5rem - env(safe-area-inset-top))" }}
+      >
+        <Image
+          src="/brand/iron-device-logo.jpg"
+          alt="Iron Device Corporation"
+          width={1121}
+          height={330}
+          priority
+          className="w-full h-auto object-contain"
+        />
       </div>
 
       {NAV_ITEMS.map(({ key, icon: Icon, label }) => {

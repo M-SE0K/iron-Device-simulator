@@ -18,14 +18,13 @@ export interface MetricChartOptionsConfig {
   axisSize: number;
   tooltipUnit: string;
   tooltipDecimals: number;
-  tooltipResolve?: (timeSec: number) => number | null;
   getFullXRange?: () => [number, number] | null;
   extraPlugins?: uPlot.Plugin[];
 }
 
 export function buildMetricChartOptions(config: MetricChartOptionsConfig): UPlotOptions {
   const {
-    series, axisSize, tooltipUnit, tooltipDecimals, tooltipResolve, getFullXRange, extraPlugins,
+    series, axisSize, tooltipUnit, tooltipDecimals, getFullXRange, extraPlugins,
   } = config;
   return {
     legend: { show: false },
@@ -44,13 +43,9 @@ export function buildMetricChartOptions(config: MetricChartOptionsConfig): UPlot
     axes: [buildTimeAxis(), buildValueAxis({ size: axisSize })],
     plugins: [
       zoomPlugin({ getFullXRange }),
-      tooltipPlugin({
-        unit: tooltipUnit,
-        decimals: tooltipDecimals,
-        ...(tooltipResolve
-          ? { virtualSeries: [{ label: series.label, seriesIdx: 1, resolve: tooltipResolve }] }
-          : {}),
-      }),
+      /* virtualSeries 를 쓰지 않는다 — 커밋된 데이터가 곧 그려진 점이라, 툴팁이
+       * u.data[1][idx] 를 읽으면 uPlot 이 찍어주는 커서 포인트와 같은 점이 된다. */
+      tooltipPlugin({ unit: tooltipUnit, decimals: tooltipDecimals }),
       ...(extraPlugins ?? []),
     ],
   };
