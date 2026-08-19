@@ -2,73 +2,83 @@
 
 ## 1. 도메인 설명
 
-캡처된 다채널 오디오를 채널 하나하나의 파형으로 그려 보여주는 도메인이다. 개발자는 이 폴더만 읽고도 ch0(V)·ch1(I)와 확장 채널을 어떻게 개별 파형으로 그리는지, 사용자가 스택에 올릴 채널을 어떻게 고르는지를 파악한다. 실시간 상세 뷰(`chart/ChartDetailOverlay`)와 저장 세션 뷰(`workspace/ChannelViewerOverlay`)가 똑같이 쓰던 채널 파형 조각들을 한곳에 모아, 두 소비자가 같은 부품을 공유하게 떼어낸 결과다.
+캡처된 다채널 오디오를 채널 하나하나의 파형으로 그려 보여주는 도메인이다. 개발자는 이 폴더만 읽고도 ch0(V)·ch1(I)와 확장 채널을 어떻게 개별 파형으로 그리는지, 보호 전/후 신호를 어떻게 겹쳐 비교하는지 파악한다.
 
-부품은 다섯 가지다. `ChannelWaveformCanvas`는 `ChannelWaveStore`가 들고 있는 세션 전체 min/max 엔벨로프를 단일 선 uPlot 차트에 그대로 그린다(메인 차트와 같은 source 구독 경로). `ChannelRowHeader`가 그리는 것은 채널 행 머리, 곧 색 점 + 이름 + 역할 + peak·rms 배지다. 여러 채널 패널을 드래그로 재배치하고 높이를 조절하는 세로 스택은 `ChannelStackView`가 만든다. `ChannelSelectDrawer`는 스택에 올릴 항목(메인 차트 + 채널 목록)을 체크로 고르는 우측 드로어다. `ProtectedComparePanel`은 원본 입력과 보호 감쇠 후 신호(엔진이 buf를 되쓴 결과)를 L/R 채널별 엔벨로프로 겹쳐 비교한다. 다섯 부품 모두 데이터를 소유하지 않는다. 소비자가 채널 버퍼와 선택 상태를 내려주고, 이 도메인은 그리기와 상호작용만 맡는다. 표시 텍스트는 다섯 부품 전부 `shared/lib/i18n`의 `useLocale()`에서 가져온다.
+부품은 컴포넌트 4개와 훅 2개다. `ChannelWaveformCanvas`는 한 채널의 min/max 엔벨로프를 uPlot에 그리되 현재 뷰포트 구간만 읽고 충분히 확대하면 엔벨로프 대신 캡처 원본 샘플을 직접 그린다. `ChannelLevelBadge`는 peak·rms 배지(전 구간 0이면 "no signal" 경고)다. `ChannelSelectDrawer`는 표시 항목을 체크로 고르는 드로어로, `parentId` 계층(부모 항목 아래 하위 시리즈)을 지원한다. `ProtectedComparePanel`은 원본 입력과 보호 감쇠 후 신호를 L/R 채널별 엔벨로프로 겹쳐 비교한다. 데이터 소유는 컴포넌트가 아니라 훅 몫이다 — `useChannelWaveStreams`가 채널별 `ChannelWaveStore`를, `useProtectedCompareStreams`가 Input/Protected 4개 스토어를 소유하고 컴포넌트는 받은 스토어를 그리기만 한다.
 
 ## 2. 프로젝트 전반에서의 역할
 
-캡처 파이프라인이 만든 다채널 PCM을 사람이 눈으로 읽는 파형으로 바꾸는 표시 계층이다. 스스로 마운트되는 일은 없고, 두 상위 화면이 부품으로 조립해 쓴다.
+캡처 파이프라인이 만든 다채널 PCM을 사람이 눈으로 읽는 파형으로 바꾸는 표시 계층이다. 스스로 마운트되는 일은 없고 소비 도메인은 `dashboard/` 하나다.
 
-- `chart/ChartDetailOverlay`(실시간 상세 뷰)는 부품을 이렇게 조립한다. `ChannelSelectDrawer`로 표시 항목을 고른 뒤 선택된 채널마다 `ChannelWaveformCanvas`를 `ChannelStackView` 스택에 얹고 각 패널 머리에는 `ChannelRowHeader`를 쓴다. 채널 데이터는 캡처 청크가 도착할 때마다 push되는 실시간 윈도우다.
-- `workspace/ChannelViewerOverlay`(저장 세션 뷰)는 저장된 N채널 WAV를 채널별로 디코딩해 `ChannelWaveformCanvas` + `ChannelRowHeader`로 그린다. 이쪽은 실시간 push 없이 정적 버퍼를 통째로 넘긴다.
-- 채널 의미(ch0=V/ch1=I/ch2 이후 확장)와 색은 이 도메인이 정하지 않는다. 단일 소스는 `lib/render/channel-meta.ts`의 `channelLabel()`/`channelColor()`이고, 소비자가 그 결과를 `ChannelRowHeader`/`ChannelWaveformCanvas`에 props로 넘긴다.
+- `dashboard/DashboardViewGrid`가 View 탭 선택에 따라 `ProtectedComparePanel`을 그리드 셀로 배치하고 `dashboard/ChannelChartCard`가 채널마다 `ChannelWaveformCanvas`+`ChannelStatsBadge`를 카드로 감싼다. `dashboard/ViewDrawer`는 `ChannelSelectDrawer`를 View 탭 드로어로 재사용한다.
+- `dashboard/DashboardClient`가 `useChannelWaveStreams`를 직접 호출해 채널 스토어·세션 헤더를 소유 지점 하나로 모으고 카드에는 스토어 게터만 내려보낸다.
+- 과거 소비자였던 실시간 상세 뷰(`chart/ChartDetailOverlay`)와 저장 세션 뷰(`workspace/ChannelViewerOverlay`)는 코드에서 제거됐다 — 채널 파형은 이제 대시보드 View 그리드에서만 본다.
+- 채널 의미(ch0=V/ch1=I/ch2 이후 확장)와 색은 이 도메인이 정하지 않는다. 단일 소스는 `lib/render/channel-meta.ts`의 `channelLabel()`/`channelColor()`이고 소비자가 그 결과를 props로 넘긴다.
 
 ## 3. 파일별 역할
 
 | 파일 | 역할 |
 |------|------|
-| `ChannelWaveformCanvas.tsx` | 한 채널을 uPlot 차트(`UPlotChart` 래퍼)에 그린다. `ChannelWaveStore`가 들고 있는 세션 전체 min/max 엔벨로프를 source 구독으로 그대로 커밋한다(메인 차트가 `ChartStore`를 구독하는 것과 같은 경로 — React 커밋 없이 rAF로 반영). 줌은 Temperature/ExcursionChart와 동일하게 기본 `zoomPlugin()`(휠/드래그/더블클릭, 전체범위 = 현재 로드된 데이터 extent)만 쓴다 — 과거에 있던 LTTB 다운샘플링과 확대 구간 원본 재디코딩(`fetchRange`)은 제거됐다. Y축 범위는 절대 피크를 기준으로 대칭으로 잡는다. peak·rms 배지(`ChannelStatsBadge`)는 `useLocale()`의 `t.channelMeta.peakRms()`로 문구를 만든다. |
-| `ChannelRowHeader.tsx` | 채널 행 머리 내용(색 점 + 채널명(mono) + 역할 + peak·rms 배지)만 Fragment로 그린다. 바깥 컨테이너(div/Fragment)는 소비자마다 달라 여기서 감싸지 않는다. `stats`가 없으면 배지를 숨긴다(라이브 데이터 미도착 등). peak·rms 문구는 `useLocale()`의 `t.channelMeta.peakRms()`로 만든다(`ChannelWaveformCanvas`의 `ChannelStatsBadge`와 같은 메시지 키 공유). |
-| `ChannelStackView.tsx` | 여러 채널 패널을 세로로 쌓고 드래그로 재배치·리사이즈하는 스택. 각 항목은 `StackItem`(머리·본문·기본/최소/최대 높이)이고, 재배치가 끝나면 보이는 항목들의 새 id 순서를 `onReorder`로 통째로 올려보낸다. 항목이 없으면 `emptyLabel`(기본값은 `useLocale()`의 `t.channelStackView.emptyLabel`)을 보여준다. 리사이즈/재배치 핸들의 `aria-label`/`title`도 `t.channelStackView.*`에서 가져온다. |
-| `ChannelSelectDrawer.tsx` | 스택에 올릴 표시 항목을 고르는 우측 드로어(공용 `overlay/SideDrawer` 위, `layer="overlay"`). 항목을 메인 차트(`section: "metric"`)와 채널 목록(`section: "channel"`)으로 나눠 체크 방식으로 추가·제거한다. 셸(백드롭·패널·헤더)은 `SideDrawer`, 채널 개수 배지는 공용 `ui/CountBadge`에 위임한다. 제목·섹션 라벨·빈 상태/로딩/에러 문구는 전부 `useLocale()`의 `t.channelSelectDrawer.*`에서 가져온다. |
-| `ProtectedComparePanel.tsx` | 원본 입력(옅은 점선)과 보호 감쇠 후 신호(진한 실선)를 L/R 채널별로 겹쳐 그리는 비교 패널. 원본은 `sourceFile`을 `decodeAudioData`로 통째 디코딩해 1000버킷 엔벨로프(`BucketEnvelope`)로, 감쇠 후 신호는 캡처 스트림의 `protected` 이벤트를 같은 버킷에 실시간 누적해 그린다(패널을 세션 도중 열면 `getProtectedBlob` WAV로 1회 백필). 네 시리즈가 같은 버킷 격자를 공유하므로 `envelopesToAligned`로 x축 하나의 aligned 데이터를 만들고 L/R/Both 토글은 `UPlotChart`의 `seriesShow`로 인스턴스 재생성 없이 반영한다. uPlot 기본 범례는 `legend: { show: false }`로 꺼두고, 대신 시리즈 라벨 자체를 클릭 가능한 커스텀 토글 버튼으로 그린다(`hiddenSeries` 상태 + `toggleSeries`) — 켜짐은 원래 색과 굵기 그대로(점선=Input, 실선=Protected) "뚜렷하게", 꺼짐은 같은 라벨을 `opacity-35`로 낮춰 "흐릿하게" 표시해 체크박스 없이도 on/off가 한눈에 드러난다. 텍스트(제목·L/R/Both·범례 라벨·안내 문구)는 `useLocale()`의 `t.protectedCompare.*`에서 가져온다. |
+| `ChannelWaveformCanvas.tsx` | 한 채널을 uPlot 차트(`UPlotChart` 래퍼, source 구독 모드)에 그린다. 세션 전체를 통째로 커밋하던 방식 대신 현재 뷰포트 구간만 `store.readRange()`로 읽는다(컬럼 수 × 2 포인트). 확대해서 1컬럼당 원본 샘플이 2개 미만이 되면(`RAW_SAMPLES_PER_PX`=2) `raw.getSnapshot()`의 캡처 원본 PCM을 `readRawWindow()`로 직접 읽어 샘플 단위로 그린다. 최소 가시 구간은 16샘플(`MIN_VISIBLE_SAMPLES`), Y축은 절대 피크 기준 대칭(`symmetricYRange`, 최소 스팬 0.01)이고 Y축 줌/팬(`yZoom`)과 점 잇기(`annotatePlugin`, 선택)를 지원한다. `ChannelStatsBadge`(100ms 스로틀 readout → `ChannelLevelBadge`)를 함께 export한다. |
+| `ChannelLevelBadge.tsx` | peak·rms 모노스페이스 배지. peak가 정확히 0이면 "no signal (all zeros)" 경고(주황)로 센스 입력 미연결 가능성을 알린다. |
+| `ChannelSelectDrawer.tsx` | 표시 항목을 고르는 드로어(공용 `overlay/SideDrawer` 셸). 항목을 메인 차트(`section: "metric"`)와 채널 목록(`section: "channel"`)으로 나누고 `parentId`가 있는 metric 항목은 부모 아래 들여쓴 하위 시리즈로 그린다(부모 미선택 시 disabled). `title`/`layer`(`"content"`\|`"overlay"`)/`safeAreaTop` 옵션으로 View 탭 드로어와 오버레이 양쪽에서 재사용된다. 채널 개수 배지는 공용 `ui/CountBadge`. |
+| `ProtectedComparePanel.tsx` | Input L/R(반투명 가는 선)과 Protected L/R(진한 선) 4시리즈를 겹쳐 그리는 비교 카드. 데이터는 `useProtectedCompareStreams`의 4개 `ChannelWaveStore`이고 그리기는 uPlot 시리즈 paths를 비활성화(`paths: () => null`)한 채 `envelopeOverlayPlugin`이 스토어에서 직접 그린다. L/R/Both `SegmentedControl`과 View 탭의 `hiddenSeries`가 `seriesShow`로 합성돼 인스턴스 재생성 없이 토글되고 툴팁은 `virtualSeries`(스토어 `valueAt(t)`)로 만든다. 시리즈 색 상수 `COLOR_INPUT_L/R`·`COLOR_PROTECTED_L/R`을 export해 View 탭 항목과 색을 공유한다. |
+| `hooks/useChannelWaveStreams.ts` | 채널별 `ChannelWaveStore` 맵과 세션 헤더(`channels`/`sampleRate`)를 소유하는 훅. 라이브 캡처 청크를 구독해 원하는 채널만 집계한다. 세션 도중 채널을 새로 체크하면 `getChannelsSnapshot()` 스냅숏을 128프레임 런(`BACKFILL_RUN_FRAMES`) 단위 × 4ms 슬라이스(`SLICE_BUDGET_MS`)로 나눠 백필한다(슬라이스 사이 `yieldToMain()`으로 메인 스레드 양보, 소요는 `envelope_backfill` perf 스테이지로 계측). `reset` 이벤트에 스토어·카운터를 전부 리셋한다. |
+| `hooks/useProtectedCompareStreams.ts` | 비교 패널의 4개 스토어(inputL/R·protectedL/R)를 소유하는 훅. Input은 플레이어가 이미 디코드한 `DecodedPlayback`을 받아 채널 추출 없이 pcm-kit 커널로 바로 시딩한다(동기 실행 — 소요는 `envelope_seed` 스테이지로 계측). Protected는 캡처 스트림의 `protected` 이벤트를 실시간 누적하되 세션 도중 열리면 `getProtectedBlob()` WAV로 1회 백필한다(`wav-incremental`). 버킷 폭은 목표 1ms(`TARGET_BUCKET_SEC`)에서 시작해 스토어 상한(`MAX_WAVE_BUCKETS`의 99%) 안으로 잡는다. |
 
 ## 4. 의존성 및 흐름
 
 이 도메인이 가져다 쓰는 모듈 (channel → 외부):
 
-- `shared/components/UPlotChart.tsx` — 두 차트 부품(`ChannelWaveformCanvas`/`ProtectedComparePanel`)의 uPlot 인스턴스 생명주기·리사이즈·줌 보존 래퍼. `ChannelWaveformCanvas`는 `source`(구독 기반) 모드, `ProtectedComparePanel`은 `data`(React 상태) 모드 + `seriesShow`(시리즈 토글)를 쓴다.
-- `lib/render/uplot-option.ts` — 축 빌더(`buildTimeAxis`/`buildValueAxis`)와 시간 소수점 헬퍼(`timeDecimalsForInterval`)로 메인 차트와 같은 축 규약을 따른다.
-- `lib/render/uplot-plugins.ts` — `zoomPlugin`/`tooltipPlugin`(메인 차트와 같은 줌·툴팁 규약). `ProtectedComparePanel`은 `zoomPlugin`에 `getFullXRange`(세션 전체 길이를 돌려주는 안정된 getter)를 넘겨 로드된 데이터가 세션 전체보다 짧을 때도 휠 줌아웃·더블클릭 리셋이 세션 전체로 돌아가게 한다. `ChannelWaveformCanvas`는 인자 없는 기본 `zoomPlugin()`만 쓴다. 항상 세션 전체 엔벨로프를 통째로 들고 있으니 로드된 데이터 extent가 곧 세션 전체이기 때문이다.
-- `lib/render/envelope.ts` — `BucketEnvelope`(버킷 min/max 누적)와 `envelopesToAligned`(엔벨로프들 → 공유 x축 aligned 데이터). `ProtectedComparePanel` 전용.
-- `lib/render/wave-store.ts` — `ChannelWaveStore`(`ChannelWaveformCanvas`의 세션 파형 입력, `subscribe`/`snapshot`/`readAligned`).
-- `lib/codec/wav-incremental.ts` — `ProtectedComparePanel`의 감쇠 PCM 1회 백필(`peekWavHeader`/`decodeWavRange`).
-- `lib/engine/core.ts` — `INT16_SCALE`/`CHANNELS`(`ProtectedComparePanel`의 int16 → float 환산·채널 분리).
-- `shared/lib/i18n/LocaleProvider.tsx` — `useLocale()`. 다섯 부품 전부가 텍스트(라벨·aria-label·placeholder·범례)를 여기서 가져온다.
-- `shared/components/overlay/SideDrawer.tsx` — `ChannelSelectDrawer`의 슬라이드 드로어 셸.
-- `shared/components/ui/CountBadge.tsx` — `ChannelSelectDrawer` 채널 개수 배지.
-- `shared/components/ui/SegmentedControl.tsx` — `ProtectedComparePanel`의 L/R/Both 토글.
-- `shared/lib/utils.ts` — `cn`(클래스 병합).
-- 외부 패키지 — `uplot`(공용 래퍼 경유), `lucide-react`.
+- `shared/components/UPlotChart.tsx` — 두 차트 부품의 uPlot 생명주기·리사이즈·줌 보존 래퍼. `ChannelWaveformCanvas`는 `source`(구독 기반) 모드, `ProtectedComparePanel`은 `data` 모드 + `seriesShow`(시리즈 토글)를 쓰고 둘 다 `yZoom`을 켠다.
+- `lib/render/uplot-option.ts` — 축 빌더(`buildTimeAxis`/`buildValueAxis`)로 메인 차트와 같은 축 규약을 따른다.
+- `lib/render/uplot-plugins/` — `zoomPlugin`/`tooltipPlugin`/`annotatePlugin`(Canvas), `envelopeOverlayPlugin`(Panel). `zoomPlugin`에는 둘 다 `getFullXRange`를 넘겨 더블클릭/줌아웃 리셋이 세션 전체로 돌아가게 한다.
+- `lib/render/wave-store.ts` — `ChannelWaveStore`(두 훅의 집계 스토어), `MAX_WAVE_BUCKETS`.
+- `lib/render/read-buffer.ts`·`raw-window.ts`·`chart-window.ts` — 뷰포트 읽기 버퍼(`createReadBuffer`), 원본 샘플 창 읽기(`readRawWindow`), Y 대칭 범위(`symmetricYRange`).
+- `lib/render/annotation-store.ts` — 점 잇기 스토어 타입(Canvas의 `annotations` prop).
+- `lib/codec/wav-incremental.ts` — Protected WAV 1회 백필(`peekWavHeader`/`decodeWavRange`).
+- `lib/codec/playback-decode.ts` — `DecodedPlayback` 타입(Input 시딩 소스).
+- `lib/engine/core.ts` — `CHANNELS`(스테레오 2ch 상수, 인터리브 분리 기준).
+- `components/player/capture/types.ts` — `CaptureSnapshot`/`CaptureStreamEvent`/`CaptureStreamListener`.
+- `components/chart/hooks/useThrottledStoreSnapshot.ts` — `ChannelStatsBadge`의 100ms(`READOUT_INTERVAL_MS`) 스로틀 readout.
+- `shared/lib/iron-perf` — `recordPerfSample`/`envelopeModeSuffix`(시딩·백필 계측, pcm-kit A/B 모드 접미사).
+- `shared/lib/yield-to-main.ts` — 백필 슬라이스 사이 메인 스레드 양보.
+- `shared/components/overlay/SideDrawer.tsx`·`ui/CountBadge.tsx`·`ui/SegmentedControl.tsx`, `shared/lib/utils.ts`(`cn`), 외부 패키지 `uplot`·`lucide-react`.
 
-이 도메인을 가져다 쓰는 모듈 (외부 → channel):
+이 도메인을 가져다 쓰는 모듈 (외부 → channel): `dashboard/` 4파일이 전부다.
 
-- `chart/ChartDetailOverlay.tsx` — 부품 대부분을 쓴다(`ChannelSelectDrawer`로 선택 → `ChannelStackView`에 `ChannelWaveformCanvas`·`ProtectedComparePanel` 조립). 채널 라벨과 색은 `lib/render/channel-meta.ts`에서 받아 넘긴다.
-- `workspace/ChannelViewerOverlay.tsx` — `ChannelWaveformCanvas` + `ChannelRowHeader`를 쓴다(저장 WAV 채널별 렌더, peak/rms는 `lib/render/waveform.ts`의 `channelStats`로 계산).
-- `dashboard/DashboardClient.tsx` — `ProtectedComparePanel`을 대시보드 본문(`protected-compare-section`)에 직접 렌더한다.
-
-내부 흐름은 없다. 다섯 부품은 서로를 import하지 않는 평면 구조이고, 조립은 전적으로 소비자(두 오버레이) 몫이다.
+- `dashboard/DashboardClient.tsx` — `useChannelWaveStreams` 호출(스토어·헤더 소유 지점), `DrawerEntry` 타입, `COLOR_*` 상수.
+- `dashboard/DashboardViewGrid.tsx` — `ProtectedComparePanel` 배치, `ChannelStreamHeader` 타입.
+- `dashboard/ChannelChartCard.tsx` — `ChannelWaveformCanvas`+`ChannelStatsBadge` 렌더.
+- `dashboard/ViewDrawer.tsx` — `ChannelSelectDrawer` 재사용.
 
 ```
-[실시간]  ChartDetailOverlay
-   → ChannelSelectDrawer(선택) → ChannelStackView
-       → 각 채널: ChannelRowHeader(머리) + ChannelWaveformCanvas(ChannelWaveStore 구독, 라이브 청크마다 커밋)
+[라이브]  DuplexFilePlayer 캡처 스트림(subscribeCaptureStream)
+   → useChannelWaveStreams: chunk → 원하는 채널만 ChannelWaveStore.addSamples()/flush()
+   → ChannelChartCard(dashboard) → ChannelWaveformCanvas가 store 구독, 뷰포트만 readRange()
+       (충분히 확대하면 CaptureSnapshot 원본 PCM을 readRawWindow()로 직접)
 
-[저장]    ChannelViewerOverlay
-   → decodeAudioChannels(WAV) → 각 채널: ChannelRowHeader(channelStats) + ChannelWaveformCanvas(정적 버퍼를 스토어에 담아 구독)
+[백필]    세션 도중 채널을 새로 체크 → getChannelsSnapshot() 스냅숏을
+   128프레임 런 × 4ms 슬라이스로 시딩 (yieldToMain으로 양보, envelope_backfill 계측)
+
+[비교]    useProtectedCompareStreams: DecodedPlayback 시딩(Input, envelope_seed 계측)
+   + protected 이벤트 실시간 누적 / WAV 1회 백필(Protected)
+   → ProtectedComparePanel이 envelopeOverlayPlugin으로 4시리즈 직접 그리기
 ```
 
 ## 5. 주요 인터페이스 / 진입점
 
-- `ChannelWaveformCanvas(props)` (named export) — `{ color: string; sampleRate: number; store: ChannelWaveStore }`. 한 채널 파형을 그린다. 세션 전체 엔벨로프와 길이를 대는 데이터 소스는 `store` 하나다(과거의 `fetchRange` 온디맨드 원본 재조회 prop은 제거됐다).
-- `ChannelStatsBadge({ store })` (named export) — `store`의 peak/rms를 `useLocale()`의 `t.channelMeta.peakRms()` 문구로 그리는 배지. 샘플이 0개면 `null`.
-- `ProtectedComparePanel(props)` (named export, `memo`) — `{ subscribeCaptureStream: (fn: CaptureStreamListener) => () => void; sourceFile?: File | null; getProtectedBlob?: () => Blob | null; bare?: boolean }`. 보호 감쇠 전/후 비교 패널. `sourceFile`이 없으면 안내 문구만 보여주고, `bare`가 true면 카드 셸 없이 본문만 그린다(상세 오버레이 스택용).
-- `ChannelRowHeader({ color, name, role, stats? })` (default export) — 채널 행 머리 내용(Fragment). `stats`(`{ peak, rms }`)가 있을 때만 우측 배지를 그린다.
-- `ChannelStackView({ items, emptyLabel?, onReorder? })` (default export) — 드래그 재배치·리사이즈 세로 스택. `onReorder(ids)`는 보이는 항목의 새 순서 전체를 넘긴다.
-- `StackItem` (type) — `{ id: string; header: ReactNode; content: ReactNode; defaultHeight?; minHeight?; maxHeight? }`. 스택 한 칸의 머리·본문·높이 한도.
-- `ChannelSelectDrawer({ open, onClose, entries, selected, onToggle, loading?, error? })` (default export) — 표시 항목 선택 드로어. `entries`는 `DrawerEntry[]`, `selected`는 선택된 id `Set`, `onToggle(id)`로 추가·제거한다.
-- `DrawerEntry` (type) — `{ id; section: "metric" | "channel"; name; role; color; icon? }`. 드로어 한 항목(메인 차트 또는 채널).
+- `ChannelWaveformCanvas({ color, sampleRate, store, raw?, annotations?, isDrawEnabled? })` (named export) — 한 채널 파형. `raw`는 `ChannelRawSource`로, 확대 구간이 1컬럼당 원본 2샘플 미만일 때만 원본을 읽는다. 최소 가시 구간은 `16 / sampleRate` 초.
+- `ChannelRawSource` (type) — `{ getSnapshot: () => CaptureSnapshot | null; channel: number }`. 확대 시 원본 샘플 공급원.
+- `ChannelStatsBadge({ store })` (named export) — `store`의 peak/rms를 100ms 스로틀로 읽어 `ChannelLevelBadge`로 그린다. 샘플이 0개면 `null`.
+- `ChannelLevelBadge({ peak, rms })` (named export) — peak·rms 배지. `peak === 0`이면 "no signal (all zeros)" 경고를 그린다.
+- `ChannelSelectDrawer({ open, onClose, entries, selected, onToggle, title?, layer?, safeAreaTop? })` (default export) — 표시 항목 선택 드로어. `title` 기본값 "Display Items", `layer` 기본값 `"overlay"`.
+- `DrawerEntry` (type) — `{ id; section: "metric" | "channel"; name; role; color; icon?; parentId? }`. `parentId`가 있으면 해당 부모 아래 하위 시리즈로 그려진다.
+- `ProtectedComparePanel({ subscribeCaptureStream, sourceFile?, getDecodedPlayback?, decodeReady?, getProtectedBlob?, hiddenSeries })` (named export, `memo`) — 보호 전/후 비교 카드. `sourceFile`이 없으면 안내 문구, `decodeReady`가 true가 된 뒤에만 `getDecodedPlayback()`으로 Input을 시딩한다. `hiddenSeries`는 View 탭에서 내려오는 숨김 시리즈 인덱스(0~3) 집합.
+- `COLOR_INPUT_L` / `COLOR_INPUT_R` / `COLOR_PROTECTED_L` / `COLOR_PROTECTED_R` (named 상수) — 4시리즈 색. View 탭 항목이 같은 색을 쓴다.
+- `useChannelWaveStreams({ wantedChannels, listen, probe, getChannelsSnapshot?, subscribeChannelStream? })` → `{ header: ChannelStreamHeader | null, getStore(ch): ChannelWaveStore }` — 채널 스토어·헤더 소유 훅. `listen`이 true인 동안만 스트림을 구독하고 `probe`가 true면 스냅숏에서 헤더만 미리 읽는다.
+- `ChannelStreamHeader` (type) — `{ channels: number; sampleRate: number }`.
+- `useProtectedCompareStreams(options)` → `{ stores: PanelStores, input: InputMeta | null }` — 비교 패널 데이터 훅. `PanelStores`는 `{ inputL, inputR, protectedL, protectedR }`(각 `ChannelWaveStore`), `InputMeta`는 `{ durationSec, peakL, peakR }`.
 
 ## 6. 변경 이력(요약)
 - 2026-07-10: 최초 작성 — `chart/`가 겸하던 "채널 파형 뷰" 부품 4종(`ChannelWaveformCanvas`(+`channelStats`)·`ChannelRowHeader`·`ChannelStackView`·`ChannelSelectDrawer`)을 별도 도메인 `components/channel/`으로 분리(chart·workspace가 단방향 참조). `ChannelRowHeader`는 두 오버레이의 중복 헤더를 통합해 신설, 드로어/오버레이 셸은 공용 `shared/components/overlay`·`ui`로 위임 (커밋 범위: 537099f..HEAD, 워크트리 포함)
@@ -76,3 +86,4 @@
 - 2026-07-27: ECharts → uPlot 이관 + 부품 재편 반영 — `ChannelWaveformCanvas`/`ProtectedComparePanel`이 공용 `shared/components/UPlotChart` 래퍼 기반으로 교체(줌은 드래그/휠/더블클릭, 과거 구간 fetch는 `onUserZoom` 초 단위 콜백, 비교 패널의 L/R/Both는 `seriesShow` 토글). `ProtectedComparePanel`을 이 도메인 문서에 편입(§3·4·5), `channelStats`는 `lib/render/waveform.ts` 소속으로 정정. 섹션 1·3·4·5 부분 갱신 (커밋 범위: 14941b7..HEAD, 워크트리 포함)
 - 2026-07-27(2): 두 컴포넌트의 드래그·휠 줌이 실제로는 항상 무효화되던 버그 수정 — `UPlotChart`의 x축 커스텀 `range()` 콜백이 xRange(고정 도메인) prop이 있을 때 사용자의 드래그/휠 줌 결과까지 그 고정 도메인으로 되돌려버렸다. `wheelZoomPlugin` → `zoomPlugin`으로 개칭하고 `getFullXRange` 옵션을 추가해 "로드된 데이터가 아니라 세션 전체로 리셋"하는 책임을 플러그인 쪽으로 옮기고, `UPlotChart`의 x축 range() 콜백 자체는 제거(uPlot 기본 동작만 사용). 섹션 3·4 부분 갱신 (커밋 범위: 워크트리, 미커밋)
 - 2026-07-30: `ChannelWaveformCanvas`에서 LTTB 다운샘플링과 확대 구간 원본 재디코딩(`fetchRange` prop, `onUserZoom`, 200ms 디바운스 fetch)을 전부 제거 — 이제 `ChannelWaveStore`의 세션 전체 엔벨로프를 source 구독으로 받아 그대로 그린다. 줌은 인자 없는 기본 `zoomPlugin()`만 쓴다(Temperature/ExcursionChart와 동일 패턴). `ProtectedComparePanel`은 uPlot 기본 범례를 끄고(`legend: { show: false }`) 시리즈 라벨을 직접 클릭하는 커스텀 토글(`hiddenSeries`/`toggleSeries`)로 바꿨다. 켜짐="뚜렷하게"/꺼짐="흐릿하게"가 명확히 드러난다(과거 uPlot 기본 범례의 체크박스형 마커 UX 개선). 다섯 부품 전체가 `shared/lib/i18n`의 `useLocale()`에 새로 의존한다(하드코딩 영문 문자열 → `t.*` 메시지 키). 신설 named export `ChannelStatsBadge`를 섹션 5에 추가. 섹션 1·3·4·5 부분 갱신 (기준: 워크트리, 미커밋)
+- 2026-08-19: 스택 뷰 해체 — 소비자였던 `ChartDetailOverlay`(실시간 상세 뷰)와 `ChannelViewerOverlay`(저장 세션 뷰)가 코드에서 제거되고 대시보드 View 그리드가 유일한 소비자가 되면서 `ChannelRowHeader`/`ChannelStackView`(+`StackItem`)를 삭제(행 머리는 `dashboard/ChannelChartCard`가 직접 그림). 데이터 소유를 컴포넌트 밖 훅으로 이관 — `hooks/useChannelWaveStreams`(채널별 `ChannelWaveStore` + 128프레임 런 × 4ms 슬라이스 백필 + `envelope_backfill` 계측)와 `hooks/useProtectedCompareStreams`(Input/Protected 4스토어, `DecodedPlayback` 시딩 + WAV 백필) 신설. `ChannelWaveformCanvas`는 세션 전체 커밋에서 뷰포트 `readRange()` + 확대 시 원본 샘플(`raw`) 읽기로, `ProtectedComparePanel`은 `BucketEnvelope`/`envelopesToAligned` 집계에서 `envelopeOverlayPlugin` 직접 그리기로 재편(View 탭 `hiddenSeries` 연동, `bare` prop 제거). `ChannelSelectDrawer`는 `parentId` 계층·`title`/`layer`/`safeAreaTop` prop을 얻고 `loading`/`error` prop을 잃음. `ChannelLevelBadge` 신설(전 구간 0 신호 경고). 2026-07-30 항목의 i18n(`useLocale`) 의존은 92fbb5a에서 회귀 제거돼 문구가 다시 하드코딩 영문이다. 섹션 1·2·3·4·5 갱신 (커밋 범위: 4d86f32..24d1daa)

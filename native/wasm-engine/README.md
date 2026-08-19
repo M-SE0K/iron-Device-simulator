@@ -19,6 +19,7 @@
    - `custom/`에 `.c`가 하나라도 있으면 `build-wasm.sh`가 **스텁(`ff_prot.c`) 대신 `custom/*.c`만** 컴파일한다 — 스텁을 지우거나 덮어쓸 필요가 없어 `git pull`의 스텁 갱신과 충돌하지 않는다(래퍼 예시 포함 상세: `custom/README.md`).
    - 빌드 소스 우선순위: `FF_PROT_SRCS="a.c b.c"` 명시 > `custom/*.c` > 폴더 내 `*.c`(스텁). 파일명에 `selftest`가 들어가면 항상 제외.
    - (구식 경로) 스텁 `ff_prot.c`를 직접 덮어써도 되지만, 그 경우 같은 심볼(`ff_prot_*`)을 정의한 파일이 폴더에 공존하면 **중복 심볼로 링크가 깨진다**는 점에 유의.
+   - **검증용 대체 알고리즘 4종**이 `custom/debug/`에 있다 — `passthrough.c`(원음 무가공 통과) / `half_gain.c`(게인 0.5 고정 감쇠) / `mute.c`(전 채널 무음) / `protection.c`(감쇠 포함 참조 모델 스냅샷, `FF_PROT_TEST_INJECT` 훅 포함). `custom/*.c` 자동 감지는 하위 폴더를 훑지 않으므로 debug/ 스텁이 기본 빌드에 섞일 일은 없다. 하나씩 골라 빌드하려면 `FF_PROT_SRCS=custom/debug/<이름>.c ./build-wasm.sh`로 명시한다(각 파일 상단 주석에 같은 명령이 적혀 있다). ⚠️ 네 파일이 include하는 헤더(`../protection.h` 또는 `ff_prot.h`)는 리포에 커밋돼 있지 않다(`custom/` 밑 알고리즘 소스는 gitignore로 로컬 전용). Claude의 생각은, 로컬 드롭인 헤더가 없는 새 클론에서는 이 스텁들을 단독으로 빌드하면 include 실패로 컴파일되지 않는다.
 2. **시그니처 유지** — `ff_prot_init` / `ff_prot_set_param` / `ff_prot_start_exec`(9-인자) / `ff_prot_stop_exec` 4개를 `ff_prot.h` 선언 그대로 export해야 한다(아래 표 참고). 함수명이 다른 기존 알고리즘이라면 이 4개 이름으로 위임하는 얇은 래퍼 `.c` 하나를 같이 넣으면 된다. 함수를 **추가로** export하려면 `build-wasm.sh`의 `-sEXPORTED_FUNCTIONS` 목록에 `_함수명`을 등록한다(호출부는 `wasm-client.ts`).
 3. **빌드 + 실행** — 리포 루트에서:
    ```bash
@@ -29,6 +30,7 @@
    `emcc`가 없어도 **Docker만 있으면 된다** — `build-wasm.sh`가 emscripten/emsdk 이미지로 자동 폴백한다. → http://localhost:3000 에서 마이크/파일 입력으로 바로 확인.
 4. **지켜야 할 버퍼 규약** (아래 "함수 시그니처" 절의 상세 참고) — `buf`는 **planar** int16 PCM(In/Out, 감쇠 결과를 in-place로 되씀), `samples_per_ch`는 세션마다 바뀌는 런타임 값(기본 480), `sample_rate_hz` 인자는 **없음**, 출력 단위는 `spk_temp` °C / `spk_exc` µm(int32).
 5. **값 확인** — 순수 C 수준 검증은 `selftest.c`를 본인 구현에 맞게 고쳐 `make selftest`(Linux x86-64)로 돌릴 수 있다.
+6. **무음 검증 훅(`FF_PROT_TEST_INJECT`)** — 소스가 무음(0)이어도 보호 개입을 눈으로 확인하는 빌드 훅. `FF_PROT_TEST_INJECT=1 npm run build:wasm`으로 빌드하면 `ff_prot_start_exec`가 매 프레임 `buf` 전체를 `FF_PROT_TEST_INJECT_STEP`(기본 10)씩 커지는 DC 램프로 덮어쓴다(상한 `FF_PROT_TEST_INJECT_MAX`, 기본 32767) — Protected 트레이스에서 진폭 8192(= `EXC_LIMIT_UM` 2000 µm 상당, 풀스케일의 25%)를 넘는 지점부터 감쇠가 꺾이는 그림이 나온다. 램프 주입 코드는 컴파일 대상 소스가 `FF_PROT_TEST_INJECT` 매크로를 구현해야 동작한다(현재는 `custom/debug/protection.c`에 있다). ⚠️ Protected 재생 모드에선 이 DC 램프가 그대로 스피커로 나간다 — 하드웨어를 물린 채로는 앰프를 내리거나 MAX를 낮추고 확인이 끝나면 반드시 플래그 없이 재빌드해 `public/wasm/`을 복구할 것.
 
 ## 함수 시그니처 (adapters/wasm-client.ts 와 1:1)
 

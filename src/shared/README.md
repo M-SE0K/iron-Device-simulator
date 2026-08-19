@@ -2,41 +2,45 @@
 
 ## 1. 도메인 설명
 
-여러 도메인이 공통으로 쓰는 UI 프리미티브(드로어/오버레이/셀렉트 등), 앱 전역 피드백(에러/성공 팝업), 표시 언어(i18n) 지원, 그 밖의 자잘한 유틸(문자열·파일·시간 포맷, IPC 에러 메시지 변환)을 모아둔 도메인입니다. `tauri-bridge/`는 별도 도메인으로 떼어놨습니다.
+여러 도메인이 공통으로 쓰는 UI 프리미티브(드로어/셀렉트 등), 앱 전역 피드백(에러/성공 팝업), uPlot 차트 공용 래퍼와 그 밑의 렌더 인프라(프레임 스케줄러, DPR 캡, Y축 줌), 그 밖의 자잘한 유틸(문자열·파일·시간 포맷, IPC 에러 메시지 변환)을 모아둔 도메인입니다. `lib/tauri-bridge/`(Tauri IPC shim)와 `lib/iron-perf/`(perf 계측 수집기)는 각각 별도 도메인으로 떼어놨습니다.
 
 ## 2. 프로젝트 전반에서의 역할
 
-`features/audio`의 거의 모든 컴포넌트 도메인이 기대는 하부 인프라입니다. `SideDrawer`/`FullscreenOverlay`/`AnimatedSelect`/`CountBadge`/`LabeledField`/`SegmentedControl`은 여러 드로어·오버레이가 반복해서 복붙하던 마크업을 한곳으로 모았습니다. `ErrorPopupContext`는 화면 곳곳에 흩어져 있던 에러/성공 피드백을 중앙 모달 하나로 통일합니다. `LocaleProvider`는 표시 언어 전환 기능을 제공하고 진입점은 사이드바에 있습니다. 지금은 일부 컴포넌트부터 하나씩 연결해 나가는 중입니다.
+`features/audio`의 거의 모든 컴포넌트 도메인이 기대는 하부 인프라입니다. `SideDrawer`/`AnimatedSelect`/`CountBadge`/`LabeledField`/`SegmentedControl`은 여러 드로어가 반복해서 복붙하던 마크업을 한곳으로 모았습니다. `ErrorPopupContext`는 화면 곳곳에 흩어져 있던 에러/성공 피드백을 중앙 모달 하나로 통일합니다. 여기에 더해 이 도메인은 차트 렌더의 공용 토대가 됐습니다. `UPlotChart`가 uPlot 인스턴스 관리·뷰포트 기반 데이터 읽기·스트림 추적 스케일을 맡고, `frameScheduler`(rAF 단일 루프)·`dpr-cap`(캔버스 DPR 상한 1.5)·`attachYZoom`(Y축 휠 줌/팬)이 그 밑을 받칩니다. 표시 언어(i18n) 계층과 좌측 `Sidebar`는 이 도메인에서 빠졌습니다 — i18n은 92fbb5a에서 배선을 되돌리며 제거됐고 `Sidebar`는 `features/audio/components/dashboard/Sidebar.tsx`로 이동했습니다.
 
 ## 3. 파일별 역할
 
 | 파일 | 역할 |
 |------|------|
-| `components/Sidebar.tsx` | 좌측 네비게이션 + 언어 전환 UI |
 | `components/overlay/SideDrawer.tsx` | 우측 슬라이드 드로어 공용 셸 |
-| `components/overlay/FullscreenOverlay.tsx` | 전체 화면 오버레이 공용 셸 |
 | `components/error-popup/{ErrorPopupContext.tsx, ErrorPopupModal.tsx, popup-types.ts}` | 앱 전역 에러/성공 피드백 큐 + 중앙 모달 |
 | `components/ui/{AnimatedSelect.tsx, CountBadge.tsx, LabeledField.tsx, SegmentedControl.tsx}` | 공용 UI 프리미티브(커스텀 셀렉트, 개수 배지, 라벨+컨트롤 레이아웃, 세그먼트 토글) |
-| `components/UPlotChart.tsx` | uPlot 인스턴스 생성·갱신을 감싸는 공용 래퍼 — data(React 상태) 모드와 source(구독 기반) 모드 지원 |
-| `hooks/{useCtrlBToggle.ts, useEscapeKey.ts, useOverlayTransition.ts}` | 키보드 단축키(Ctrl/Cmd+B, Escape)와 오버레이 진입/이탈 전환 공용 훅 |
-| `lib/i18n/{locale.ts, LocaleProvider.tsx, messages/{en.ts, ko.ts}}` | 표시 언어 컨텍스트와 메시지 카탈로그 |
+| `components/UPlotChart.tsx` | uPlot 공용 래퍼 — data(React 상태) 모드와 source(구독 기반) 모드, 뷰포트 기반 `source.read()`, 스트림 추적(`streamFollow`), 시리즈 토글(`seriesShow`), Y축 줌(`yZoom`) 지원 |
+| `hooks/useGlobalKey.ts` | 전역 키보드 훅 `useCtrlBToggle`/`useEscapeKey` — 구 3파일(useCtrlBToggle/useEscapeKey/useOverlayTransition)을 1파일로 통합, `useOverlayTransition`은 삭제 |
+| `lib/dpr-cap.ts` | import 부수효과로 `window.devicePixelRatio` getter를 1.5 상한으로 덮어쓰는 모듈(차트 캔버스 픽셀 수 절감, 1회 설치 플래그 `__ironChartDprCap`) |
+| `lib/element-rect.ts` | `createRectCache(el)` — `getBoundingClientRect()` 결과를 한 애니메이션 프레임 동안 캐시 |
+| `lib/frame-scheduler.ts` | `frameScheduler` 싱글턴 — compute/draw 2단계 rAF 루프. dirty한 태스크만 실행하고 draw는 프레임당 최대 4개 라운드로빈 |
+| `lib/uplot-y-zoom.ts` | `attachYZoom(u, ctrl)` — Y축 스트립 위 휠 줌(0.85배율)·포인터 드래그 팬·더블클릭 리셋, auto 범위의 99.5% 이상으로 벌어지면 auto로 스냅 |
 | `lib/ipc-error.ts` | 네이티브 IPC/헬퍼의 짧은 에러 코드를 사용자용 문장으로 변환 |
 | `lib/utils.ts` | `cn`/`formatTime`/`round3`/`formatFileSize`/`splitFileName`/`sanitizeFileName`/`splitPath`/`downloadBlob` |
 | `lib/yield-to-main.ts` | 메인 스레드를 짧게 양보하는 `yieldToMain()` |
-| `types/native-bridge.d.ts` | `window.audioDevice`/`audioCapture`/`audioPlayCapture`/`localFolder`/`wasmAsset` 타입 계약(Tauri shim이 채움) |
+| `lib/tauri-bridge/` · `lib/iron-perf/` | 각각 별도 도메인 — 해당 폴더의 README 참고 |
+| `types/native-bridge.d.ts` | `window.audioDevice`/`audioCapture`/`audioPlayCapture`/`localFolder`/`wasmAsset` 전역 타입 계약 + 브리지 결과 타입(`AudioCaptureStartResult` 등) export — tauri-bridge shim이 이 타입들을 직접 import |
 
 ## 4. 의존성 및 흐름
 
-- **가져오는 것**: `clsx`/`tailwind-merge`(`cn`). `lib/utils.ts`의 `downloadBlob()`은 `tauri-bridge/file-export`의 `saveFileViaTauri()`로 위임합니다 — 이 도메인이 `tauri-bridge/`를 직접 가져오는 유일한 지점입니다.
-- **소비하는 도메인**: 사실상 `features/audio` 전역입니다. Calibration/Workspace/Records/Channel 드로어는 모두 `SideDrawer` 위에 얹혀 있습니다. `ChartDetailOverlay`/`ChannelViewerOverlay`는 `FullscreenOverlay`를, 두 메인 차트와 채널 파형·보호 비교 차트는 `UPlotChart`를 씁니다.
-- **i18n 배선 현황**: `LocaleProvider`는 `app/layout.tsx`에 마운트되어 있습니다. 지금은 `Sidebar`, `SideDrawer`, `ErrorPopupModal`, `workspace/`의 `WorkspaceDrawer`·`WorkspaceFolderSection`이 `useLocale()`을 쓰기 시작했습니다. 나머지 컴포넌트는 아직 하드코딩된 영문 문자열입니다. `messages/ko.ts`는 현재 `npm run typecheck` 기준으로 `en.ts`에서 추론된 `Messages` 타입과 어긋나는 오류가 160건 있습니다(리터럴 문자열 타입 불일치) — 아직 작업 중인 듯합니다.
+- **가져오는 것**: `clsx`/`tailwind-merge`(`cn`), `uplot`(`UPlotChart`, `uplot-y-zoom`). `lib/utils.ts`의 `downloadBlob()`은 `tauri-bridge/file-export`의 `saveFileViaTauri()`로, `UPlotChart`는 `iron-perf`의 `recordPerfSample()`로 위임합니다 — 하위 두 도메인을 직접 가져오는 지점은 이 둘입니다.
+- **소비하는 도메인**: 사실상 `features/audio` 전역입니다. Calibration/Records/Workspace/ChannelSelect 네 드로어는 모두 `SideDrawer` 위에 얹혀 있습니다. `useCtrlBToggle`/`useEscapeKey`는 드로어·대시보드 5곳이 씁니다. `UPlotChart`는 메트릭 차트(`MetricChartCard`/`useMetricChartSource`)와 채널 파형·보호 비교 차트(`ChannelWaveformCanvas`/`ProtectedComparePanel`)의 공용 캔버스입니다. 렌더 인프라는 이 도메인 밖에서도 직접 쓰입니다 — `lib/render/uplot-plugins/envelope-overlay.ts`가 `frameScheduler`+`dpr-cap`을, `uplot-plugins/zoom.ts`가 `createRectCache`를, `channel/hooks/useChannelWaveStreams.ts`가 `yieldToMain`을 가져갑니다.
 
 ```
-app/layout.tsx → ErrorPopupProvider + LocaleProvider 마운트
-
+app/layout.tsx → ErrorPopupProvider 마운트
 어디서든 useErrorPopup().showError()/showSuccess() 호출 → 큐 적재 → ErrorPopupModal이 중앙에 표시
-어디서든 useLocale() → { locale, setLocale, t }
-  → 사이드바 언어 스위치가 setLocale() 호출 → localStorage 저장 + <html lang> 갱신
+
+UPlotChart(source 모드) — source.subscribe(markDirty) 구독
+  → frameScheduler.register({phase:"draw", isDirty, run})
+  → rAF 프레임마다 dirty일 때만 source.read({xMin, xMax, pxWidth})로 현재 뷰포트 분량만 읽어 setData
+  → 커밋 소요를 recordPerfSample("chart_render")로 계측
+  → yZoom prop이 켜지면 attachYZoom이 Y축 휠/드래그를 yLock으로 반영
 ```
 
 ## 5. 주요 인터페이스 / 진입점
@@ -45,11 +49,15 @@ app/layout.tsx → ErrorPopupProvider + LocaleProvider 마운트
 - **`humanizeIpcError(raw, fallback): string`** — 알려진 IPC 에러 코드·fs errno·이미 사람이 쓴 문장을 구분해 사용자용 메시지로 바꿉니다.
 - **`yieldToMain(): Promise<void>`** — `scheduler.yield()`가 있으면 그걸, 없으면 `MessageChannel`로 매크로태스크 양보.
 - **`useErrorPopup(): { showError, showSuccess }`** — `ErrorPopupProvider` 트리 안에서만 호출 가능.
-- **`useLocale(): { locale, setLocale, t: Messages }`** — `LocaleProvider` 트리 안에서만 쓸 수 있습니다.
-- **`useCtrlBToggle(handler)`** / **`useEscapeKey(handler, enabled?)`** / **`useOverlayTransition(onClose, durationMs?): { show, close }`** — 공용 키보드/전환 훅.
-- **`SideDrawer`** / **`FullscreenOverlay`** / **`AnimatedSelect`** / **`CountBadge`** / **`LabeledField`** / **`SegmentedControl`** — 공용 UI 프리미티브 컴포넌트.
-- **`UPlotChart`** — `options` + (`data` 또는 `source`) 조합으로 uPlot 인스턴스를 관리하는 공용 차트 래퍼.
+- **`useCtrlBToggle(handler)`** / **`useEscapeKey(handler, enabled?)`**(`hooks/useGlobalKey.ts`) — 전역 keydown 공용 훅. Ctrl/Cmd+B는 `preventDefault`까지 수행합니다.
+- **`frameScheduler.register(task): () => void`** — `{id, phase: "compute"|"draw", isDirty(), run()}` 태스크를 rAF 루프에 등록하고 해제 함수를 돌려줍니다. draw 태스크는 프레임당 최대 4개만 실행됩니다.
+- **`createRectCache(el): { get, dispose }`** — 다음 애니메이션 프레임까지 유효한 `DOMRect` 캐시.
+- **`attachYZoom(u: uPlot, ctrl: YZoomController): () => void`** — Y축 줌/팬 부착기. `ctrl.getAuto()`(자동 범위)와 `ctrl.apply(range | null)`(줌 반영/해제)만 구현하면 됩니다.
+- **`import "@/shared/lib/dpr-cap"`** — export 없는 부수효과 모듈. 캔버스를 만들기 전에 import한 곳에서만 의미가 있습니다.
+- **`SideDrawer`** / **`AnimatedSelect`** / **`CountBadge`** / **`LabeledField`** / **`SegmentedControl`** — 공용 UI 프리미티브 컴포넌트.
+- **`UPlotChart`** — 공용 차트 래퍼. `options` + (`data` 또는 `source`)에 `yRange`/`xRange`/`seriesShow`/`streamFollow`/`yZoom`을 조합합니다. `source.read(view?)`는 `{xMin, xMax, pxWidth}` 뷰포트를 받아 그 구간 데이터만 돌려주면 됩니다.
 
 ## 6. 변경 이력(요약)
 
 - 2026-07-30: 도메인 README 최초 작성 — `tauri-bridge/`를 별도 도메인으로 분리한 뒤 남은 부분을 반영했습니다. `lib/i18n/`(`LocaleProvider`, `messages/{en,ko}`)을 새로 들여와 일부 컴포넌트에 연결하는 중인 현재 상태와 `ko.ts` 타입 오류 160건까지 담았습니다(커밋 범위: 0188d33..312f5bb, 작업 트리의 커밋되지 않은 변경 포함)
+- 2026-08-19: 차트 렌더 인프라 편입을 반영 — `frame-scheduler.ts`(rAF 단일 루프)·`dpr-cap.ts`(DPR ≤ 1.5)·`element-rect.ts`·`uplot-y-zoom.ts`가 들어오고 `UPlotChart`가 뷰포트 기반 `source.read({xMin,xMax,pxWidth})`/`streamFollow`/`yZoom`/`seriesShow`로 확장됐습니다. i18n 계층은 92fbb5a에서 되돌려 제거됐고(README에 남아 있던 서술 정리), `Sidebar.tsx`는 dashboard 도메인으로 이동, `FullscreenOverlay.tsx`는 삭제, 훅 3파일은 `useGlobalKey.ts` 하나로 통합(`useOverlayTransition` 삭제)됐습니다. `lib/iron-perf/`가 신규 하위 도메인으로 추가돼 참조만 남깁니다. 섹션 1~5 부분 갱신 (커밋 범위: a465514..24d1daa)
