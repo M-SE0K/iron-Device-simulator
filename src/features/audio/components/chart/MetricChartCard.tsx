@@ -3,6 +3,7 @@
 import UPlotChart, { type UPlotDataSource, type UPlotOptions } from "@/shared/components/UPlotChart";
 import type { DrawControl } from "./hooks/useDrawMode";
 import ChartDrawControls from "./ChartDrawControls";
+import { SpeakerOpenOverlay } from "./ChartAlertOverlay";
 
 interface Props {
   id: string;
@@ -18,6 +19,7 @@ interface Props {
   options: UPlotOptions;
   source: UPlotDataSource;
   draw?: DrawControl;
+  speakerOpen?: boolean;
 }
 
 export default function MetricChartCard({
@@ -34,6 +36,7 @@ export default function MetricChartCard({
   options,
   source,
   draw,
+  speakerOpen = false,
 }: Props) {
   return (
     <div id={id} className="card flex flex-col h-full">
@@ -53,7 +56,8 @@ export default function MetricChartCard({
         </div>
       </div>
 
-      <div className="chart-body flex-1 p-2 min-h-[160px]">
+      <div className="chart-body relative flex-1 p-2 min-h-[160px]">
+        {speakerOpen && <SpeakerOpenOverlay />}
         {showChart ? (
           <UPlotChart
             key={audioDuration ?? "live"}

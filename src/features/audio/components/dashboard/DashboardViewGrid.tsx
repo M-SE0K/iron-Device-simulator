@@ -29,6 +29,7 @@ interface Props {
   canAnnotateMetric: boolean;
   audioDuration: number | null;
   tempThresholds: TempThresholds;
+  speakerOpen: boolean;
   audioFile: File | null;
   subscribeChannelStream: (fn: CaptureStreamListener) => () => void;
   getChannelsSnapshot: () => CaptureSnapshot | null;
@@ -84,6 +85,7 @@ export default function DashboardViewGrid({
   canAnnotateMetric,
   audioDuration,
   tempThresholds,
+  speakerOpen,
   audioFile,
   subscribeChannelStream,
   getChannelsSnapshot,
@@ -131,6 +133,7 @@ export default function DashboardViewGrid({
           audioDuration={audioDuration}
           annotations={getAnnotationStore(id)}
           canAnnotate={canAnnotateMetric}
+          speakerOpen={speakerOpen}
         />
       );
     }
@@ -145,6 +148,7 @@ export default function DashboardViewGrid({
           dangerThreshold={tempThresholds.danger}
           annotations={getAnnotationStore(id)}
           canAnnotate={canAnnotateMetric}
+          speakerOpen={speakerOpen}
         />
       );
     }
@@ -158,6 +162,7 @@ export default function DashboardViewGrid({
         annotations={getAnnotationStore(id)}
         canAnnotate={!isPlaying}
         getCaptureSnapshot={getChannelsSnapshot}
+        speakerOpen={speakerOpen}
       />
     );
   };

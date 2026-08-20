@@ -1,4 +1,5 @@
 import type { AnalysisFrame } from "@/features/audio/types";
+import { isTempOverflow } from "@/features/audio/lib/engine/core";
 import type { SeriesReadBuffer } from "./read-buffer";
 import { VersionedSnapshotStore } from "./store-base";
 
@@ -65,16 +66,23 @@ export class ChartStore extends VersionedSnapshotStore<ChartSnapshot> {
 
     this.srcCount++;
 
-    const tempHi = frame.temperatureMax ?? frame.temperature;
-    if (frame.temperature < this.tMin) this.tMin = frame.temperature;
+    /* 500°C 이상은 열모델 발산으로 보고 온도/변위를 0 으로 눕혀서 그린다. 엔진(wasm-client)이
+     * 이미 같은 조건으로 깔아주지만, 세션 캐시 복원처럼 엔진을 거치지 않고 들어오는 프레임도
+     * 있어서 차트 입력에서 한 번 더 건다. y 범위 누적(tMin/tMax 등)도 0 기준으로 계산된다. */
+    const blanked = isTempOverflow(Math.max(frame.temperature, frame.temperatureMax ?? frame.temperature));
+    const temperature = blanked ? 0 : frame.temperature;
+    const excursion = blanked ? 0 : frame.excursion;
+
+    const tempHi = blanked ? 0 : (frame.temperatureMax ?? frame.temperature);
+    if (temperature < this.tMin) this.tMin = temperature;
     if (tempHi > this.tMax) this.tMax = tempHi;
-    const excLo = frame.excursionMin ?? frame.excursion;
-    const excHi = frame.excursionMax ?? frame.excursion;
+    const excLo = blanked ? 0 : (frame.excursionMin ?? frame.excursion);
+    const excHi = blanked ? 0 : (frame.excursionMax ?? frame.excursion);
     if (excLo < this.eMin) this.eMin = excLo;
     if (excHi > this.eMax) this.eMax = excHi;
 
     if (this.count > 0 && this.bucketSec > 0 && t < this.bucketStart + this.bucketSec) {
-      this.mergeInto(this.count - 1, frame.temperature, frame.excursion);
+      this.mergeInto(this.count - 1, temperature, excursion);
       this.dirty = true;
       return;
     }
@@ -85,8 +93,8 @@ export class ChartStore extends VersionedSnapshotStore<ChartSnapshot> {
     }
 
     this.xs[this.count] = t;
-    this.temps[this.count] = frame.temperature;
-    this.excs[this.count] = frame.excursion;
+    this.temps[this.count] = temperature;
+    this.excs[this.count] = excursion;
     this.bucketStart = t;
     this.count++;
 

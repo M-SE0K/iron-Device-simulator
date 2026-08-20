@@ -20,7 +20,7 @@ function blobFromCapture(store: PcmFrameStore | null): Blob | null {
 
 export function useCaptureSession(deps: UseCaptureSessionDeps) {
   const {
-    onStatusChange, onFrameReceived, onStreamStart, inputParams, playbackMode = "protected",
+    onStatusChange, onFrameReceived, onStreamStart, onSpeakerOpen, inputParams, playbackMode = "protected",
   } = deps;
   const { values: calibration } = useCalibration();
   const { showError } = useErrorPopup();
@@ -39,6 +39,10 @@ export function useCaptureSession(deps: UseCaptureSessionDeps) {
   const protectedCaptureRef = useRef<PcmFrameStore | null>(null);
   const analysisActiveRef = useRef(true);
   const isActiveRef    = useRef(false);
+  /* 세션이 "스피커 open" 상태로 넘어갔는지. 한 번 서면 세션이 끝날 때까지 유지되고 두 가지를
+   * 건다 — ① 차트 오버레이 상태 통지(onSpeakerOpen)를 프레임마다가 아니라 1회만, ② 캡처
+   * 원본 ch1(I) 마스킹(useNativeCapture). */
+  const speakerOpenRef = useRef(false);
   const streamPumpRef  = useRef<PlaybackStreamPump | null>(null);
   const streamListenersRef = useRef<Set<CaptureStreamListener>>(new Set());
   const emitStreamEvent = useCallback((ev: CaptureStreamEvent) => {
@@ -72,6 +76,7 @@ export function useCaptureSession(deps: UseCaptureSessionDeps) {
   const openEngineClient = useCallback((actualRate: number, samplesPerCh: number, expectedPlaybackFrames: number): EngineClient => {
     const client = createEngineClient();
     clientRef.current = client;
+    speakerOpenRef.current = false;
 
     protectedCaptureRef.current = new PcmFrameStore({
       channels: CHANNELS,
@@ -113,6 +118,10 @@ export function useCaptureSession(deps: UseCaptureSessionDeps) {
 
     client.onFrame = (msg) => {
       recordPerfSample("wasm_engine", msg.processingMs);
+      if (msg.tempOverflow && !speakerOpenRef.current) {
+        speakerOpenRef.current = true;
+        onSpeakerOpen?.();
+      }
       onFrameReceived({
         time:        msg.time,
         temperature: msg.temperature,
@@ -139,11 +148,11 @@ export function useCaptureSession(deps: UseCaptureSessionDeps) {
     });
 
     return client;
-  }, [inputParams, onStatusChange, onStreamStart, onFrameReceived, cleanup, emitStreamEvent, setMicError]);
+  }, [inputParams, onStatusChange, onStreamStart, onFrameReceived, onSpeakerOpen, cleanup, emitStreamEvent, setMicError]);
 
   const { start: startNativeCapture } = useNativeCapture({
     nativeOffsRef, nativeActiveRef, playCaptureActiveRef, rawCaptureRef, recordingActiveRef, analysisActiveRef,
-    isActiveRef, streamPumpRef,
+    isActiveRef, streamPumpRef, speakerOpenRef,
     onStatusChange, setMicError, openEngineClient, cleanup, emitStreamEvent,
   });
 

@@ -1,7 +1,7 @@
 import type { EngineParams } from "../../../types";
 import { round3 } from "@/shared/lib/utils";
 import {
-  CHANNELS, BYTES_PER_SAMPLE, frameBytes, DEFAULT_ENGINE_CONFIG,
+  CHANNELS, BYTES_PER_SAMPLE, frameBytes, DEFAULT_ENGINE_CONFIG, isTempOverflow,
   type FrameResult, type AnalysisSession, type EngineRuntimeConfig, type RealSensingPair,
 } from "../core";
 import { deinterleave } from "../utils";
@@ -149,8 +149,14 @@ export async function openClientWasmSession(
       execFailures++;
     }
 
-    const temperature = mod.HEAP32[tempPtr >> 2];
-    const excursion = mod.HEAP32[excPtr >> 2];
+    const rawTemperature = mod.HEAP32[tempPtr >> 2];
+    const rawExcursion = mod.HEAP32[excPtr >> 2];
+
+    /* 온도가 500°C 이상이면 열모델이 발산한 것으로 보고 온도/변위를 함께 0 으로 깐다.
+     * processedPcm(보호 재생 신호)은 건드리지 않는다 — 스피커로 나가는 소리는 그대로. */
+    const overflowed = isTempOverflow(rawTemperature);
+    const temperature = overflowed ? 0 : rawTemperature;
+    const excursion = overflowed ? 0 : rawExcursion;
 
     const start = bufPtr >> 1;
     const processedPlanar = mod.HEAP16.slice(start, start + config.samplesPerCh * CHANNELS);
@@ -161,6 +167,7 @@ export async function openClientWasmSession(
       excursion,
       processingMs: round3(performance.now() - t0),
       processedPcm,
+      tempOverflow: overflowed,
     };
   };
 

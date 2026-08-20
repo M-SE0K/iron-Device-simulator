@@ -9,6 +9,8 @@ mod local_folder;
 mod streaming;
 mod wasm_asset;
 mod wasm_key;
+#[cfg(windows)]
+mod win_mitigations;
 
 use std::sync::Arc;
 
@@ -68,6 +70,11 @@ fn configure_devtools_access() {
 }
 
 fn main() {
+    // Windows 하드닝(CIG+ACG)은 이후 로드되는 DLL/메모리 할당에만 적용되므로
+    // 다른 어떤 초기화보다 먼저 — 자세한 근거·제외 사항은 win_mitigations.rs 주석 참고.
+    #[cfg(windows)]
+    win_mitigations::apply();
+
     configure_devtools_access();
 
     let mut builder = tauri::Builder::default();

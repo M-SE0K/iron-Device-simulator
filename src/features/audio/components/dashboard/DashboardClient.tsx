@@ -66,6 +66,11 @@ export default function DashboardPage() {
     setHasFrames(false);
   }, []);
 
+  /* 스피커 open(온도 ≥ 500°C) 경고 오버레이 노출 여부. 세션이 다시 시작되거나 분석 상태가
+   * 리셋되면 내려간다 — 새 재생은 깨끗한 차트로 시작해야 하므로. */
+  const [speakerOpen, setSpeakerOpen] = useState(false);
+  const handleSpeakerOpen = useCallback(() => setSpeakerOpen(true), []);
+
   const { values: calibration } = useCalibration();
   const { saveCurrent, pendingLocalFile, clearPendingLocalFile } = useWorkspace();
   const { active: activeDrawer, openDrawer } = useActiveDrawer();
@@ -204,6 +209,7 @@ export default function DashboardPage() {
     clearHasFrames();
     clearAnnotations();
     frameLog.clear();
+    setSpeakerOpen(false);
     setRealtimeStatus("idle");
   }, [chartStore, clearHasFrames, clearAnnotations, frameLog]);
 
@@ -236,6 +242,7 @@ export default function DashboardPage() {
     frameLog.clear();
     outputQueueRef.current = [];
     prevTempRef.current    = null;
+    setSpeakerOpen(false);
   }, [chartStore, clearHasFrames, clearAnnotations, frameLog]);
 
   const isPlaying = realtimeStatus === "playing";
@@ -359,6 +366,7 @@ export default function DashboardPage() {
               canAnnotateMetric={!isPlaying && hasFrames}
               audioDuration={audioDuration}
               tempThresholds={tempThresholds}
+              speakerOpen={speakerOpen}
               audioFile={audioFile}
               subscribeChannelStream={subscribeChannelStream}
               getChannelsSnapshot={getChannelsSnapshot}
@@ -387,6 +395,7 @@ export default function DashboardPage() {
           onStatusChange={handleRealtimeStatus}
           onFrameReceived={handleFrameReceived}
           onStreamStart={handleStreamStart}
+          onSpeakerOpen={handleSpeakerOpen}
           inputParams={inputParams}
           onDurationReady={setAudioDuration}
           onSave={handleSaveToWorkspace}

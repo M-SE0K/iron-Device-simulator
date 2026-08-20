@@ -20,6 +20,7 @@ interface Props {
   audioDuration?: number | null;
   annotations?: AnnotationStore;
   canAnnotate?: boolean;
+  speakerOpen?: boolean;
 }
 
 const SCALE_PADDING = 1.15;
@@ -33,6 +34,7 @@ export default function ExcursionChart({
   audioDuration,
   annotations,
   canAnnotate = false,
+  speakerOpen = false,
 }: Props) {
   const { isEnabled, draw } = useDrawMode(annotations, canAnnotate);
   const {
@@ -93,6 +95,7 @@ export default function ExcursionChart({
       options={options}
       source={source}
       draw={draw}
+      speakerOpen={speakerOpen}
     />
   );
 }

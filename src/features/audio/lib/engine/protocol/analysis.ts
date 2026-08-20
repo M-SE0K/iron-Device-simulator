@@ -43,6 +43,7 @@ export function createFrameMessage(
     temperature: frame.temperature,
     excursion: frame.excursion,
     processingMs: frame.processingMs,
+    tempOverflow: frame.tempOverflow,
   };
 }
 

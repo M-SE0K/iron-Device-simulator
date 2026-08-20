@@ -28,6 +28,8 @@ export interface UseCaptureSessionDeps {
   onStatusChange: (s: AppStatus) => void;
   onFrameReceived: (frame: AnalysisFrame) => void;
   onStreamStart: () => void;
+  /** 온도 가드(≥ TEMP_OVERFLOW_LIMIT_C)에 처음 걸렸을 때 세션당 한 번 호출된다. */
+  onSpeakerOpen?: () => void;
   inputParams: InputParameterValues | undefined;
   playbackMode?: PlaybackMode;
 }

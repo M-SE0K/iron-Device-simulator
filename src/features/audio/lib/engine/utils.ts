@@ -36,6 +36,12 @@ export function quantizeInterleaved(
   return clippedMask;
 }
 
+/** 인터리브 N채널 프레임의 특정 채널만 제자리에서 0 으로 덮는다. */
+export function zeroChannel(frame: Int16Array, channels: number, channel: number): void {
+  if (channel < 0 || channel >= channels) return;
+  for (let i = channel; i < frame.length; i += channels) frame[i] = 0;
+}
+
 export function deinterleave(src: Uint8Array, samplesPerCh: number): Int16Array {
   const dst = new Int16Array(samplesPerCh * CHANNELS);
   const channelOffsetSamples = samplesPerCh;

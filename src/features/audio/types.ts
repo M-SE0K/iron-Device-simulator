@@ -35,7 +35,7 @@ export type AppStatus =
 
 export type EngineMessage =
   | { type: "ready"; warmupDroppedFrames?: number }
-  | { type: "frame"; frameIndex: number; time: number; temperature: number; excursion: number; processingMs: number }
+  | { type: "frame"; frameIndex: number; time: number; temperature: number; excursion: number; processingMs: number; tempOverflow?: boolean }
   | { type: "error"; message: string };
 
 export type EngineFrameMessage = Extract<EngineMessage, { type: "frame" }>;

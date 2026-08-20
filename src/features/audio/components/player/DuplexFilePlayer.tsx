@@ -16,6 +16,7 @@ interface Props {
   onStatusChange: (status: AppStatus) => void;
   onFrameReceived: (frame: AnalysisFrame) => void;
   onStreamStart: () => void;
+  onSpeakerOpen?: () => void;
   inputParams?: InputParameterValues;
   onDurationReady?: (duration: number) => void;
   onSave?: () => void;
@@ -29,6 +30,7 @@ const DuplexFilePlayer = forwardRef<WaveformPlayerHandle, Props>(function Duplex
   onStatusChange,
   onFrameReceived,
   onStreamStart,
+  onSpeakerOpen,
   inputParams,
   onDurationReady,
   onSave,
@@ -49,7 +51,7 @@ const DuplexFilePlayer = forwardRef<WaveformPlayerHandle, Props>(function Duplex
   const lastUiUpdateRef = useRef(0);
 
   const captureSession = useCaptureSession({
-    onStatusChange, onFrameReceived, onStreamStart,
+    onStatusChange, onFrameReceived, onStreamStart, onSpeakerOpen,
     inputParams, playbackMode,
   });
 

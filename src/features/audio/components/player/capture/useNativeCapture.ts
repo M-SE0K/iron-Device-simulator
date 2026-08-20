@@ -3,9 +3,9 @@
 import { useCallback, type MutableRefObject } from "react";
 import type { AppStatus } from "@/features/audio/types";
 import type { EngineClient } from "@/features/audio/lib/engine/protocol/engine-client";
-import { clampCaptureChannels, CHANNELS } from "@/features/audio/lib/engine/core";
+import { clampCaptureChannels, CHANNELS, CURRENT_CHANNEL } from "@/features/audio/lib/engine/core";
 import { isIronPerfEnabled, recordPerfSample } from "@/shared/lib/iron-perf";
-import { encodeToInt16 } from "@/features/audio/lib/engine/utils";
+import { encodeToInt16, zeroChannel } from "@/features/audio/lib/engine/utils";
 import { PcmFrameStore } from "@/features/audio/lib/pcm-frame-store";
 import { humanizeIpcError } from "@/shared/lib/ipc-error";
 import type { CaptureStreamEvent, PlaybackMode, PlaybackStreamPump } from "./types";
@@ -64,6 +64,8 @@ export interface NativeCaptureDeps {
   analysisActiveRef: MutableRefObject<boolean>;
   isActiveRef: MutableRefObject<boolean>;
   streamPumpRef: MutableRefObject<PlaybackStreamPump | null>;
+  /** 스피커 open 상태 래치 — 서면 캡처 원본의 ch1(I)을 0 으로 덮는다. */
+  speakerOpenRef: MutableRefObject<boolean>;
   onStatusChange: (s: AppStatus) => void;
   setMicError: (msg: string | null) => void;
   openEngineClient: (actualRate: number, samplesPerCh: number, expectedPlaybackFrames: number) => EngineClient;
@@ -101,7 +103,7 @@ async function uploadPlaybackRef(
 export function useNativeCapture(deps: NativeCaptureDeps) {
   const {
     nativeOffsRef, nativeActiveRef, playCaptureActiveRef, rawCaptureRef, recordingActiveRef, analysisActiveRef,
-    isActiveRef, streamPumpRef,
+    isActiveRef, streamPumpRef, speakerOpenRef,
     onStatusChange, setMicError, openEngineClient, cleanup, emitStreamEvent,
   } = deps;
 
@@ -296,6 +298,11 @@ export function useNativeCapture(deps: NativeCaptureDeps) {
         if (!recordingActiveRef.current) return;
         const store = rawCaptureRef.current;
         if (!store) return;
+        /* 스피커 open(온도 ≥ 500°C) 이후로는 전류가 흐르지 않으므로 ch1(I)을 0 으로 덮는다.
+         * reframe 이 onFrame(분석 프레임) 을 먼저 부르고 이 콜백을 뒤에 부르며 두 버퍼가
+         * 따로라, 여기서 덮어도 엔진에 들어간 i_sensing 은 영향받지 않는다. store.append 가
+         * 복사해 담으므로 차트 스트림·백필·원본 줌·저장 WAV 가 모두 같은 값을 본다. */
+        if (speakerOpenRef.current) zeroChannel(rawFrame, actualChannels, CURRENT_CHANNEL);
         const view = store.append(rawFrame);
         emitStreamEvent({ type: "chunk", chunk: view, channels: actualChannels, sampleRate: actualRate });
       },
@@ -343,7 +350,7 @@ export function useNativeCapture(deps: NativeCaptureDeps) {
     nativeOffsRef.current = [offData, offEnded];
   }, [
     nativeOffsRef, nativeActiveRef, playCaptureActiveRef, rawCaptureRef, recordingActiveRef, analysisActiveRef,
-    isActiveRef, streamPumpRef,
+    isActiveRef, streamPumpRef, speakerOpenRef,
     onStatusChange, setMicError, openEngineClient, cleanup, emitStreamEvent,
   ]);
 

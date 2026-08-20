@@ -22,6 +22,7 @@ interface Props {
   dangerThreshold?: number;
   annotations?: AnnotationStore;
   canAnnotate?: boolean;
+  speakerOpen?: boolean;
 }
 
 const TEMP_COLOR = "#0B4171";
@@ -35,6 +36,7 @@ export default function TemperatureChart({
   dangerThreshold = DEFAULT_TEMP_DANGER,
   annotations,
   canAnnotate = false,
+  speakerOpen = false,
 }: Props) {
   const { isEnabled, draw } = useDrawMode(annotations, canAnnotate);
   const {
@@ -95,6 +97,7 @@ export default function TemperatureChart({
       options={options}
       source={source}
       draw={draw}
+      speakerOpen={speakerOpen}
     />
   );
 }

@@ -9,6 +9,8 @@ import { ChannelStatsBadge, ChannelWaveformCanvas } from "@/features/audio/compo
 import type { ChannelStreamHeader } from "@/features/audio/components/channel/hooks/useChannelWaveStreams";
 import type { CaptureSnapshot } from "@/features/audio/components/player/capture/types";
 import ChartDrawControls from "@/features/audio/components/chart/ChartDrawControls";
+import { SpeakerOpenOverlay } from "@/features/audio/components/chart/ChartAlertOverlay";
+import { CURRENT_CHANNEL } from "@/features/audio/lib/engine/core";
 
 interface Props {
   ch: number;
@@ -17,10 +19,11 @@ interface Props {
   annotations: AnnotationStore;
   canAnnotate: boolean;
   getCaptureSnapshot?: () => CaptureSnapshot | null;
+  speakerOpen?: boolean;
 }
 
 export default function ChannelChartCard({
-  ch, header, store, annotations, canAnnotate, getCaptureSnapshot,
+  ch, header, store, annotations, canAnnotate, getCaptureSnapshot, speakerOpen = false,
 }: Props) {
   const { isEnabled, draw } = useDrawMode(annotations, canAnnotate && header !== null);
   const { name, role } = channelLabel(ch, {
@@ -46,7 +49,8 @@ export default function ChannelChartCard({
         <ChannelStatsBadge store={store} />
       </div>
 
-      <div className="chart-body flex-1 p-2 min-h-[160px]">
+      <div className="chart-body relative flex-1 p-2 min-h-[160px]">
+        {speakerOpen && ch === CURRENT_CHANNEL && <SpeakerOpenOverlay />}
         {header ? (
           <ChannelWaveformCanvas
             color={color}
