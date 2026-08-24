@@ -8,6 +8,7 @@ import { isIronPerfEnabled, recordPerfSample } from "@/shared/lib/iron-perf";
 import { encodeToInt16, zeroChannel } from "@/features/audio/lib/engine/utils";
 import { PcmFrameStore } from "@/features/audio/lib/pcm-frame-store";
 import { humanizeIpcError } from "@/shared/lib/ipc-error";
+import { uploadPlaybackRef } from "@/features/audio/lib/playcapture-upload";
 import type { CaptureStreamEvent, PlaybackMode, PlaybackStreamPump } from "./types";
 import { createNativeFrameReframer } from "./reframeNativeChunk";
 
@@ -71,33 +72,6 @@ export interface NativeCaptureDeps {
   openEngineClient: (actualRate: number, samplesPerCh: number, expectedPlaybackFrames: number) => EngineClient;
   cleanup: () => void;
   emitStreamEvent: (ev: CaptureStreamEvent) => void;
-}
-
-const REF_UPLOAD_CHUNK_BYTES = 4 * 1024 * 1024;
-
-async function uploadPlaybackRef(
-  bridge: NonNullable<Window["audioPlayCapture"]>,
-  pcm: Float32Array,
-): Promise<string> {
-  const bytes = new Uint8Array(pcm.buffer, pcm.byteOffset, pcm.byteLength);
-  const started = await bridge.startWrite({ totalBytes: bytes.byteLength });
-  if (!started.success || !started.writeId) {
-    throw new Error(humanizeIpcError(started.error, "Failed to start the playback file transfer."));
-  }
-  const { writeId } = started;
-  try {
-    for (let offset = 0; offset < bytes.byteLength; offset += REF_UPLOAD_CHUNK_BYTES) {
-      const chunk = bytes.subarray(offset, Math.min(offset + REF_UPLOAD_CHUNK_BYTES, bytes.byteLength));
-      const res = await bridge.writeChunk({ writeId, chunk });
-      if (!res.success) throw new Error(humanizeIpcError(res.error, "Failed to transfer the playback file."));
-    }
-    const finalized = await bridge.finalizeWrite({ writeId });
-    if (!finalized.success) throw new Error(humanizeIpcError(finalized.error, "Failed to finish the playback file transfer."));
-  } catch (err) {
-    bridge.cancelWrite({ writeId });
-    throw err;
-  }
-  return writeId;
 }
 
 export function useNativeCapture(deps: NativeCaptureDeps) {

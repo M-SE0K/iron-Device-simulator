@@ -2,7 +2,7 @@
 
 import { createContext, useCallback, useContext, useMemo, useState, type ReactNode } from "react";
 
-export type DrawerKey = "view" | "workspace" | "records" | "calibration";
+export type DrawerKey = "view" | "workspace" | "records" | "calibration" | "loopback";
 
 interface ActiveDrawerCtx {
   active: DrawerKey | null;

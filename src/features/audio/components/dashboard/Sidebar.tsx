@@ -1,14 +1,17 @@
 "use client";
 
 import { memo } from "react";
-import { LayoutGrid, FolderOpen, History, SlidersHorizontal } from "lucide-react";
+import { LayoutGrid, FolderOpen, History, SlidersHorizontal, Timer } from "lucide-react";
+import { isIronPerfEnabled } from "@/shared/lib/iron-perf";
 import type { DrawerKey } from "../ActiveDrawerContext";
 
-const NAV_ITEMS: { key: DrawerKey; icon: typeof FolderOpen; label: string }[] = [
+const NAV_ITEMS: { key: DrawerKey; icon: typeof FolderOpen; label: string; badge?: string }[] = [
   { key: "view",        icon: LayoutGrid,          label: "View" },
   { key: "workspace",   icon: FolderOpen,          label: "Workspace" },
   { key: "records",     icon: History,             label: "Records" },
   { key: "calibration", icon: SlidersHorizontal,   label: "Calibration" },
+  /* 계측(--dev) 빌드 전용 — H/W 루프백 왕복 지연 버스트 테스트 (NEXT_PUBLIC_IRON_PERF=1) */
+  ...(isIronPerfEnabled() ? [{ key: "loopback" as DrawerKey, icon: Timer, label: "Loopback", badge: "dev" }] : []),
 ];
 
 interface SidebarProps {
@@ -58,7 +61,7 @@ function Sidebar({
         </span>
       </div>
 
-      {NAV_ITEMS.map(({ key, icon: Icon, label }) => {
+      {NAV_ITEMS.map(({ key, icon: Icon, label, badge }) => {
         const isActive = activeDrawer === key;
         return (
           <button
@@ -72,6 +75,11 @@ function Sidebar({
           >
             <Icon className="w-4 h-4 shrink-0" />
             {label}
+            {badge && (
+              <span className="ml-auto rounded bg-white/15 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider text-white/70">
+                {badge}
+              </span>
+            )}
           </button>
         );
       })}

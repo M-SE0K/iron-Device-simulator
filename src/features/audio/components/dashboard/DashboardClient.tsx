@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useCallback, useRef, useEffect, useMemo } from "react";
-import { recordPerfSample } from "@/shared/lib/iron-perf";
+import { isIronPerfEnabled, recordPerfSample } from "@/shared/lib/iron-perf";
 import { Activity, Menu, PanelLeftClose, PanelLeftOpen, ShieldAlert, Thermometer } from "lucide-react";
 import Sidebar from "./Sidebar";
 import SelectedFilePanel from "@/features/audio/components/dashboard/SelectedFilePanel";
@@ -12,6 +12,7 @@ import { useChannelWaveStreams } from "@/features/audio/components/channel/hooks
 import WorkspaceDrawer from "@/features/audio/components/workspace/WorkspaceDrawer";
 import RecordsDrawer from "@/features/audio/components/workspace/RecordsDrawer";
 import CalibrationDrawer from "@/features/audio/components/calibration/CalibrationDrawer";
+import LoopbackDrawer from "@/features/audio/components/loopback/LoopbackDrawer";
 import DashboardViewGrid from "@/features/audio/components/dashboard/DashboardViewGrid";
 import ViewDrawer from "@/features/audio/components/dashboard/ViewDrawer";
 import {
@@ -387,6 +388,11 @@ export default function DashboardPage() {
         <WorkspaceDrawer />
         <RecordsDrawer />
         <CalibrationDrawer />
+        {/* --dev 계측 빌드 전용 H/W 루프백 지연 측정 탭. 재생/일시정지 중에는 play-capture
+          * IOProc이 장치를 점유하므로(pause도 캡처 유지) 실행을 막는다. */}
+        {isIronPerfEnabled() && (
+          <LoopbackDrawer sessionActive={realtimeStatus === "playing" || realtimeStatus === "paused"} />
+        )}
 
         <DuplexFilePlayer
           ref={realtimeWaveRef}
