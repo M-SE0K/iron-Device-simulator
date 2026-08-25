@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "Iron Device Audio Simulator",
+  "productName": "Iron Device Audio Algorithm Simulator",
   "version": "0.1.0",
   "identifier": "com.irondevice.audiosim.desktop",
   "build": {
@@ -9,7 +9,7 @@
   "app": {
     "windows": [
       {
-        "title": "Iron Device Audio Simulator",
+        "title": "Iron Device Audio Algorithm Simulator",
         "width": 1280,
         "height": 800
       }

@@ -470,13 +470,13 @@ function LoopbackDrawer({ sessionActive }: { sessionActive: boolean }) {
     <SideDrawer
       open={open}
       onClose={() => setOpen(false)}
-      ariaLabel="Loopback latency (dev)"
+      ariaLabel="Loopback latency"
       title="Loopback"
       widthClassName="w-[520px] max-w-[94vw]"
       bodyClassName="p-4 flex flex-col gap-5"
     >
       <p className="m-0 rounded-lg bg-iron-50 px-3 py-2 text-xs leading-relaxed text-iron-500">
-        Dev-only burst test: plays a Hann-windowed sine-burst train through the Capture Device&apos;s own
+        Burst test: plays a Hann-windowed sine-burst train through the Capture Device&apos;s own
         output (single-IOProc play-capture) and matched-filters the captured stream. Latency is computed purely
         in the shared sample clock — <span className="font-semibold">detected arrival − known emission
         offset</span> — never from wall-clock time. Wire the device output (ch
@@ -489,7 +489,7 @@ function LoopbackDrawer({ sessionActive }: { sessionActive: boolean }) {
         <p className="m-0 flex items-start gap-2 rounded-lg bg-amber-50 px-3 py-2 text-xs leading-relaxed text-amber-700">
           <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
           The native play-capture bridge isn&apos;t available in a plain browser tab. Run the packaged
-          --dev Tauri build (npm run build:tauri -- --mac --dev) to use this tool.
+          Tauri desktop app to use this tool.
         </p>
       )}
       {sessionActive && (

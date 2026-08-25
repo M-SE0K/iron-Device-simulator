@@ -10,7 +10,7 @@ import TauriBridgeInit from "./TauriBridgeInit";
 import IronPerfInit from "./IronPerfInit";
 
 export const metadata: Metadata = {
-  title: "Iron Device — Audio Analysis Dashboard",
+  title: "Iron Device Corp — Iron Device Audio Algorithm Simulator",
   description: "Real-time audio chipset performance visualization by Iron Device",
 };
 

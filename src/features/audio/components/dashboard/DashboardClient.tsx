@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useCallback, useRef, useEffect, useMemo } from "react";
-import { isIronPerfEnabled, recordPerfSample } from "@/shared/lib/iron-perf";
+import { recordPerfSample } from "@/shared/lib/iron-perf";
 import { Activity, Menu, PanelLeftClose, PanelLeftOpen, ShieldAlert, Thermometer } from "lucide-react";
 import Sidebar from "./Sidebar";
 import SelectedFilePanel from "@/features/audio/components/dashboard/SelectedFilePanel";
@@ -334,7 +334,7 @@ export default function DashboardPage() {
           >
             <Menu className="w-5 h-5" />
           </button>
-          <span className="text-iron-900 text-[15px] font-extrabold tracking-tight">IRON DEVICE</span>
+          <span className="text-iron-900 text-[15px] font-extrabold tracking-tight">Iron Device Corp</span>
         </div>
 
         <main id="dashboard-main" className="flex-1 min-h-0 overflow-y-auto p-3 lg:p-7 pb-28 lg:pb-32">
@@ -390,11 +390,9 @@ export default function DashboardPage() {
         <WorkspaceDrawer />
         <RecordsDrawer />
         <CalibrationDrawer />
-        {/* --dev 계측 빌드 전용 H/W 루프백 지연 측정 탭. 재생/일시정지 중에는 play-capture
-          * IOProc이 장치를 점유하므로(pause도 캡처 유지) 실행을 막는다. */}
-        {isIronPerfEnabled() && (
-          <LoopbackDrawer sessionActive={realtimeStatus === "playing" || realtimeStatus === "paused"} />
-        )}
+        {/* H/W 루프백 지연 측정 탭. 재생/일시정지 중에는 play-capture IOProc이 장치를
+          * 점유하므로(pause도 캡처 유지) 실행을 막는다. */}
+        <LoopbackDrawer sessionActive={realtimeStatus === "playing" || realtimeStatus === "paused"} />
 
         <DuplexFilePlayer
           ref={realtimeWaveRef}

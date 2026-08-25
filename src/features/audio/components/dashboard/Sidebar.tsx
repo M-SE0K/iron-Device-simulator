@@ -2,7 +2,6 @@
 
 import { memo } from "react";
 import { LayoutGrid, FolderOpen, History, SlidersHorizontal, Timer } from "lucide-react";
-import { isIronPerfEnabled } from "@/shared/lib/iron-perf";
 import type { DrawerKey } from "../ActiveDrawerContext";
 
 const NAV_ITEMS: { key: DrawerKey; icon: typeof FolderOpen; label: string; badge?: string }[] = [
@@ -10,8 +9,9 @@ const NAV_ITEMS: { key: DrawerKey; icon: typeof FolderOpen; label: string; badge
   { key: "workspace",   icon: FolderOpen,          label: "Workspace" },
   { key: "records",     icon: History,             label: "Records" },
   { key: "calibration", icon: SlidersHorizontal,   label: "Calibration" },
-  /* 계측(--dev) 빌드 전용 — H/W 루프백 왕복 지연 버스트 테스트 (NEXT_PUBLIC_IRON_PERF=1) */
-  ...(isIronPerfEnabled() ? [{ key: "loopback" as DrawerKey, icon: Timer, label: "Loopback", badge: "dev" }] : []),
+  /* H/W 루프백 왕복 지연 버스트 테스트 — 일반(배포) 빌드에서도 노출한다.
+   * 네이티브 브리지가 없는 환경에서는 드로어 안에서 안내 후 실행이 막힌다. */
+  { key: "loopback",    icon: Timer,               label: "Loopback" },
 ];
 
 interface SidebarProps {
@@ -57,7 +57,7 @@ function Sidebar({
       >
       <div id="header-logo" className="px-1 mb-6">
         <span id="brand-name" className="text-white text-[15px] font-extrabold tracking-tight">
-          IRON DEVICE
+          Iron Devie Corp
         </span>
       </div>
 

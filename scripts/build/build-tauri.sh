@@ -367,6 +367,19 @@ fi
 # ===== 플랫폼별 산출물 저장 디렉터리 초기화 =====
 mkdir -p dist-tauri/{mac,windows,linux}
 
+# productName(또는 version)이 바뀌면 Tauri는 예전 이름으로 만들어둔 .app/.dmg/.exe/.AppImage를
+# 번들 디렉터리에서 지우지 않고 그대로 남긴다. 그 상태로 아래 복사 단계가 "*.app" 같은
+# 와일드카드로 긁어오면 옛 이름 산출물까지 함께 dist-tauri/ 로 따라 나온다(앱이 두 개 나오던
+# 원인이고, macOS entitlement 검사의 `find … | head -1`이 엉뚱한 stale 번들을 볼 수도 있다).
+# 번들 디렉터리는 매 빌드 재생성되는 "포장 결과" 전용이라 통째로 비워도 컴파일 캐시
+# (target/release/deps 등)에는 영향이 없다 — 재컴파일이 유발되지 않는다.
+clean_bundle_dir() {
+  local dir="$1"
+  [[ -d "$dir" ]] || return 0
+  rm -rf "$dir" 2>/dev/null || true
+  echo "▶ 이전 번들 산출물 정리: $dir (productName 변경 시 남는 옛 이름 앱 제거)"
+}
+
 echo ""
 echo "▶ Tauri 패키징 시작..."
 echo ""
@@ -383,6 +396,7 @@ if [[ "$MAC_ONLY" == "true" ]]; then
   # 싶으면 `rustup target add aarch64-apple-darwin x86_64-apple-darwin` 후 이 스크립트
   # 대신 `npx tauri build --target <triple>`을 타깃별로 직접 두 번 실행하면 된다(추후 과제).
   rm -rf dist-tauri/mac/* 2>/dev/null || true
+  clean_bundle_dir "src-tauri/target/release/bundle"
   npx tauri build ${TAURI_FEATURES[@]+"${TAURI_FEATURES[@]}"} ${TAURI_CONFIG_ARGS[@]+"${TAURI_CONFIG_ARGS[@]}"}
 
   # ── 오디오 입력 entitlement 검증 (앱 본체 + 사이드카) ──────────────────────────
@@ -445,9 +459,11 @@ if [[ "$WINDOWS_ONLY" == "true" ]]; then
     # 이후 실행은 캐시를 재사용해 훨씬 빠르다. lld-link가 PDB 심볼을 못 찾는다는
     # "failed to load reference ...pdb" 경고가 다수 나오는데, 이는 xwin이 전체 디버그
     # 심볼까지는 내려받지 않기 때문이며 빌드 결과물에는 영향 없다(무해).
+    clean_bundle_dir "src-tauri/target/x86_64-pc-windows-msvc/release/bundle"
     npx tauri build ${TAURI_FEATURES[@]+"${TAURI_FEATURES[@]}"} ${TAURI_CONFIG_ARGS[@]+"${TAURI_CONFIG_ARGS[@]}"} --runner cargo-xwin --target x86_64-pc-windows-msvc --bundles nsis
     BUNDLE_DIR="src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis"
   else
+    clean_bundle_dir "src-tauri/target/release/bundle"
     npx tauri build ${TAURI_FEATURES[@]+"${TAURI_FEATURES[@]}"} ${TAURI_CONFIG_ARGS[@]+"${TAURI_CONFIG_ARGS[@]}"}
     BUNDLE_DIR="src-tauri/target/release/bundle/nsis"
   fi
@@ -470,6 +486,7 @@ rm -rf dist-tauri/linux/* 2>/dev/null || true
 # FUSE로 마운트를 못 한다(Phase 6에서 실측). APPIMAGE_EXTRACT_AND_RUN=1은 그 대신 self-extract
 # 방식으로 돌게 하는 표준 플래그 — FUSE가 있는 환경에서도 무해하다.
 export APPIMAGE_EXTRACT_AND_RUN=1
+clean_bundle_dir "src-tauri/target/release/bundle"
 npx tauri build ${TAURI_FEATURES[@]+"${TAURI_FEATURES[@]}"} ${TAURI_CONFIG_ARGS[@]+"${TAURI_CONFIG_ARGS[@]}"}
 find src-tauri/target/release/bundle/appimage -maxdepth 1 -type f -name "*.AppImage" -exec cp {} dist-tauri/linux/ \; 2>/dev/null || true
 echo ""
