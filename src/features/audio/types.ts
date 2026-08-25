@@ -4,7 +4,25 @@ export interface EngineParams {
 
 export type InputParameterValues = Pick<CalibrationValues, "ambientTemp">;
 
-export interface CalibrationValues {
+/** 스피커 튜닝 파라미터(Thiele-Small) 키 — **집합이 여기 고정**이다.
+ *  사용자는 값만 바꿀 수 있고 항목을 추가·삭제하는 경로는 UI에 없다.
+ *  라벨/단위/기본값은 calibration-options.ts 의 TUNING_PARAM_* 가 갖는다. */
+export type TuningParamKey =
+  | "re"    /* Ω    직류 저항            */
+  | "le"    /* mH   보이스코일 인덕턴스   */
+  | "fs"    /* Hz   자유공진 주파수      */
+  | "mms"   /* g    진동계 유효질량      */
+  | "rms"   /* kg/s 기계 손실 저항       */
+  | "cms"   /* mm/N 기계 컴플라이언스     */
+  | "kms"   /* N/mm 기계 강성 (=1/Cms)   */
+  | "bl"    /* N/A  힘 계수             */
+  | "qts";  /*      종합 Q              */
+
+/** 문자열로 들고 있는 이유는 나머지 Calibration 필드와 같다 — 입력 중간 상태(빈 문자열,
+ *  "0." 등)를 그대로 보존해야 해서 숫자 변환은 소비 시점에 한다. */
+export type TuningParams = Record<TuningParamKey, string>;
+
+export interface CalibrationValues extends TuningParams {
   ambientTemp: string;
   sampleRate: string;
   bufferSize: string;

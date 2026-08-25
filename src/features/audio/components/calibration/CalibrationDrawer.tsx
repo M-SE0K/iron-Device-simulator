@@ -6,6 +6,7 @@ import AnimatedSelect from "@/shared/components/ui/AnimatedSelect";
 import DeviceSelectField from "./DeviceSelectField";
 import { useDrawerState } from "@/features/audio/components/ActiveDrawerContext";
 import { CALIBRATION_EMPTY, useCalibration } from "./CalibrationContext";
+import { TUNING_PARAM_FIELDS } from "./calibration-options";
 import { useNativeAudioDevice } from "./hooks/useNativeAudioDevice";
 import { useDeviceOptionAutoCorrect } from "./hooks/useDeviceOptionAutoCorrect";
 import { useCalibrationDraft } from "./hooks/useCalibrationDraft";
@@ -13,6 +14,7 @@ import { useCalibrationApply } from "./hooks/useCalibrationApply";
 import { useEscapeKey } from "@/shared/hooks/useGlobalKey";
 import SideDrawer from "@/shared/components/overlay/SideDrawer";
 import LabeledField from "@/shared/components/ui/LabeledField";
+import type { CalibrationValues, TuningParamKey } from "@/features/audio/types";
 
 function SelectField({
   label,
@@ -99,6 +101,10 @@ function CalibrationDrawer() {
     deviceStatus, appliedRuntime, apply, resetStatus,
   } = useCalibrationApply({ draft, setValues, setOpen, hasAudioDeviceBridge, deviceInfo, refreshDeviceInfo });
 
+  /* 계산된 키로 만든 객체는 { [x: string]: string } 이라 Partial<CalibrationValues> 에
+   * 그대로 못 넣는다 — 키가 TuningParamKey 로 좁혀져 있으니 여기서 한 번만 좁혀 준다. */
+  const setTuning = (key: TuningParamKey, v: string) => set({ [key]: v } as Partial<CalibrationValues>);
+
   useEffect(() => {
     if (!open) return;
     resetStatus();
@@ -167,6 +173,22 @@ function CalibrationDrawer() {
                 value={draft.ambientTemp}
                 onChange={(v) => set({ ambientTemp: v })}
               />
+            </div>
+          </section>
+
+          <section className="space-y-3">
+            <h4 className="text-xs font-semibold text-iron-500">TUNING PARAMETER</h4>
+            <div className="grid grid-cols-2 gap-3">
+              {TUNING_PARAM_FIELDS.map((f) => (
+                <NumberField
+                  key={f.key}
+                  label={f.label}
+                  unit={f.unit}
+                  step={f.step}
+                  value={draft[f.key]}
+                  onChange={(v) => setTuning(f.key, v)}
+                />
+              ))}
             </div>
           </section>
 
