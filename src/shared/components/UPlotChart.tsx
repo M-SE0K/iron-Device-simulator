@@ -228,9 +228,18 @@ export default function UPlotChart({ options, data, source, yRange, xRange, seri
     const follow = streamFollowRef.current;
     const t0 = performance.now();
     if (follow && !zoomed) {
+      /* 스트림 헤드는 "그려진 마지막 점"이 아니라 "소스가 받은 마지막 점"이다. 온도 계열은
+       * 스피커 가드(open/short) 구간의 포인트를 통째로 빼고 내보내기 때문에, 커밋된 배열의
+       * 끝만 보면 가드가 걸린 순간의 시각에 앵커가 고정되고 매 커밋마다 벽시계만 새로 잡혀
+       * x 축이 그 자리에 멈춘다. 소스가 알려주는 전체 도메인(xFull)의 끝을 우선 쓴다. */
       const xs = next[0];
-      if (xs && xs.length) {
-        streamAnchorTimeRef.current = xs[xs.length - 1];
+      const dataHead = xs && xs.length ? xs[xs.length - 1] : null;
+      const sourceHead = sourceXFullRef.current?.[1] ?? null;
+      const head = sourceHead != null && (dataHead == null || sourceHead > dataHead)
+        ? sourceHead
+        : dataHead;
+      if (head != null) {
+        streamAnchorTimeRef.current = head;
         streamAnchorWallRef.current = t0;
       }
     }
