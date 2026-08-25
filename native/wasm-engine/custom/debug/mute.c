@@ -3,7 +3,7 @@
  * (../protection.c 와 동일한 근사 모델). 무음이므로 exc≈0, temp는 amb_temp로 서서히
  * 수렴한다 — 하드코딩이 아니라 실제 신호(0)를 스캔한 결과다.
  * 빌드: FF_PROT_SRCS=custom/debug/mute.c */
-#include "../protection.h"
+#include "../ff_prot.h"
 #include <math.h>
 #include <stdio.h>
 

@@ -1,12 +1,14 @@
 "use client";
 
+import type { SpeakerFault } from "@/features/audio/types";
 import { useMemo } from "react";
 import { toMm, MM_DECIMALS } from "@/features/audio/lib/units";
 import { computeExcursionYRange } from "@/features/audio/lib/render/chart-window";
 import type { ChartStore } from "@/features/audio/lib/render/chart-store";
 import type { AnnotationStore } from "@/features/audio/lib/render/annotation-store";
 import { buildMetricChartOptions } from "@/features/audio/lib/render/metric-chart-options";
-import { annotatePlugin } from "@/features/audio/lib/render/uplot-plugins";
+import { annotatePlugin, thresholdsPlugin } from "@/features/audio/lib/render/uplot-plugins";
+import { DEFAULT_XMAX } from "@/features/audio/lib/render/detect-events";
 import { useMetricChartRuntime } from "./hooks/useMetricChartRuntime";
 import { useMetricChartSource } from "./hooks/useMetricChartSource";
 import { useChartFullXRange } from "./hooks/useChartFullXRange";
@@ -18,9 +20,11 @@ interface Props {
   isActive: boolean;
   streaming?: boolean;
   audioDuration?: number | null;
+  /** 변위 한계(mm) — ±임계선 + 헤더 색상 전환 기준 */
+  xmax?: number;
   annotations?: AnnotationStore;
   canAnnotate?: boolean;
-  speakerOpen?: boolean;
+  speakerFault?: SpeakerFault | null;
 }
 
 const SCALE_PADDING = 1.15;
@@ -32,9 +36,10 @@ export default function ExcursionChart({
   isActive,
   streaming = false,
   audioDuration,
+  xmax = DEFAULT_XMAX,
   annotations,
   canAnnotate = false,
-  speakerOpen = false,
+  speakerFault = null,
 }: Props) {
   const { isEnabled, draw } = useDrawMode(annotations, canAnnotate);
   const {
@@ -47,12 +52,11 @@ export default function ExcursionChart({
     audioDuration,
   });
 
-  const { yMax } = computeExcursionYRange(
-    store.snapshot().excMin, store.snapshot().excMax, toMm, SCALE_PADDING,
-  );
-
+  /* Xmax를 넘어선 순간만 빨강 — 이전의 "현재 y축 범위 대비 85%" 휴리스틱은 스케일이
+   * 데이터에 따라 움직여서 같은 변위인데도 색이 달라졌다. */
+  const limit = Number.isFinite(xmax) && xmax > 0 ? xmax : null;
   const excColor =
-    currentExc !== null && Math.abs(toMm(currentExc)) > Math.abs(yMax) * 0.85
+    limit !== null && currentExc !== null && Math.abs(toMm(currentExc)) >= limit
       ? "#EF4444"
       : EXC_COLOR;
 
@@ -77,8 +81,16 @@ export default function ExcursionChart({
     tooltipUnit: "mm",
     tooltipDecimals: MM_DECIMALS,
     getFullXRange,
-    extraPlugins: annotations ? [annotatePlugin({ store: annotations, isEnabled })] : undefined,
-  }), [getFullXRange, annotations, isEnabled]);
+    extraPlugins: [
+      ...(limit !== null
+        ? [thresholdsPlugin([
+            { y:  limit, color: "#EF4444", label: "Xmax" },
+            { y: -limit, color: "#EF4444", label: "-Xmax" },
+          ])]
+        : []),
+      ...(annotations ? [annotatePlugin({ store: annotations, isEnabled })] : []),
+    ],
+  }), [limit, getFullXRange, annotations, isEnabled]);
 
   return (
     <MetricChartCard
@@ -95,7 +107,7 @@ export default function ExcursionChart({
       options={options}
       source={source}
       draw={draw}
-      speakerOpen={speakerOpen}
+      speakerFault={speakerFault}
     />
   );
 }

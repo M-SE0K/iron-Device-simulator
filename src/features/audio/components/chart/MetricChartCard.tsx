@@ -1,9 +1,10 @@
 "use client";
 
+import type { SpeakerFault } from "@/features/audio/types";
 import UPlotChart, { type UPlotDataSource, type UPlotOptions } from "@/shared/components/UPlotChart";
 import type { DrawControl } from "./hooks/useDrawMode";
 import ChartDrawControls from "./ChartDrawControls";
-import { SpeakerOpenOverlay } from "./ChartAlertOverlay";
+import { SpeakerFaultOverlay } from "./ChartAlertOverlay";
 
 interface Props {
   id: string;
@@ -19,7 +20,7 @@ interface Props {
   options: UPlotOptions;
   source: UPlotDataSource;
   draw?: DrawControl;
-  speakerOpen?: boolean;
+  speakerFault?: SpeakerFault | null;
 }
 
 export default function MetricChartCard({
@@ -36,7 +37,7 @@ export default function MetricChartCard({
   options,
   source,
   draw,
-  speakerOpen = false,
+  speakerFault = null,
 }: Props) {
   return (
     <div id={id} className="card flex flex-col h-full">
@@ -57,7 +58,7 @@ export default function MetricChartCard({
       </div>
 
       <div className="chart-body relative flex-1 p-2 min-h-[160px]">
-        {speakerOpen && <SpeakerOpenOverlay />}
+        <SpeakerFaultOverlay fault={speakerFault} />
         {showChart ? (
           <UPlotChart
             key={audioDuration ?? "live"}

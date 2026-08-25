@@ -9,9 +9,13 @@ import { CHANNELS, SAMPLE_RATE, SAMPLES_PER_CH } from "@/features/audio/lib/engi
 import { createEngineClient, type EngineClient } from "@/features/audio/lib/engine/protocol/engine-client";
 import { PcmFrameStore } from "@/features/audio/lib/pcm-frame-store";
 import { useNativeCapture } from "./useNativeCapture";
+import type { SpeakerFault } from "@/features/audio/types";
 import type {
   CaptureSnapshot, CaptureStreamEvent, CaptureStreamListener, PlaybackStreamPump, UseCaptureSessionDeps,
 } from "./types";
+
+/* 경고 해제까지 필요한 연속 정상 프레임 수 — 기본 설정(480 smp/48 kHz)에서 약 100 ms. */
+const FAULT_CLEAR_FRAMES = 10;
 
 function blobFromCapture(store: PcmFrameStore | null): Blob | null {
   if (!store || store.frameCount === 0) return null;
@@ -20,7 +24,7 @@ function blobFromCapture(store: PcmFrameStore | null): Blob | null {
 
 export function useCaptureSession(deps: UseCaptureSessionDeps) {
   const {
-    onStatusChange, onFrameReceived, onStreamStart, onSpeakerOpen, inputParams, playbackMode = "protected",
+    onStatusChange, onFrameReceived, onStreamStart, onSpeakerFaultChange, inputParams, playbackMode = "protected",
   } = deps;
   const { values: calibration } = useCalibration();
   const { showError } = useErrorPopup();
@@ -39,10 +43,13 @@ export function useCaptureSession(deps: UseCaptureSessionDeps) {
   const protectedCaptureRef = useRef<PcmFrameStore | null>(null);
   const analysisActiveRef = useRef(true);
   const isActiveRef    = useRef(false);
-  /* 세션이 "스피커 open" 상태로 넘어갔는지. 한 번 서면 세션이 끝날 때까지 유지되고 두 가지를
-   * 건다 — ① 차트 오버레이 상태 통지(onSpeakerOpen)를 프레임마다가 아니라 1회만, ② 캡처
-   * 원본 ch1(I) 마스킹(useNativeCapture). */
-  const speakerOpenRef = useRef(false);
+  /* 현재 스피커 이상 상태(open/short/정상). 프레임 단위로 갱신되며 두 가지를 건다 —
+   * ① 차트 오버레이 상태 통지(onSpeakerFaultChange), ② open 동안 캡처 원본 ch1(I)
+   * 마스킹(useNativeCapture). 상태가 "바뀔 때만" 통지하므로 프레임마다 리렌더되지 않는다. */
+  const speakerFaultRef = useRef<SpeakerFault | null>(null);
+  /* 해제 디바운스 — 임계 바로 아래에서 진동하면 배지가 100 Hz 로 깜빡이므로, 정상 프레임이
+   * 연속으로 이만큼 들어와야 경고를 내린다(기본 설정에서 10프레임 ≈ 100 ms). */
+  const faultClearStreakRef = useRef(0);
   const streamPumpRef  = useRef<PlaybackStreamPump | null>(null);
   const streamListenersRef = useRef<Set<CaptureStreamListener>>(new Set());
   const emitStreamEvent = useCallback((ev: CaptureStreamEvent) => {
@@ -76,7 +83,8 @@ export function useCaptureSession(deps: UseCaptureSessionDeps) {
   const openEngineClient = useCallback((actualRate: number, samplesPerCh: number, expectedPlaybackFrames: number): EngineClient => {
     const client = createEngineClient();
     clientRef.current = client;
-    speakerOpenRef.current = false;
+    speakerFaultRef.current = null;
+    faultClearStreakRef.current = 0;
 
     protectedCaptureRef.current = new PcmFrameStore({
       channels: CHANNELS,
@@ -118,14 +126,23 @@ export function useCaptureSession(deps: UseCaptureSessionDeps) {
 
     client.onFrame = (msg) => {
       recordPerfSample("wasm_engine", msg.processingMs);
-      if (msg.tempOverflow && !speakerOpenRef.current) {
-        speakerOpenRef.current = true;
-        onSpeakerOpen?.();
+      const fault = msg.speakerFault ?? null;
+      if (fault !== null) {
+        faultClearStreakRef.current = 0;
+        if (fault !== speakerFaultRef.current) {
+          speakerFaultRef.current = fault;
+          onSpeakerFaultChange?.(fault);
+        }
+      } else if (speakerFaultRef.current !== null && ++faultClearStreakRef.current >= FAULT_CLEAR_FRAMES) {
+        faultClearStreakRef.current = 0;
+        speakerFaultRef.current = null;
+        onSpeakerFaultChange?.(null);
       }
       onFrameReceived({
         time:        msg.time,
         temperature: msg.temperature,
         excursion:   msg.excursion,
+        speakerFault: fault,
       });
     };
 
@@ -148,11 +165,11 @@ export function useCaptureSession(deps: UseCaptureSessionDeps) {
     });
 
     return client;
-  }, [inputParams, onStatusChange, onStreamStart, onFrameReceived, onSpeakerOpen, cleanup, emitStreamEvent, setMicError]);
+  }, [inputParams, onStatusChange, onStreamStart, onFrameReceived, onSpeakerFaultChange, cleanup, emitStreamEvent, setMicError]);
 
   const { start: startNativeCapture } = useNativeCapture({
     nativeOffsRef, nativeActiveRef, playCaptureActiveRef, rawCaptureRef, recordingActiveRef, analysisActiveRef,
-    isActiveRef, streamPumpRef, speakerOpenRef,
+    isActiveRef, streamPumpRef, speakerFaultRef,
     onStatusChange, setMicError, openEngineClient, cleanup, emitStreamEvent,
   });
 

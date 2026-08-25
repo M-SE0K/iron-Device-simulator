@@ -1,4 +1,4 @@
-import type { AppStatus, AnalysisFrame, InputParameterValues } from "@/features/audio/types";
+import type { AppStatus, AnalysisFrame, InputParameterValues, SpeakerFault } from "@/features/audio/types";
 import type { DecodedPlayback } from "@/features/audio/lib/codec/playback-decode";
 import type { PcmFrameStore } from "@/features/audio/lib/pcm-frame-store";
 
@@ -28,8 +28,9 @@ export interface UseCaptureSessionDeps {
   onStatusChange: (s: AppStatus) => void;
   onFrameReceived: (frame: AnalysisFrame) => void;
   onStreamStart: () => void;
-  /** 온도 가드(≥ TEMP_OVERFLOW_LIMIT_C)에 처음 걸렸을 때 세션당 한 번 호출된다. */
-  onSpeakerOpen?: () => void;
+  /** 스피커 이상 상태가 "바뀔 때마다" 호출된다 — 발생 시 "open"/"short", 온도가 정상
+   *  범위로 회복되면 null(경고 해제). 프레임마다가 아니라 전이 시점에만 온다. */
+  onSpeakerFaultChange?: (fault: SpeakerFault | null) => void;
   inputParams: InputParameterValues | undefined;
   playbackMode?: PlaybackMode;
 }

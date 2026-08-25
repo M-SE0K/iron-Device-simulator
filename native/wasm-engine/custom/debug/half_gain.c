@@ -2,7 +2,7 @@
  * 감쇠를 적용한 뒤(pass B), 그 결과 신호를 기준으로 exc/temp를 추정한다
  * (../protection.c 와 동일한 근사 모델, 게인만 항상 0.5로 고정).
  * 빌드: FF_PROT_SRCS=custom/debug/half_gain.c */
-#include "../protection.h"
+#include "../ff_prot.h"
 #include <math.h>
 #include <string.h>
 

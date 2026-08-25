@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, useCallback, forwardRef, useImperativeHandle } from "react";
-import { AppStatus, AnalysisFrame, InputParameterValues } from "@/features/audio/types";
+import { AppStatus, AnalysisFrame, InputParameterValues, SpeakerFault } from "@/features/audio/types";
 import { useCalibration } from "@/features/audio/components/calibration/CalibrationContext";
 import { useErrorPopup } from "@/shared/components/error-popup/ErrorPopupContext";
 import { SAMPLE_RATE } from "@/features/audio/lib/engine/core";
@@ -16,7 +16,7 @@ interface Props {
   onStatusChange: (status: AppStatus) => void;
   onFrameReceived: (frame: AnalysisFrame) => void;
   onStreamStart: () => void;
-  onSpeakerOpen?: () => void;
+  onSpeakerFaultChange?: (fault: SpeakerFault | null) => void;
   inputParams?: InputParameterValues;
   onDurationReady?: (duration: number) => void;
   onSave?: () => void;
@@ -30,7 +30,7 @@ const DuplexFilePlayer = forwardRef<WaveformPlayerHandle, Props>(function Duplex
   onStatusChange,
   onFrameReceived,
   onStreamStart,
-  onSpeakerOpen,
+  onSpeakerFaultChange,
   inputParams,
   onDurationReady,
   onSave,
@@ -51,7 +51,7 @@ const DuplexFilePlayer = forwardRef<WaveformPlayerHandle, Props>(function Duplex
   const lastUiUpdateRef = useRef(0);
 
   const captureSession = useCaptureSession({
-    onStatusChange, onFrameReceived, onStreamStart, onSpeakerOpen,
+    onStatusChange, onFrameReceived, onStreamStart, onSpeakerFaultChange,
     inputParams, playbackMode,
   });
 

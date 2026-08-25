@@ -1,5 +1,6 @@
 "use client";
 
+import type { SpeakerFault } from "@/features/audio/types";
 import { useMemo } from "react";
 import { channelLabel, channelColor } from "@/features/audio/lib/render/channel-meta";
 import type { AnnotationStore } from "@/features/audio/lib/render/annotation-store";
@@ -9,7 +10,7 @@ import { ChannelStatsBadge, ChannelWaveformCanvas } from "@/features/audio/compo
 import type { ChannelStreamHeader } from "@/features/audio/components/channel/hooks/useChannelWaveStreams";
 import type { CaptureSnapshot } from "@/features/audio/components/player/capture/types";
 import ChartDrawControls from "@/features/audio/components/chart/ChartDrawControls";
-import { SpeakerOpenOverlay } from "@/features/audio/components/chart/ChartAlertOverlay";
+import { SpeakerFaultOverlay } from "@/features/audio/components/chart/ChartAlertOverlay";
 import { CURRENT_CHANNEL } from "@/features/audio/lib/engine/core";
 
 interface Props {
@@ -19,11 +20,11 @@ interface Props {
   annotations: AnnotationStore;
   canAnnotate: boolean;
   getCaptureSnapshot?: () => CaptureSnapshot | null;
-  speakerOpen?: boolean;
+  speakerFault?: SpeakerFault | null;
 }
 
 export default function ChannelChartCard({
-  ch, header, store, annotations, canAnnotate, getCaptureSnapshot, speakerOpen = false,
+  ch, header, store, annotations, canAnnotate, getCaptureSnapshot, speakerFault = null,
 }: Props) {
   const { isEnabled, draw } = useDrawMode(annotations, canAnnotate && header !== null);
   const { name, role } = channelLabel(ch, {
@@ -50,7 +51,7 @@ export default function ChannelChartCard({
       </div>
 
       <div className="chart-body relative flex-1 p-2 min-h-[160px]">
-        {speakerOpen && ch === CURRENT_CHANNEL && <SpeakerOpenOverlay />}
+        {ch === CURRENT_CHANNEL && <SpeakerFaultOverlay fault={speakerFault} />}
         {header ? (
           <ChannelWaveformCanvas
             color={color}
