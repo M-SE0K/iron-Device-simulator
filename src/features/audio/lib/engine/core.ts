@@ -1,4 +1,4 @@
-import type { EngineParams } from "../../types";
+import type { EngineParams, SpeakerFault } from "../../types";
 
 export const SAMPLE_RATE      = 48000;
 export const CHANNELS         = 2;
@@ -29,13 +29,18 @@ export const DEFAULT_ENGINE_CONFIG: EngineRuntimeConfig = {
 
 export const DEFAULT_AMBIENT_TEMP = 25;
 
-/* 스피커 온도 발산 가드 — 이 값(°C) 이상이 나오면 열모델이 터진 것으로 보고 해당 프레임의
- * 온도/변위를 둘 다 0 으로 깐다. 엔진 출력(wasm-client)과 차트 입력(ChartStore) 양쪽에서
- * 같은 조건을 쓰기 위해 여기(leaf 모듈)에 둔다. */
+/* 스피커 온도 발산 가드 — 이 범위를 벗어나면 열모델이 터진 것으로 보고 해당 프레임의
+ * 온도/변위를 둘 다 0 으로 깔고, 어느 쪽으로 터졌는지를 SpeakerFault 로 들려 보낸다.
+ * 엔진 출력(wasm-client)과 차트 입력(ChartStore) 양쪽에서 같은 조건을 쓰기 위해
+ * 여기(leaf 모듈)에 둔다. */
 export const TEMP_OVERFLOW_LIMIT_C = 500;
+export const TEMP_SHORT_LIMIT_C = -500;
 
-export function isTempOverflow(temperature: number): boolean {
-  return temperature >= TEMP_OVERFLOW_LIMIT_C;
+export function detectSpeakerFault(temperature: number): SpeakerFault | null {
+  if (!Number.isFinite(temperature)) return null;
+  if (temperature >= TEMP_OVERFLOW_LIMIT_C) return "open";
+  if (temperature <= TEMP_SHORT_LIMIT_C) return "short";
+  return null;
 }
 
 export function frameBytes(config: EngineRuntimeConfig): number {
@@ -48,9 +53,10 @@ export interface FrameResult {
   excursion:    number;
   processingMs: number;
   processedPcm: Int16Array;
-  /** 이 프레임이 `TEMP_OVERFLOW_LIMIT_C` 가드에 걸려 0 으로 깔렸는지. 값 자체는 이미 0 이라
-   *  downstream 이 되짚을 방법이 없어서 별도 플래그로 들려 보낸다(스피커 open 팝업 트리거). */
-  tempOverflow: boolean;
+  /** 이 프레임이 온도 가드에 걸려 0 으로 깔렸는지, 걸렸다면 어느 방향인지. 값 자체는 이미
+   *  0 이라 downstream 이 되짚을 방법이 없어서 별도 플래그로 들려 보낸다. 프레임 단위라
+   *  온도가 정상으로 돌아오면 그 프레임부터 null 이다(경고 해제의 근거). */
+  speakerFault: SpeakerFault | null;
 }
 
 export interface RealSensingPair {

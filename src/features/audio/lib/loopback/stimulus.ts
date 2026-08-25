@@ -1,12 +1,26 @@
+import { toInt16, quantizeInterleaved } from "@/features/audio/lib/engine/utils";
 import { LoopbackConfigError, type LoopbackConfig, type LoopbackStimulusMeta } from "./types";
 
-export interface LoopbackStimulus extends LoopbackStimulusMeta {
-  /** 인터리브 스테레오 [L0,R0,...] — L/R 동일 신호. 헬퍼에 --ref 로 업로드된다. */
-  refPcm: Float32Array;
-  /** 모노 버스트 파형 — refPcm에 기록된 값과 비트 동일(둘 다 같은 Float32 양자화를 거침).
-   * 분석(매치드 필터)이 이 배열을 그대로 템플릿으로 쓴다. */
+interface LoopbackStimulusBase extends LoopbackStimulusMeta {
+  /** 모노 버스트 파형 — 그 경로로 "실제 방출되는" 값과 비트 동일하다. 분석(매치드 필터)이
+   * 이 배열을 그대로 템플릿으로 쓴다. ref 경로는 Float32 그대로, stream 경로는 int16
+   * 양자화를 거친 값이다(헬퍼가 int16 을 /32768 로 되돌려 내보내므로 스케일만 다르고
+   * 모양은 같다 — NCC 는 정규화 상관이라 스케일에 불변). */
   template: Float32Array;
 }
+
+/** 경로별로 필요한 버퍼만 만든다 — 상한(4M 프레임)에서 두 표현을 동시에 들면 48 MB 다. */
+export type LoopbackStimulus =
+  | (LoopbackStimulusBase & {
+      path: "ref";
+      /** 인터리브 스테레오 [L0,R0,...] — L/R 동일 신호. 헬퍼에 --ref 로 업로드된다. */
+      refPcm: Float32Array;
+    })
+  | (LoopbackStimulusBase & {
+      path: "stream";
+      /** 인터리브 스테레오 int16 — writePcm() 으로 헬퍼 stdin 링버퍼에 밀어 넣는다. */
+      refPcmI16: Int16Array;
+    });
 
 /* 전 구간 Float64 배열 2n + 프리픽스 에너지 n 을 채널당 잡으므로 상한을 둔다
  * (4M 샘플 ≈ 48 kHz 83 s / 384 kHz 10.4 s, 채널당 ~64 MB 일시 사용). */
@@ -87,9 +101,7 @@ export function buildLoopbackStimulus(cfg: LoopbackConfig): LoopbackStimulus {
     }
   }
 
-  return {
-    refPcm,
-    template,
+  const meta = {
     emissionSamples,
     totalFrames,
     burstLenSamples: burstLen,
@@ -97,4 +109,17 @@ export function buildLoopbackStimulus(cfg: LoopbackConfig): LoopbackStimulus {
     leadInSamples: leadIn,
     maxLagSamples: maxLag,
   };
+
+  if (cfg.path === "stream") {
+    /* 와이어가 int16 이므로 방출되는 파형은 양자화본이다 — 템플릿도 같은 양자화를 거쳐
+     * "template ≡ 방출 파형" 불변식을 유지한다(오차 자체는 −90 dB 수준이라 NCC 피크에
+     * 실질 영향은 없지만, 참값 정의를 흐리지 않기 위해). refPcm 은 여기서 버려진다. */
+    const refPcmI16 = new Int16Array(totalFrames * 2);
+    quantizeInterleaved(refPcm, 0, totalFrames, refPcmI16);
+    const quantizedTemplate = new Float32Array(burstLen);
+    for (let i = 0; i < burstLen; i++) quantizedTemplate[i] = toInt16(template[i]);
+    return { path: "stream", refPcmI16, template: quantizedTemplate, ...meta };
+  }
+
+  return { path: "ref", refPcm, template, ...meta };
 }

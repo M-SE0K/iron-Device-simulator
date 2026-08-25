@@ -1,7 +1,8 @@
 "use client";
 
+import type { SpeakerFault } from "@/features/audio/types";
 import { useMemo } from "react";
-import { DEFAULT_TEMP_WARN, DEFAULT_TEMP_DANGER } from "@/features/audio/lib/render/detect-events";
+import { DEFAULT_TMAX } from "@/features/audio/lib/render/detect-events";
 import { computeTemperatureYRange } from "@/features/audio/lib/render/chart-window";
 import type { ChartStore } from "@/features/audio/lib/render/chart-store";
 import type { AnnotationStore } from "@/features/audio/lib/render/annotation-store";
@@ -18,11 +19,11 @@ interface Props {
   isActive: boolean;
   streaming?: boolean;
   audioDuration?: number | null;
-  warnThreshold?: number;
-  dangerThreshold?: number;
+  /** 온도 한계(°C) — 임계선 + 헤더 색상 전환 기준 */
+  tmax?: number;
   annotations?: AnnotationStore;
   canAnnotate?: boolean;
-  speakerOpen?: boolean;
+  speakerFault?: SpeakerFault | null;
 }
 
 const TEMP_COLOR = "#0B4171";
@@ -32,11 +33,10 @@ export default function TemperatureChart({
   isActive,
   streaming = false,
   audioDuration,
-  warnThreshold = DEFAULT_TEMP_WARN,
-  dangerThreshold = DEFAULT_TEMP_DANGER,
+  tmax = DEFAULT_TMAX,
   annotations,
   canAnnotate = false,
-  speakerOpen = false,
+  speakerFault = null,
 }: Props) {
   const { isEnabled, draw } = useDrawMode(annotations, canAnnotate);
   const {
@@ -51,8 +51,7 @@ export default function TemperatureChart({
 
   const tempColor =
     currentTemp === null ? "#94A3B8"
-    : currentTemp >= dangerThreshold ? "#EF4444"
-    : currentTemp >= warnThreshold   ? "#F59E0B"
+    : currentTemp >= tmax ? "#EF4444"
     : TEMP_COLOR;
 
   const source = useMetricChartSource(
@@ -76,12 +75,11 @@ export default function TemperatureChart({
     getFullXRange,
     extraPlugins: [
       thresholdsPlugin([
-        { y: warnThreshold,   color: "#F59E0B", label: "WARN" },
-        { y: dangerThreshold, color: "#EF4444", label: "DANGER" },
+        { y: tmax, color: "#EF4444", label: "Tmax" },
       ]),
       ...(annotations ? [annotatePlugin({ store: annotations, isEnabled })] : []),
     ],
-  }), [warnThreshold, dangerThreshold, getFullXRange, annotations, isEnabled]);
+  }), [tmax, getFullXRange, annotations, isEnabled]);
 
   return (
     <MetricChartCard
@@ -97,7 +95,7 @@ export default function TemperatureChart({
       options={options}
       source={source}
       draw={draw}
-      speakerOpen={speakerOpen}
+      speakerFault={speakerFault}
     />
   );
 }

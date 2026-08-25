@@ -1,16 +1,40 @@
 /**
  * H/W 루프백 왕복 지연 측정 (--dev 계측 빌드 전용) — 타입 정의.
  *
- * 측정 원리: play-capture --ref 헬퍼는 단일 IOProc(단일 클록)의 같은 콜백 사이클에서
- * "ref 샘플 i 방출"과 "캡처 샘플 i 수신"을 처리한다(mac.swift runPlayCapture — 출력에
- * refL[playPos+f]를 쓰고 입력을 stdout에 쓴 뒤 playPos += framesThis). 따라서 왕복 지연은
- * 순수 샘플 도메인 연산 `검출 도착 샘플 − ref 내 방출 샘플` 로 구하며, 출력 안전 오프셋 +
- * DAC/ADC 변환 + 아날로그 경로 + 입력 버퍼링이 전부 포함된 "앱 경계에서 본 실제 왕복"이다.
- * 벽시계(performance.now / Date)는 어떤 경로로도 측정값에 들어가지 않는다 — 워치독과
- * 참고 표시(wallStartToFirstChunkMs)에만 쓴다.
+ * 측정 원리: play-capture 헬퍼는 단일 IOProc(단일 클록)의 같은 콜백 사이클에서 "자극 샘플 i
+ * 방출"과 "캡처 샘플 i 수신"을 처리한다. 따라서 왕복 지연은 순수 샘플 도메인 연산
+ * `검출 도착 샘플 − 자극 내 방출 샘플` 로 구하며, 출력 안전 오프셋 + DAC/ADC 변환 +
+ * 아날로그 경로 + 입력 버퍼링이 전부 포함된 "앱 경계에서 본 실제 왕복"이다. 벽시계
+ * (performance.now / Date)는 어떤 경로로도 측정값에 들어가지 않는다 — 워치독과 참고 표시
+ * (wallStartToFirstChunkMs)에만 쓴다.
+ *
+ * 재생 경로는 둘 중 하나를 고른다(LoopbackPath) — 대시보드의 두 재생 모드와 같은 갈래다:
+ *
+ *   "ref"    play-capture --ref. 자극 전체를 임시파일로 선업로드하면 헬퍼가 고정 배열을
+ *            playPos 로 인덱싱해 내보내고, playPos 는 콜백마다 framesThis 만큼 무조건
+ *            전진한다(mac.swift runPlayCapture). 방출 타임라인이 캡처 타임라인과 정확히
+ *            같으므로 측정값 = 순수 H/W 왕복이다. 기본값.
+ *
+ *   "stream" play-capture --stream. 보호 재생(Protected playback)과 같은 경로 — 렌더러가
+ *            stdin 링버퍼로 PCM 을 밀어 넣는다. 링이 굶으면 헬퍼는 무음을 내보내되 읽기
+ *            위치를 전진시키지 않으므로(mac.swift runPlayCaptureStream), 방출 타임라인이
+ *            언더런 누계만큼 뒤로 밀린다:
+ *
+ *                measured_k(stream) = H/W 왕복 + (버스트 k 이전 누적 언더런 프레임)
+ *                measured_k(ref)    = H/W 왕복
+ *
+ *            즉 stream 측정치는 H/W 지연이 아니라 "스트림 경로가 얹은 지연"이며, 같은 리그의
+ *            ref 측정치를 기준선으로 뺐을 때 남는 값이 곧 링 언더런 총량이다. 헬퍼는 언더런을
+ *            종료 시 stderr 로만 보고하는데 streaming.rs 가 stderr 를 버리므로, 이 차이가
+ *            현재 언더런을 샘플 단위로 관측하는 유일한 수단이다. 버스트열을 따라 지연이
+ *            계단식으로 커지는 지점이 언더런이 터진 시점이다.
  */
 
+export type LoopbackPath = "ref" | "stream";
+
 export interface LoopbackConfig {
+  /** 재생 경로 — 파일 상단 주석 참고. "ref" 만 H/W 왕복 그 자체를 측정한다. */
+  path: LoopbackPath;
   /** Calibration 값 그대로 — 캡처 세션을 앱과 같은 조건으로 연다. */
   sampleRate: number;
   bufferSize: number;
@@ -33,6 +57,7 @@ export interface LoopbackConfig {
 }
 
 export const LOOPBACK_DEFAULTS = {
+  path: "ref" as LoopbackPath,
   burstCount: 8,
   burstFreqHz: 1000,
   burstMs: 10,
@@ -43,6 +68,8 @@ export const LOOPBACK_DEFAULTS = {
   nccThreshold: 0.5,
 } as const;
 
+/** "uploading" 은 ref 경로 전용(자극 선업로드). stream 경로는 곧바로 capturing 으로 들어가
+ *  프리필→펌프를 캡처와 동시에 진행한다. */
 export type LoopbackPhase = "uploading" | "capturing" | "analyzing";
 
 export type BurstInvalidReason = "low-correlation" | "window-edge" | "capture-short";
@@ -86,10 +113,18 @@ export interface LoopbackStats {
 }
 
 export interface LoopbackIntegrity {
+  path: LoopbackPath;
   refFramesSynthesized: number;
-  /** 헬퍼 헤더의 refLen 에코 — 합성 프레임 수와 다르면 측정 자체를 중단한다. */
+  /** 헬퍼 헤더의 refLen 에코 — 합성 프레임 수와 다르면 측정 자체를 중단한다.
+   *  stream 경로에는 선업로드 자체가 없어 헤더에 refLen 이 없다(둘 다 null). */
   refFramesEchoed: number | null;
   refLenMatches: boolean | null;
+  /** stream 경로 전용 — 헬퍼로 실제 밀어 넣은 자극 프레임 수와 그 완주 여부.
+   *  ref 경로에서는 둘 다 null. */
+  sentFrames: number | null;
+  sentAllFrames: boolean | null;
+  /** stream 경로 헤더의 prefillFrames 에코 — 이만큼 링에 차야 IOProc 이 시작된다. */
+  prefillFramesEchoed: number | null;
   /** 수신 총 바이트 ÷ (2·채널) — 프레임 수의 유일한 출처. */
   receivedFrames: number;
   /** 프레임 경계로 나눠떨어지지 않은 잔여 바이트 — 0이 아니면 스트림 무결성 위반. */

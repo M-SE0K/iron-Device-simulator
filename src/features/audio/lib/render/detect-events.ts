@@ -1,21 +1,25 @@
 import type { AnalysisFrame } from "../../types";
 
-export const DEFAULT_TEMP_WARN   = 65;
-export const DEFAULT_TEMP_DANGER = 75;
+/** 온도 한계 (°C) */
+export const DEFAULT_TMAX = 120;
+/** 변위 한계 (mm) */
+export const DEFAULT_XMAX = 0.55;
 
-export interface TempThresholds {
-  warn: number;
-  danger: number;
+export interface MetricThresholds {
+  /** °C */
+  tmax: number;
+  /** mm */
+  xmax: number;
 }
 
-const DEFAULT_THRESHOLDS: TempThresholds = { warn: DEFAULT_TEMP_WARN, danger: DEFAULT_TEMP_DANGER };
+const DEFAULT_THRESHOLDS: MetricThresholds = { tmax: DEFAULT_TMAX, xmax: DEFAULT_XMAX };
 
 export function detectEvents(
   bucket: AnalysisFrame[],
   prevTemp: number | null,
-  thresholds: TempThresholds = DEFAULT_THRESHOLDS,
+  thresholds: MetricThresholds = DEFAULT_THRESHOLDS,
 ): AnalysisFrame[] {
-  const { warn: TEMP_WARN, danger: TEMP_DANGER } = thresholds;
+  const { tmax: TMAX } = thresholds;
   const events: AnalysisFrame[] = [];
   for (let i = 0; i < bucket.length; i++) {
     const f = bucket[i];
@@ -25,10 +29,7 @@ export function detectEvents(
     if (prevT !== null) {
       const was = prevT;
       const now = f.temperature;
-      if (
-        (was < TEMP_WARN && now >= TEMP_WARN) || (was >= TEMP_WARN && now < TEMP_WARN)
-        || (was < TEMP_DANGER && now >= TEMP_DANGER) || (was >= TEMP_DANGER && now < TEMP_DANGER)
-      ) {
+      if ((was < TMAX && now >= TMAX) || (was >= TMAX && now < TMAX)) {
         bucket[i] = { ...f, isEvent: true };
         events.push(bucket[i]);
       }

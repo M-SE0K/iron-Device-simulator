@@ -33,7 +33,7 @@ import {
   COLOR_PROTECTED_L,
   COLOR_PROTECTED_R,
 } from "@/features/audio/components/channel/ProtectedComparePanel";
-import { AppStatus, AnalysisFrame, InputParameterValues } from "@/features/audio/types";
+import { AppStatus, AnalysisFrame, InputParameterValues, SpeakerFault } from "@/features/audio/types";
 import { channelLabel, channelColor } from "@/features/audio/lib/render/channel-meta";
 import { AnnotationStore } from "@/features/audio/lib/render/annotation-store";
 import { useCalibration } from "../calibration/CalibrationContext";
@@ -44,7 +44,7 @@ import { putAudio, clearAudio } from "@/features/audio/lib/cache/audio-blob";
 import { coalesceFrames } from "@/features/audio/lib/render/coalesce";
 import { FrameLog } from "@/features/audio/lib/frame-log";
 import { ChartStore } from "@/features/audio/lib/render/chart-store";
-import { detectEvents, DEFAULT_TEMP_WARN, DEFAULT_TEMP_DANGER, type TempThresholds } from "@/features/audio/lib/render/detect-events";
+import { detectEvents, DEFAULT_TMAX, DEFAULT_XMAX, type MetricThresholds } from "@/features/audio/lib/render/detect-events";
 import { useFrameCachePersistence } from "@/features/audio/components/dashboard/hooks/useFrameCachePersistence";
 import { useWorkspaceSave } from "@/features/audio/components/dashboard/hooks/useWorkspaceSave";
 import { useCtrlBToggle } from "@/shared/hooks/useGlobalKey";
@@ -69,8 +69,10 @@ export default function DashboardPage() {
 
   /* 스피커 open(온도 ≥ 500°C) 경고 오버레이 노출 여부. 세션이 다시 시작되거나 분석 상태가
    * 리셋되면 내려간다 — 새 재생은 깨끗한 차트로 시작해야 하므로. */
-  const [speakerOpen, setSpeakerOpen] = useState(false);
-  const handleSpeakerOpen = useCallback(() => setSpeakerOpen(true), []);
+  /* 스피커 이상 상태(open/short/정상) — 세션 단위 래치가 아니라 캡처 세션이 알려 주는
+   * 전이를 그대로 반영한다. 온도가 정상으로 돌아오면 null 이 내려와 경고가 사라진다. */
+  const [speakerFault, setSpeakerFault] = useState<SpeakerFault | null>(null);
+  const handleSpeakerFaultChange = useCallback((fault: SpeakerFault | null) => setSpeakerFault(fault), []);
 
   const { values: calibration } = useCalibration();
   const { saveCurrent, pendingLocalFile, clearPendingLocalFile } = useWorkspace();
@@ -79,17 +81,17 @@ export default function DashboardPage() {
     () => ({ ambientTemp: calibration.ambientTemp }),
     [calibration.ambientTemp],
   );
-  const tempThresholds = useMemo<TempThresholds>(() => {
-    const warn = Number(calibration.tempWarn);
-    const danger = Number(calibration.tempDanger);
+  const metricThresholds = useMemo<MetricThresholds>(() => {
+    const tmax = Number(calibration.tmax);
+    const xmax = Number(calibration.xmax);
     return {
-      warn: Number.isFinite(warn) ? warn : DEFAULT_TEMP_WARN,
-      danger: Number.isFinite(danger) ? danger : DEFAULT_TEMP_DANGER,
+      tmax: Number.isFinite(tmax) ? tmax : DEFAULT_TMAX,
+      xmax: Number.isFinite(xmax) ? xmax : DEFAULT_XMAX,
     };
-  }, [calibration.tempWarn, calibration.tempDanger]);
+  }, [calibration.tmax, calibration.xmax]);
   useEffect(() => {
-    thresholdsRef.current = tempThresholds;
-  }, [tempThresholds]);
+    thresholdsRef.current = metricThresholds;
+  }, [metricThresholds]);
 
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const closeMobileNav = useCallback(() => setMobileNavOpen(false), []);
@@ -121,7 +123,7 @@ export default function DashboardPage() {
   );
   const outputQueueRef       = useRef<AnalysisFrame[]>([]);
   const prevTempRef          = useRef<number | null>(null);
-  const thresholdsRef        = useRef<TempThresholds>({ warn: DEFAULT_TEMP_WARN, danger: DEFAULT_TEMP_DANGER });
+  const thresholdsRef        = useRef<MetricThresholds>({ tmax: DEFAULT_TMAX, xmax: DEFAULT_XMAX });
 
   const { selected: viewSelected, toggle: toggleViewItem } = useDashboardView();
   const viewDrawerOpen = activeDrawer === "view";
@@ -187,7 +189,7 @@ export default function DashboardPage() {
 
   const saveWorkspace = useWorkspaceSave({
     frameLog,
-    thresholds: tempThresholds,
+    thresholds: metricThresholds,
     getProtectedBlob,
     saveCurrent,
   });
@@ -210,7 +212,7 @@ export default function DashboardPage() {
     clearHasFrames();
     clearAnnotations();
     frameLog.clear();
-    setSpeakerOpen(false);
+    setSpeakerFault(null);
     setRealtimeStatus("idle");
   }, [chartStore, clearHasFrames, clearAnnotations, frameLog]);
 
@@ -243,7 +245,7 @@ export default function DashboardPage() {
     frameLog.clear();
     outputQueueRef.current = [];
     prevTempRef.current    = null;
-    setSpeakerOpen(false);
+    setSpeakerFault(null);
   }, [chartStore, clearHasFrames, clearAnnotations, frameLog]);
 
   const isPlaying = realtimeStatus === "playing";
@@ -366,8 +368,8 @@ export default function DashboardPage() {
               isPlaying={isPlaying}
               canAnnotateMetric={!isPlaying && hasFrames}
               audioDuration={audioDuration}
-              tempThresholds={tempThresholds}
-              speakerOpen={speakerOpen}
+              metricThresholds={metricThresholds}
+              speakerFault={speakerFault}
               audioFile={audioFile}
               subscribeChannelStream={subscribeChannelStream}
               getChannelsSnapshot={getChannelsSnapshot}
@@ -401,7 +403,7 @@ export default function DashboardPage() {
           onStatusChange={handleRealtimeStatus}
           onFrameReceived={handleFrameReceived}
           onStreamStart={handleStreamStart}
-          onSpeakerOpen={handleSpeakerOpen}
+          onSpeakerFaultChange={handleSpeakerFaultChange}
           inputParams={inputParams}
           onDurationReady={setAudioDuration}
           onSave={handleSaveToWorkspace}

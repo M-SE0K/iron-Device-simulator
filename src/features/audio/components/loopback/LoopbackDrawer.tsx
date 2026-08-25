@@ -14,6 +14,7 @@ import {
   LoopbackCancelledError,
   type BurstInvalidReason,
   type LoopbackConfig,
+  type LoopbackPath,
   type LoopbackPhase,
   type LoopbackReport,
 } from "@/features/audio/lib/loopback/types";
@@ -30,6 +31,26 @@ const PHASE_LABEL: Record<LoopbackPhase, string> = {
   uploading: "Uploading stimulus…",
   capturing: "Capturing…",
   analyzing: "Analyzing (matched filter)…",
+};
+
+const PATH_META: Record<LoopbackPath, { label: string; sub: string; blurb: string }> = {
+  ref: {
+    label: "Hardware",
+    sub: "--ref",
+    blurb:
+      "The whole stimulus is pre-uploaded and the helper indexes it with a play position that advances " +
+      "unconditionally every callback. Emission and capture timelines are identical, so the result is the " +
+      "pure hardware round-trip.",
+  },
+  stream: {
+    label: "Stream path",
+    sub: "--stream",
+    blurb:
+      "The stimulus is pushed frame-by-frame into the helper's stdin ring — the same path Protected playback " +
+      "uses. A starved ring emits silence without advancing the read position, so the measured value is the " +
+      "hardware round-trip PLUS accumulated underrun. Subtract a --ref run on the same rig to read the " +
+      "underrun off directly.",
+  },
 };
 
 interface BurstDraft {
@@ -109,6 +130,7 @@ function fmt(v: number | null | undefined, digits: number): string {
 
 function ResultSection({ report }: { report: LoopbackReport }) {
   const { integrity, stats } = report;
+  const isStream = integrity.path === "stream";
   const best = report.bestChannel !== null
     ? report.channels.find((c) => c.channel === report.bestChannel) ?? null
     : null;
@@ -116,13 +138,15 @@ function ResultSection({ report }: { report: LoopbackReport }) {
   const saveJson = () => {
     const stamp = report.startedAtIso.replace(/:/g, "-").replace(/\.\d+Z$/, "Z");
     const blob = new Blob([JSON.stringify(report, null, 2)], { type: "application/json" });
-    void downloadBlob(blob, `hw-loopback_${stamp}.json`);
+    void downloadBlob(blob, `hw-loopback_${integrity.path}_${stamp}.json`);
   };
 
   return (
     <div className="flex flex-col gap-4">
       <div className="flex items-center justify-between">
-        <h3 className="m-0 text-sm font-bold text-iron-900">Result</h3>
+        <h3 className="m-0 text-sm font-bold text-iron-900">
+          Result <span className="font-mono text-xs font-normal text-iron-400">{PATH_META[integrity.path].sub}</span>
+        </h3>
         <button
           type="button"
           onClick={saveJson}
@@ -136,7 +160,7 @@ function ResultSection({ report }: { report: LoopbackReport }) {
         <>
           <div className="grid grid-cols-2 gap-2">
             <SummaryStat
-              label="Round-trip (median)"
+              label={isStream ? "Stream path (median)" : "Round-trip (median)"}
               value={`${fmt(stats.medianMs, 3)} ms`}
               sub={`${fmt(stats.medianSamples, 2)} smp @ ${integrity.actualSampleRate} Hz`}
             />
@@ -158,8 +182,18 @@ function ResultSection({ report }: { report: LoopbackReport }) {
           </div>
           {stats.spreadSamples >= 1 && (
             <p className="m-0 rounded-lg bg-amber-50 px-3 py-2 text-xs leading-relaxed text-amber-700">
-              Burst-to-burst spread is ≥ 1 sample. On a single-clock duplex rig the round-trip should be
-              sample-stable — check the wiring, or look for dropped stream data in the integrity list.
+              {isStream ? (
+                <>
+                  Burst-to-burst spread is ≥ 1 sample. On the stream path this is the expected signature of a
+                  starving playback ring — read the burst table below: each step up in Δ smp is an underrun,
+                  and where it steps is when it happened.
+                </>
+              ) : (
+                <>
+                  Burst-to-burst spread is ≥ 1 sample. On a single-clock duplex rig the round-trip should be
+                  sample-stable — check the wiring, or look for dropped stream data in the integrity list.
+                </>
+              )}
             </p>
           )}
         </>
@@ -173,11 +207,26 @@ function ResultSection({ report }: { report: LoopbackReport }) {
       <div>
         <h4 className="m-0 mb-1.5 text-xs font-semibold text-iron-500">Integrity</h4>
         <div className="rounded-lg border border-iron-200 bg-iron-50/60 divide-y divide-iron-100">
-          <IntegrityRow
-            label="Ref length echo"
-            ok={integrity.refLenMatches}
-            detail={`${integrity.refFramesEchoed ?? "—"} / ${integrity.refFramesSynthesized} fr`}
-          />
+          {isStream ? (
+            <>
+              <IntegrityRow
+                label="Stimulus streamed"
+                ok={integrity.sentAllFrames}
+                detail={`${integrity.sentFrames ?? "—"} / ${integrity.refFramesSynthesized} fr`}
+              />
+              <IntegrityRow
+                label="Prefill gate"
+                ok={null}
+                detail={`${integrity.prefillFramesEchoed ?? "—"} fr`}
+              />
+            </>
+          ) : (
+            <IntegrityRow
+              label="Ref length echo"
+              ok={integrity.refLenMatches}
+              detail={`${integrity.refFramesEchoed ?? "—"} / ${integrity.refFramesSynthesized} fr`}
+            />
+          )}
           <IntegrityRow
             label="Stream framing"
             ok={integrity.trailingBytes === 0}
@@ -187,6 +236,11 @@ function ResultSection({ report }: { report: LoopbackReport }) {
             label="Burst coverage"
             ok={integrity.framesCoverAllBursts}
             detail={`${integrity.receivedFrames} ≥ ${integrity.coverageEndSample} fr`}
+          />
+          <IntegrityRow
+            label="Helper mode"
+            ok={integrity.helperMode === (isStream ? "play-capture-stream" : "play-capture")}
+            detail={integrity.helperMode ?? "—"}
           />
           <IntegrityRow
             label="Stream loss guard"
@@ -289,6 +343,50 @@ function ResultSection({ report }: { report: LoopbackReport }) {
   );
 }
 
+/** 두 경로를 나란히 뺀 값 — 같은 리그에서 stream − ref 가 곧 재생 링 언더런 누계다.
+ * 헬퍼는 언더런을 종료 시 stderr 로만 보고하고 streaming.rs 가 그 stderr 를 버리므로,
+ * 이 차이가 현재 언더런을 샘플 단위로 보는 유일한 창이다. */
+function PathComparison({ refReport, streamReport }: { refReport: LoopbackReport; streamReport: LoopbackReport }) {
+  const base = refReport.stats;
+  const stream = streamReport.stats;
+  if (!base || !stream) return null;
+
+  const rateMismatch = refReport.integrity.actualSampleRate !== streamReport.integrity.actualSampleRate;
+  const layoutMismatch =
+    refReport.stimulus.totalFrames !== streamReport.stimulus.totalFrames ||
+    refReport.stimulus.burstLenSamples !== streamReport.stimulus.burstLenSamples;
+  const deltaSamples = stream.medianSamples - base.medianSamples;
+  const deltaMs = stream.medianMs - base.medianMs;
+  const clean = Math.abs(deltaSamples) < 1;
+
+  return (
+    <div className="flex flex-col gap-2 rounded-lg border border-iron-200 bg-white p-3">
+      <h3 className="m-0 text-sm font-bold text-iron-900">Stream vs hardware</h3>
+      <div className="grid grid-cols-3 gap-2">
+        <SummaryStat label="Hardware (--ref)" value={`${fmt(base.medianMs, 3)} ms`} sub={`${fmt(base.medianSamples, 2)} smp`} />
+        <SummaryStat label="Stream (--stream)" value={`${fmt(stream.medianMs, 3)} ms`} sub={`${fmt(stream.medianSamples, 2)} smp`} />
+        <SummaryStat
+          label="Ring underrun"
+          value={`${deltaMs >= 0 ? "+" : ""}${fmt(deltaMs, 3)} ms`}
+          sub={`${deltaSamples >= 0 ? "+" : ""}${fmt(deltaSamples, 2)} smp`}
+        />
+      </div>
+      {rateMismatch || layoutMismatch ? (
+        <p className="m-0 rounded-lg bg-amber-50 px-3 py-2 text-xs leading-relaxed text-amber-700">
+          The two runs used different {rateMismatch ? "sample rates" : "stimulus layouts"} — re-run both with the
+          same settings before reading the difference as underrun.
+        </p>
+      ) : (
+        <p className="m-0 text-xs leading-relaxed text-iron-500">
+          {clean
+            ? "The stream path added no measurable delay — the playback ring never starved on this run."
+            : "The stream path lags the hardware baseline by that much. Frames are never dropped (a starved ring emits silence without advancing its read position), so the whole difference is accumulated playback-ring underrun."}
+        </p>
+      )}
+    </div>
+  );
+}
+
 function LoopbackDrawer({ sessionActive }: { sessionActive: boolean }) {
   const { open, setOpen } = useDrawerState("loopback");
   const { values: calibration } = useCalibration();
@@ -302,10 +400,14 @@ function LoopbackDrawer({ sessionActive }: { sessionActive: boolean }) {
   const [draft, setDraft] = useState<BurstDraft>(DRAFT_DEFAULTS);
   const setField = (key: keyof BurstDraft) => (v: string) => setDraft((d) => ({ ...d, [key]: v }));
 
+  const [path, setPath] = useState<LoopbackPath>(LOOPBACK_DEFAULTS.path);
   const [phase, setPhase] = useState<LoopbackPhase | null>(null);
   const [progress, setProgress] = useState<{ received: number; expected: number } | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [report, setReport] = useState<LoopbackReport | null>(null);
+  /* 두 경로의 결과를 각각 들고 있어야 stream − ref 비교가 성립한다 — 경로를 바꿔도 반대편
+   * 결과는 남는다. */
+  const [reports, setReports] = useState<Record<LoopbackPath, LoopbackReport | null>>({ ref: null, stream: null });
+  const report = reports[path];
   const handleRef = useRef<LoopbackRunHandle | null>(null);
   const running = phase !== null;
 
@@ -313,6 +415,7 @@ function LoopbackDrawer({ sessionActive }: { sessionActive: boolean }) {
 
   const config = useMemo<LoopbackConfig>(
     () => ({
+      path,
       sampleRate: Number(calibration.sampleRate),
       bufferSize: Number(calibration.bufferSize),
       channels: clampCaptureChannels(calibration.channels),
@@ -327,23 +430,23 @@ function LoopbackDrawer({ sessionActive }: { sessionActive: boolean }) {
       guardMs: LOOPBACK_DEFAULTS.guardMs,
       nccThreshold: LOOPBACK_DEFAULTS.nccThreshold,
     }),
-    [calibration, draft],
+    [calibration, draft, path],
   );
   const configErrors = useMemo(() => validateLoopbackConfig(config), [config]);
 
   const run = () => {
     if (running) return;
     setError(null);
-    setReport(null);
+    setReports((prev) => ({ ...prev, [path]: null }));
     setProgress(null);
-    setPhase("uploading");
+    setPhase(path === "ref" ? "uploading" : "capturing");
     const handle = startLoopbackMeasurement(config, {
       onPhase: setPhase,
       onCaptureProgress: (received, expected) => setProgress({ received, expected }),
     });
     handleRef.current = handle;
     handle.promise
-      .then(setReport)
+      .then((result) => setReports((prev) => ({ ...prev, [path]: result })))
       .catch((err: unknown) => {
         if (!(err instanceof LoopbackCancelledError)) {
           setError(err instanceof Error ? err.message : String(err));
@@ -374,9 +477,9 @@ function LoopbackDrawer({ sessionActive }: { sessionActive: boolean }) {
     >
       <p className="m-0 rounded-lg bg-iron-50 px-3 py-2 text-xs leading-relaxed text-iron-500">
         Dev-only burst test: plays a Hann-windowed sine-burst train through the Capture Device&apos;s own
-        output (single-IOProc play-capture) and matched-filters the captured stream. Round-trip latency is
-        computed purely in the shared sample clock — <span className="font-semibold">detected arrival − known
-        emission offset</span> — never from wall-clock time. Wire the device output (ch
+        output (single-IOProc play-capture) and matched-filters the captured stream. Latency is computed purely
+        in the shared sample clock — <span className="font-semibold">detected arrival − known emission
+        offset</span> — never from wall-clock time. Wire the device output (ch
         {config.outputChannel}/{config.outputChannel + 1}) back into its capture inputs (electrical loopback,
         or the V/I sense rig). <span className="font-semibold text-amber-600">Bursts go to the physical
         output — turn the amp down first.</span>
@@ -418,6 +521,38 @@ function LoopbackDrawer({ sessionActive }: { sessionActive: boolean }) {
             </dd>
           </div>
         </dl>
+      </div>
+
+      <div>
+        <h3 className="m-0 mb-1.5 text-xs font-semibold text-iron-500">Playback path</h3>
+        <div className="grid grid-cols-2 gap-2">
+          {(["ref", "stream"] as const).map((key) => {
+            const active = path === key;
+            return (
+              <button
+                key={key}
+                type="button"
+                onClick={() => setPath(key)}
+                disabled={running}
+                aria-pressed={active}
+                className={`flex flex-col items-start gap-0.5 rounded-lg border px-3 py-2 text-left transition disabled:cursor-not-allowed disabled:opacity-50 ${
+                  active
+                    ? "border-brand-blue bg-brand-blue/5 text-iron-900"
+                    : "border-iron-200 bg-white text-iron-500 hover:border-iron-400"
+                }`}
+              >
+                <span className="text-xs font-semibold">{PATH_META[key].label}</span>
+                <span className="font-mono text-[11px] text-iron-400">{PATH_META[key].sub}</span>
+                {reports[key] && (
+                  <span className="font-mono text-[11px] tabular-nums text-iron-500">
+                    {fmt(reports[key]?.stats?.medianMs ?? null, 3)} ms
+                  </span>
+                )}
+              </button>
+            );
+          })}
+        </div>
+        <p className="m-0 mt-1.5 text-xs leading-relaxed text-iron-500">{PATH_META[path].blurb}</p>
       </div>
 
       <div>
@@ -479,6 +614,10 @@ function LoopbackDrawer({ sessionActive }: { sessionActive: boolean }) {
 
       {error && (
         <p className="m-0 rounded-lg bg-red-50 px-3 py-2 text-xs leading-relaxed text-red-700">{error}</p>
+      )}
+
+      {reports.ref?.stats && reports.stream?.stats && (
+        <PathComparison refReport={reports.ref} streamReport={reports.stream} />
       )}
 
       {report && <ResultSection report={report} />}

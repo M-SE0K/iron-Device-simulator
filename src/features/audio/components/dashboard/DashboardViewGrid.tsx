@@ -1,12 +1,13 @@
 "use client";
 
+import type { SpeakerFault } from "@/features/audio/types";
 import { useMemo } from "react";
 import type { CaptureSnapshot, CaptureStreamListener } from "@/features/audio/components/player/capture/types";
 import type { DecodedPlayback } from "@/features/audio/lib/codec/playback-decode";
 import type { ChartStore } from "@/features/audio/lib/render/chart-store";
 import type { ChannelWaveStore } from "@/features/audio/lib/render/wave-store";
 import type { AnnotationStore } from "@/features/audio/lib/render/annotation-store";
-import type { TempThresholds } from "@/features/audio/lib/render/detect-events";
+import type { MetricThresholds } from "@/features/audio/lib/render/detect-events";
 import TemperatureChart from "@/features/audio/components/chart/TemperatureChart";
 import ExcursionChart from "@/features/audio/components/chart/ExcursionChart";
 import { ProtectedComparePanel } from "@/features/audio/components/channel/ProtectedComparePanel";
@@ -28,8 +29,8 @@ interface Props {
   isPlaying: boolean;
   canAnnotateMetric: boolean;
   audioDuration: number | null;
-  tempThresholds: TempThresholds;
-  speakerOpen: boolean;
+  metricThresholds: MetricThresholds;
+  speakerFault: SpeakerFault | null;
   audioFile: File | null;
   subscribeChannelStream: (fn: CaptureStreamListener) => () => void;
   getChannelsSnapshot: () => CaptureSnapshot | null;
@@ -84,8 +85,8 @@ export default function DashboardViewGrid({
   isPlaying,
   canAnnotateMetric,
   audioDuration,
-  tempThresholds,
-  speakerOpen,
+  metricThresholds,
+  speakerFault,
   audioFile,
   subscribeChannelStream,
   getChannelsSnapshot,
@@ -131,9 +132,10 @@ export default function DashboardViewGrid({
           isActive={isActive}
           streaming={isPlaying}
           audioDuration={audioDuration}
+          xmax={metricThresholds.xmax}
           annotations={getAnnotationStore(id)}
           canAnnotate={canAnnotateMetric}
-          speakerOpen={speakerOpen}
+          speakerFault={speakerFault}
         />
       );
     }
@@ -144,11 +146,10 @@ export default function DashboardViewGrid({
           isActive={isActive}
           streaming={isPlaying}
           audioDuration={audioDuration}
-          warnThreshold={tempThresholds.warn}
-          dangerThreshold={tempThresholds.danger}
+          tmax={metricThresholds.tmax}
           annotations={getAnnotationStore(id)}
           canAnnotate={canAnnotateMetric}
-          speakerOpen={speakerOpen}
+          speakerFault={speakerFault}
         />
       );
     }
@@ -162,7 +163,7 @@ export default function DashboardViewGrid({
         annotations={getAnnotationStore(id)}
         canAnnotate={!isPlaying}
         getCaptureSnapshot={getChannelsSnapshot}
-        speakerOpen={speakerOpen}
+        speakerFault={speakerFault}
       />
     );
   };

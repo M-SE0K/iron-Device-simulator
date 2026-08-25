@@ -47,11 +47,13 @@ function NumberField({
   label,
   unit,
   value,
+  step,
   onChange,
 }: {
   label: string;
   unit?: string;
   value: string;
+  step?: string;
   onChange: (v: string) => void;
 }) {
   return (
@@ -60,6 +62,7 @@ function NumberField({
         <input
           type="number"
           inputMode="decimal"
+          step={step}
           value={value}
           onChange={(e) => onChange(e.target.value)}
           aria-label={label}
@@ -146,16 +149,17 @@ function CalibrationDrawer() {
             <h4 className="text-xs font-semibold text-iron-500">THRESHOLD</h4>
             <div className="grid grid-cols-2 gap-3">
               <NumberField
-                label="Temp WARN"
+                label="Tmax"
                 unit="°C"
-                value={draft.tempWarn}
-                onChange={(v) => set({ tempWarn: v })}
+                value={draft.tmax}
+                onChange={(v) => set({ tmax: v })}
               />
               <NumberField
-                label="Temp DANGER"
-                unit="°C"
-                value={draft.tempDanger}
-                onChange={(v) => set({ tempDanger: v })}
+                label="Xmax"
+                unit="mm"
+                step="0.01"
+                value={draft.xmax}
+                onChange={(v) => set({ xmax: v })}
               />
               <NumberField
                 label="Ambient Temp"

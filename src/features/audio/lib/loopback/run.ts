@@ -3,6 +3,7 @@ import { clampCaptureChannels } from "@/features/audio/lib/engine/core";
 import { uploadPlaybackRef } from "@/features/audio/lib/playcapture-upload";
 import { buildLoopbackStimulus } from "./stimulus";
 import { CaptureByteSink } from "./capture-sink";
+import { LoopbackStreamPump } from "./stream-pump";
 import { analyzeLoopbackCapture } from "./analyze";
 import {
   LoopbackCancelledError,
@@ -15,8 +16,17 @@ import {
 /* 헬퍼는 ref 종료 후 감쇠 꼬리(mac.swift tailFrames = 0.25 s)까지 캡처하고 exit 0 한다.
  * 진행률 분모·워치독 산정에만 쓰는 값 — 측정은 ref 타임라인 안에서 끝난다. */
 const CAPTURE_TAIL_S = 0.25;
+/* --stream 경로 프리필 — 대시보드 보호 재생(useNativeCapture)과 같은 값이라야 같은 조건의
+ * 링 거동을 측정한다. */
+const STREAM_PREFILL_MS = 40;
+/* 자극을 재생 위치보다 앞서 보내는 여유. 링 용량은 max(prefill×8, 1 s)이므로 ×4 는 항상
+ * 그 안이다 — 렌더러 지터는 흡수하면서 링을 넘치게 하지는 않는 선. */
+const STREAM_LEAD_MULTIPLIER = 4;
 /* 워치독 여유분 — 장치 열기/IPC 왕복까지 포함. 벽시계는 여기(행 감지)와 참고 표시에만 쓴다. */
 const WATCHDOG_EXTRA_MS = 8000;
+/* stream 경로 추가 여유 — 언더런이 나면 링을 비우는 데 자극 길이보다 오래 걸린다(측정하려는
+ * 현상 자체다). 이걸 행으로 오인해 죽이지 않도록 넉넉히 준다. */
+const STREAM_WATCHDOG_EXTRA_MS = 10000;
 const PROGRESS_THROTTLE_MS = 100;
 
 export interface LoopbackRunCallbacks {
@@ -44,6 +54,9 @@ function mapStartError(error: string | undefined): string {
 }
 
 function mapEndCode(code: number | null): string {
+  if (code === 4) {
+    return "The helper timed out waiting for the stimulus prefill — the stream pump never filled the playback ring.";
+  }
   if (code === 3) {
     return "Lost connection to the Capture Device during the measurement (e.g. USB disconnect). Reconnect and retry.";
   }
@@ -53,9 +66,10 @@ function mapEndCode(code: number | null): string {
 
 /** 버스트 루프백 측정 한 회 실행.
  *
- * 시퀀스: 자극 합성 → --ref 업로드 → play-capture 시작 → 캡처 전체 수집(ended code 0까지)
- * → 매치드 필터 분석 → 리포트. 지연값은 전부 단일 IOProc 샘플 도메인에서 나온다(types.ts
- * 상단 주석 참고).
+ * 시퀀스: 자극 합성 → (ref) --ref 업로드 | (stream) 없음 → play-capture 시작 →
+ * (stream) self-clocking 펌프로 자극 주입 → 캡처 전체 수집(ended code 0까지) → 매치드 필터
+ * 분석 → 리포트. 지연값은 전부 단일 IOProc 샘플 도메인에서 나온다. 두 경로의 의미 차이
+ * (stream 은 H/W 왕복이 아니라 언더런이 얹힌 값)는 types.ts 상단 주석 참고.
  *
  * 이벤트 구독은 start() 호출 "전"에 걸어 첫 청크부터 유실 없이 받는다(브리지 ChannelHub가
  * 구독 전 도착분을 백로그로 버퍼링하지만, 그 512개 상한에도 기대지 않기 위함). 세션은
@@ -68,10 +82,12 @@ export function startLoopbackMeasurement(
 ): LoopbackRunHandle {
   let cancelRequested = false;
   let rejectCaptureWait: ((err: Error) => void) | null = null;
+  let abortPump: (() => void) | null = null;
 
   const cancel = () => {
     if (cancelRequested) return;
     cancelRequested = true;
+    abortPump?.();
     void window.audioPlayCapture?.stop();
     rejectCaptureWait?.(new LoopbackCancelledError());
   };
@@ -89,15 +105,20 @@ export function startLoopbackMeasurement(
     const wallRunStart = performance.now();
     const stimulus = buildLoopbackStimulus(config);
     const captureChannels = clampCaptureChannels(config.channels);
+    const streamPath = stimulus.path === "stream";
 
-    callbacks.onPhase?.("uploading");
-    const refWriteId = await uploadPlaybackRef(bridge, stimulus.refPcm);
-    if (cancelRequested) {
-      void bridge.cancelWrite({ writeId: refWriteId });
-      throw new LoopbackCancelledError();
+    let refWriteId: string | undefined;
+    if (stimulus.path === "ref") {
+      callbacks.onPhase?.("uploading");
+      refWriteId = await uploadPlaybackRef(bridge, stimulus.refPcm);
+      if (cancelRequested) {
+        void bridge.cancelWrite({ writeId: refWriteId });
+        throw new LoopbackCancelledError();
+      }
     }
 
     const sink = new CaptureByteSink();
+    let pump: LoopbackStreamPump | null = null;
     let acceptChunks = false;
     let wallAfterStart: number | null = null;
     let wallFirstChunk: number | null = null;
@@ -113,6 +134,8 @@ export function startLoopbackMeasurement(
         if (!acceptChunks) return;
         if (wallFirstChunk === null) wallFirstChunk = performance.now();
         sink.push(chunk);
+        /* 자기 클록 펌프 — 수신 캡처 프레임이 곧 "다음 자극을 밀어 넣어도 되는" 크레딧이다. */
+        pump?.pumpTo(sink.frameCount(captureChannels));
         const now = performance.now();
         if (now - lastProgressWall >= PROGRESS_THROTTLE_MS) {
           lastProgressWall = now;
@@ -136,8 +159,9 @@ export function startLoopbackMeasurement(
         bufferSize: config.bufferSize,
         channels: captureChannels,
         deviceUID: config.captureDeviceUID.trim() || undefined,
-        refWriteId,
-        refChannels: 2,
+        ...(streamPath
+          ? { stream: true, prefillMs: STREAM_PREFILL_MS }
+          : { refWriteId, refChannels: 2 as const }),
         outputChannel: config.outputChannel,
         /* R은 best-effort — 장치에 출력이 1채널뿐이면 헬퍼가 조용히 모노 폴백한다
          * (playbackChannelR: null 에코). 파일 재생 경로와 같은 규약. */
@@ -167,9 +191,37 @@ export function startLoopbackMeasurement(
           `Ref length mismatch — synthesized ${stimulus.totalFrames} frames but the helper loaded ${refFramesEchoed}. Aborted.`,
         );
       }
+      const expectedMode = streamPath ? "play-capture-stream" : "play-capture";
+      if (res.mode != null && res.mode !== expectedMode) {
+        /* 요청한 경로와 다른 모드로 열렸다면 측정 대상 자체가 다르다. */
+        void bridge.stop();
+        throw new Error(`Helper opened "${res.mode}" but the ${config.path} path needs "${expectedMode}". Aborted.`);
+      }
+
+      const prefillFramesEchoed = streamPath && typeof res.prefillFrames === "number" ? res.prefillFrames : null;
+      if (stimulus.path === "stream") {
+        /* 헤더의 prefillFrames 가 IOProc 시작 게이트다 — 에코가 없으면 프리필 기준을
+         * 요청값에서 직접 환산한다(구버전 헬퍼 호환). */
+        const prefill = prefillFramesEchoed ?? Math.max(1, Math.round((STREAM_PREFILL_MS / 1000) * actualRate));
+        pump = new LoopbackStreamPump(
+          bridge,
+          stimulus.refPcmI16,
+          prefill * STREAM_LEAD_MULTIPLIER,
+          (err) => {
+            void bridge.stop();
+            rejectCaptureWait?.(err);
+          },
+        );
+        abortPump = () => pump?.abort();
+        /* 프리필이 차야 헬퍼가 AudioDeviceStart 를 부른다 — 여기서 시동을 건다. */
+        pump.prime();
+      }
 
       expectedFrames = stimulus.totalFrames + Math.ceil(CAPTURE_TAIL_S * actualRate);
-      const watchdogMs = Math.ceil((expectedFrames / actualRate) * 1000) + WATCHDOG_EXTRA_MS;
+      const watchdogMs =
+        Math.ceil((expectedFrames / actualRate) * 1000) +
+        WATCHDOG_EXTRA_MS +
+        (streamPath ? STREAM_WATCHDOG_EXTRA_MS : 0);
       watchdog = setTimeout(() => {
         void bridge.stop();
         rejectCaptureWait?.(
@@ -188,9 +240,13 @@ export function startLoopbackMeasurement(
       const lastEmission = stimulus.emissionSamples[stimulus.emissionSamples.length - 1];
       const coverageEndSample = lastEmission + stimulus.maxLagSamples + stimulus.burstLenSamples;
       const integrity: LoopbackIntegrity = {
+        path: config.path,
         refFramesSynthesized: stimulus.totalFrames,
         refFramesEchoed,
         refLenMatches: refFramesEchoed === null ? null : refFramesEchoed === stimulus.totalFrames,
+        sentFrames: pump === null ? null : pump.sentFrames,
+        sentAllFrames: pump === null ? null : pump.completed,
+        prefillFramesEchoed,
         receivedFrames,
         trailingBytes,
         coverageEndSample,
@@ -244,6 +300,8 @@ export function startLoopbackMeasurement(
       };
     } finally {
       acceptChunks = false;
+      pump?.abort();
+      abortPump = null;
       rejectCaptureWait = null;
       if (watchdog) clearTimeout(watchdog);
       offData?.();
