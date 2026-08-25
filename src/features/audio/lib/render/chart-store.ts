@@ -67,6 +67,10 @@ export class ChartStore extends VersionedSnapshotStore<ChartSnapshot> {
    * 통째로 건너뛴다(0 을 그리지 않는다 = 요구사항 "온도 표기 없앨 것"). */
   private faults = new Uint8Array(MAX_CHART_POINTS);
   private count = 0;
+  /* 아직 해제되지 않은(= 버퍼 끝까지 이어지는) fault 런의 시작 인덱스. 없으면 -1.
+   * 변위 계열은 이 구간만 숨긴다 — 가드가 걸려 있는 동안에는 값이 없는 것으로 두고,
+   * 정상으로 돌아온 뒤에는 그 구간을 0 으로 되살려 그린다(온도는 해제 뒤에도 계속 숨긴다). */
+  private pendingFaultFrom = -1;
 
   private bucketSec = 0;
   private bucketStart = 0;
@@ -107,6 +111,11 @@ export class ChartStore extends VersionedSnapshotStore<ChartSnapshot> {
 
     if (this.count > 0 && this.bucketSec > 0 && t < this.bucketStart + this.bucketSec) {
       this.mergeInto(this.count - 1, temperature, excursion, fault);
+      if (this.faults[this.count - 1] !== FAULT_NONE) {
+        if (this.pendingFaultFrom < 0) this.pendingFaultFrom = this.count - 1;
+      } else {
+        this.pendingFaultFrom = -1;
+      }
       this.dirty = true;
       return;
     }
@@ -120,6 +129,11 @@ export class ChartStore extends VersionedSnapshotStore<ChartSnapshot> {
     this.temps[this.count] = temperature;
     this.excs[this.count] = excursion;
     this.faults[this.count] = faultCode(fault);
+    if (fault !== null) {
+      if (this.pendingFaultFrom < 0) this.pendingFaultFrom = this.count;
+    } else {
+      this.pendingFaultFrom = -1;
+    }
     this.bucketStart = t;
     this.count++;
 
@@ -129,6 +143,7 @@ export class ChartStore extends VersionedSnapshotStore<ChartSnapshot> {
 
   reset(): void {
     this.count = 0;
+    this.pendingFaultFrom = -1;
     this.bucketSec = 0;
     this.bucketStart = 0;
     this.minDelta = Infinity;
@@ -157,7 +172,9 @@ export class ChartStore extends VersionedSnapshotStore<ChartSnapshot> {
       /* fault 포인트에서는 온도 수치를 아예 내보내지 않는다 — 리드아웃(MetricChartCard)이
        * null 을 받으면 값 자체를 렌더하지 않는다. */
       lastTemperature: last >= 0 && lastFault === null ? this.temps[last] : null,
-      lastExcursion: last >= 0 ? this.excs[last] : null,
+      /* 변위도 같은 규칙 — 차트에서 뺀 구간의 0 을 헤더에만 띄우면 "변위가 0 으로 측정됐다"로
+       * 읽힌다. 해제되면 과거 구간이 0 으로 드러나고 리드아웃도 다시 값을 낸다. */
+      lastExcursion: last >= 0 && lastFault === null ? this.excs[last] : null,
       lastSpeakerFault: lastFault,
       tempMin: this.tMin,
       tempMax: this.tMax,
@@ -190,10 +207,7 @@ export class ChartStore extends VersionedSnapshotStore<ChartSnapshot> {
 
     const xs = this.xs;
     const src = metric === "temperature" ? this.temps : this.excs;
-    /* 온도 계열에서는 fault 포인트를 아예 내보내지 않는다 — 0 을 그리는 대신 그 구간의
-     * 포인트가 없어진다(uPlot 은 앞뒤 포인트를 직선으로 잇는다). 변위 계열은 그대로 둔다. */
-    const faults = metric === "temperature" ? this.faults : null;
-    const skipped = (i: number): boolean => faults !== null && faults[i] !== FAULT_NONE;
+    const skipped = this.hiddenPredicate(metric);
 
     let i0 = Number.isFinite(minSec) ? lowerBound(xs, n, minSec) : 0;
     let i1 = (Number.isFinite(maxSec) ? upperBound(xs, n, maxSec) : n) - 1;
@@ -249,9 +263,9 @@ export class ChartStore extends VersionedSnapshotStore<ChartSnapshot> {
     if (n === 0 || !Number.isFinite(timeSec)) return null;
     const xs = this.xs;
     const src = metric === "temperature" ? this.temps : this.excs;
-    /* 온도는 fault 구간에서 값이 "없는" 것으로 취급한다 — 렌더에서 뺀 0 을 조회 경로로
-     * 되돌려 보여주면 표기를 없앤 의미가 사라진다. */
-    const blanked = (i: number): boolean => metric === "temperature" && this.faults[i] !== FAULT_NONE;
+    /* 렌더에서 뺀 포인트를 조회 경로로 되돌려 보여주면 숨긴 의미가 사라진다 — 숨김 규칙을
+     * readRange 와 공유한다. */
+    const blanked = this.hiddenPredicate(metric);
     const i = lowerBound(xs, n, timeSec);
     if (i <= 0) return blanked(0) ? null : src[0];
     if (i >= n) return blanked(n - 1) ? null : src[n - 1];
@@ -273,12 +287,36 @@ export class ChartStore extends VersionedSnapshotStore<ChartSnapshot> {
     return out;
   }
 
+  /* 압축으로 인덱스가 절반이 되면 미해결 fault 런의 시작도 옮겨간다. 런 길이만 뒤에서
+   * 훑으므로(fault 가 없으면 1회) 압축 1회당 비용은 무시할 수준이다. */
+  private recomputePendingFault(): void {
+    let i = this.count - 1;
+    if (i < 0 || this.faults[i] === FAULT_NONE) { this.pendingFaultFrom = -1; return; }
+    while (i > 0 && this.faults[i - 1] !== FAULT_NONE) i--;
+    this.pendingFaultFrom = i;
+  }
+
+  /* 계열별 "이 포인트를 내보내지 않는다" 규칙 — readRange 와 valueAt 이 공유한다.
+   *   온도: fault 포인트를 영구히 숨긴다(0 을 그리면 실온으로 오독된다).
+   *   변위: 아직 해제되지 않은 fault 런만 숨긴다. 정상으로 돌아오면 그 구간은 이미 0 으로
+   *         적재돼 있으므로 그대로 드러나 0 선으로 그려진다. */
+  private hiddenPredicate(metric: ChartMetric): (i: number) => boolean {
+    const faults = this.faults;
+    if (metric === "temperature") return (i) => faults[i] !== FAULT_NONE;
+    const from = this.pendingFaultFrom;
+    if (from < 0) return () => false;
+    return (i) => i >= from && faults[i] !== FAULT_NONE;
+  }
+
   /* 같은 버킷에 fault 프레임이 하나라도 섞이면 그 버킷 전체를 fault 로 본다 — 온도가
    * 이미 신뢰할 수 없는 구간이라 대표값을 그리는 쪽이 더 위험하다. */
   private mergeInto(i: number, temperature: number, excursion: number, fault: SpeakerFault | null): void {
     this.temps[i] = temperature;
     if (fault !== null) this.faults[i] = faultCode(fault);
-    if (Math.abs(excursion) > Math.abs(this.excs[i])) this.excs[i] = excursion;
+    /* fault 버킷의 변위는 0 으로 고정한다 — 해제 뒤 그 구간을 0 으로 그리기로 한 규칙이라,
+     * 같은 버킷에 섞인 정상 프레임의 피크가 살아남으면 0 이 아닌 선이 남는다. */
+    if (this.faults[i] !== FAULT_NONE) this.excs[i] = 0;
+    else if (Math.abs(excursion) > Math.abs(this.excs[i])) this.excs[i] = excursion;
   }
 
   private compact(): void {
@@ -292,7 +330,9 @@ export class ChartStore extends VersionedSnapshotStore<ChartSnapshot> {
         /* 온도를 b 에서 가져오므로 fault 표시도 b 를 따르되, r 이 fault 였다면 그 구간이
          * 통째로 사라지지 않도록 승계한다. */
         this.faults[w] = this.faults[b] !== FAULT_NONE ? this.faults[b] : this.faults[r];
-        this.excs[w] = Math.abs(this.excs[r]) >= Math.abs(this.excs[b]) ? this.excs[r] : this.excs[b];
+        this.excs[w] = this.faults[w] !== FAULT_NONE
+          ? 0   // mergeInto 와 같은 이유 — fault 구간의 변위는 0 으로 남긴다
+          : (Math.abs(this.excs[r]) >= Math.abs(this.excs[b]) ? this.excs[r] : this.excs[b]);
       } else {
         this.temps[w] = this.temps[r];
         this.faults[w] = this.faults[r];
@@ -300,6 +340,7 @@ export class ChartStore extends VersionedSnapshotStore<ChartSnapshot> {
       }
     }
     this.count = w;
+    this.recomputePendingFault();
 
     const avg = w > 1 ? (this.xs[w - 1] - this.xs[0]) / (w - 1) : 0;
     let next = Math.max(this.bucketSec * 2, avg);
